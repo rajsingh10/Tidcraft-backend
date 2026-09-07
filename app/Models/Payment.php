@@ -16,13 +16,20 @@ class Payment extends Model
     protected $fillable = [
         'tenant_id',
         'transaction_id',
+        'bank_rrn',
+        'order_id',
         'amount',
         'currency',
         'payment_method',
         'status',
+        'customer_details',
         'create_by',
         'update_by',
         'delete_by',
+    ];
+
+    protected $casts = [
+        'customer_details' => 'array',
     ];
 
     public function tenant()

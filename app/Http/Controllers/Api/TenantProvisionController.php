@@ -376,4 +376,140 @@ class TenantProvisionController extends Controller
             ], 500);
         }
     }
+
+    public function verifyPayment(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'razorpay_payment_id' => 'required|string',
+            'razorpay_payment_link_id' => 'nullable|string',
+            'razorpay_payment_link_status' => 'nullable|string',
+            'razorpay_signature' => 'nullable|string', // frontend might not send signature if it's a simple flow
+            'status' => 'nullable|string', // fallback for custom status
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation Error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // If a signature is provided, we verify it for security
+        if ($request->has('razorpay_signature') && $request->has('razorpay_payment_link_id') && $request->has('razorpay_payment_link_reference_id')) {
+            $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_secret'])->pluck('value', 'key')->toArray();
+            $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
+            
+            if ($keySecret) {
+                $expectedSignature = hash_hmac('sha256', $request->razorpay_payment_link_id . '|' . $request->razorpay_payment_link_reference_id . '|' . $request->razorpay_payment_link_status . '|' . $request->razorpay_payment_id, $keySecret);
+                if (!hash_equals($expectedSignature, $request->razorpay_signature)) {
+                    return response()->json(['status' => 'error', 'message' => 'Invalid payment signature'], 400);
+                }
+            }
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $paymentStatus = $request->razorpay_payment_link_status === 'paid' ? 'success' : ($request->status ?? 'success');
+
+            // Fetch detailed info from Razorpay API
+            $bankRrn = null;
+            $orderId = null;
+            $customerDetails = null;
+            $paymentMethodStr = 'razorpay';
+            
+            $razorpaySettingsForFetch = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret'])->pluck('value', 'key')->toArray();
+            $keyId = $razorpaySettingsForFetch['razorpay_key_id'] ?? null;
+            $keySecretFetch = $razorpaySettingsForFetch['razorpay_key_secret'] ?? null;
+
+            if ($keyId && $keySecretFetch && $request->has('razorpay_payment_id')) {
+                try {
+                    $api = new \Razorpay\Api\Api($keyId, $keySecretFetch);
+                    $rzpPayment = $api->payment->fetch($request->razorpay_payment_id);
+                    
+                    if ($rzpPayment) {
+                        // Extract bank_rrn or generic RRN
+                        $bankRrn = $rzpPayment->acquirer_data['bank_transaction_id'] ?? $rzpPayment->acquirer_data['rrn'] ?? null;
+                        $orderId = $rzpPayment->order_id ?? null;
+                        
+                        $customerDetails = [
+                            'email' => $rzpPayment->email ?? null,
+                            'contact' => $rzpPayment->contact ?? null,
+                        ];
+                        
+                        // Try to get a more specific payment method
+                        if ($rzpPayment->method) {
+                            $paymentMethodStr = $rzpPayment->method;
+                            if ($rzpPayment->bank) {
+                                $paymentMethodStr .= ' (' . $rzpPayment->bank . ')';
+                            }
+                        }
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Razorpay Payment Fetch Error: ' . $e->getMessage());
+                }
+            }
+
+            // Update the pending payment record for this tenant
+            $payment = $tenant->payments()->where('status', 'pending')->first();
+            if ($payment) {
+                $payment->update([
+                    'transaction_id' => $request->razorpay_payment_id,
+                    'status' => $paymentStatus,
+                    'payment_method' => $paymentMethodStr,
+                    'bank_rrn' => $bankRrn,
+                    'order_id' => $orderId,
+                    'customer_details' => $customerDetails,
+                ]);
+            } else {
+                // fallback if no pending payment was found
+                $tenant->payments()->create([
+                    'transaction_id' => $request->razorpay_payment_id,
+                    'amount' => 0,
+                    'currency' => 'INR',
+                    'payment_method' => $paymentMethodStr,
+                    'status' => $paymentStatus,
+                    'bank_rrn' => $bankRrn,
+                    'order_id' => $orderId,
+                    'customer_details' => $customerDetails,
+                ]);
+            }
+
+            // If payment was successful, activate the tenant and subscription
+            if ($paymentStatus === 'success') {
+                $tenant->update(['status' => 'active']);
+                
+                $subscription = $tenant->subscriptions()->first();
+                if ($subscription) {
+                    $subscription->update(['status' => 'active']);
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Payment verified successfully.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'tenant_status' => $tenant->status,
+                    'payment_status' => $paymentStatus
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to verify payment.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

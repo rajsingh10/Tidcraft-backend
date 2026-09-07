@@ -67,6 +67,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Tenant Provisioning API
     Route::post('/tenant-provision', [TenantProvisionController::class, 'store']);
+    Route::post('/tenant-provision/{uuid}/verify-payment', [TenantProvisionController::class, 'verifyPayment']);
     Route::get('/tenants', [TenantProvisionController::class, 'index']);
     Route::get('/tenants/{uuid}', [TenantProvisionController::class, 'show']);
     Route::post('/tenants/{uuid}', [TenantProvisionController::class, 'update']); // Using POST for form data with files/nested data
