@@ -280,4 +280,68 @@ class SettingController extends Controller
             'message' => 'General settings updated successfully.'
         ]);
     }
+     public function getPaymentMethods()
+    {
+        $keys = [
+            'razorpay_key_id',
+            'razorpay_key_secret',
+            'razorpay_active',
+        ];
+        
+        $settings = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $settings
+        ]);
+    }
+    public function storePaymentMethods(Request $request)
+    {
+        $data = $request->validate([
+            'razorpay_key_id' => 'nullable|string',
+            'razorpay_key_secret' => 'nullable|string',
+            'razorpay_active' => 'nullable|string',
+        ]);
+
+        $userId = auth()->id();
+
+        $oldValues = Setting::whereIn('key', array_keys($data))->pluck('value', 'key')->toArray();
+        $newValues = [];
+
+        foreach ($data as $key => $value) {
+            if (is_bool($value)) {
+                $value = $value ? 'true' : 'false';
+            }
+            if ($value === 'true' || $value === 'false') {
+                // keep boolean strings as is, just making sure we capture the value for the log
+            }
+
+            $newValues[$key] = $value;
+            $setting = Setting::where('key', $key)->first();
+            
+            if (!$setting) {
+                Setting::create([
+                    'key' => $key,
+                    'value' => $value,
+                    'create_by' => $userId,
+                    'update_by' => $userId,
+                ]);
+            } else {
+                $setting->update([
+                    'value' => $value,
+                    'update_by' => $userId,
+                ]);
+            }
+        }
+
+        if (!empty($newValues)) {
+            AuditLogger::log('Settings Changed', 'Payment Method Settings Changed', 'Admin updated Payment Method settings.', $oldValues, $newValues);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Payment Method settings updated successfully.'
+        ]);
+    }
+    
 }
