@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\TenantProvisionController;
 use App\Http\Controllers\Api\TenantController;
+use App\Http\Controllers\Api\AddOnController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -44,6 +45,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('products/{product}', [ProductController::class, 'update']);
     Route::apiResource('products', ProductController::class);
 
+<<<<<<< Updated upstream
     // Tenant Provisioning API
+=======
+    Route::post('add-ons/{add_on}', [AddOnController::class, 'update']);
+    Route::apiResource('add-ons', AddOnController::class);
+
+    // Tenant API
+>>>>>>> Stashed changes
     Route::post('/tenant-provision', [TenantProvisionController::class, 'store']);
 });
