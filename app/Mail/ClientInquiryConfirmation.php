@@ -1,0 +1,63 @@
+<?php
+
+namespace App\Mail;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Attachment;
+use Illuminate\Mail\Mailables\Content;
+use Illuminate\Mail\Mailables\Envelope;
+use Illuminate\Queue\SerializesModels;
+use App\Models\Inquiry;
+
+class ClientInquiryConfirmation extends Mailable implements ShouldQueue
+{
+    use Queueable, SerializesModels;
+
+    public $inquiry;
+    public $companyName;
+    public $companyPhone;
+    public $companyEmail;
+
+    /**
+     * Create a new message instance.
+     */
+    public function __construct(Inquiry $inquiry)
+    {
+        $this->inquiry = $inquiry;
+        $this->companyName = \App\Models\Setting::where('key', 'company_name')->value('value') ?? config('app.name', 'Nexira SaaS');
+        $this->companyPhone = \App\Models\Setting::where('key', 'company_phone')->value('value');
+        $this->companyEmail = \App\Models\Setting::where('key', 'company_email')->value('value');
+    }
+
+    /**
+     * Get the message envelope.
+     */
+    public function envelope(): Envelope
+    {
+        return new Envelope(
+            subject: 'Your Inquiry Has Been Received',
+        );
+    }
+
+    /**
+     * Get the message content definition.
+     */
+    public function content(): Content
+    {
+        return new Content(
+            view: 'emails.client-inquiry',
+        );
+    }
+
+    /**
+     * Get the attachments for the message.
+     *
+     * @return array<int, \Illuminate\Mail\Mailables\Attachment>
+     */
+    public function attachments(): array
+    {
+        return [];
+    }
+}
