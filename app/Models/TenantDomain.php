@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class Product extends Model
+class TenantDomain extends Model
 {
     use \Illuminate\Database\Eloquent\SoftDeletes;
     use \App\Traits\Auditable;
@@ -14,19 +14,17 @@ class Product extends Model
     const DELETED_AT = 'delete_at';
 
     protected $fillable = [
-        'name',
-        'tagline',
-        'product_category_id',
-        'starting_price',
-        'badge',
-        'description',
+        'tenant_id',
+        'type',
+        'domain',
+        'status',
         'create_by',
         'update_by',
         'delete_by',
     ];
 
-    public function category()
+    public function tenant()
     {
-        return $this->belongsTo(ProductCategory::class, 'product_category_id');
+        return $this->belongsTo(Tenant::class);
     }
 }
