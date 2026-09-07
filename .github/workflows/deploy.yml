@@ -46,7 +46,7 @@ jobs:
             echo "Pulling latest code..."
             git pull origin main
             echo "Installing dependencies..."
-            composer install --no-dev --optimize-autoloader
+            composer install --optimize-autoloader
             echo "Entering maintenance mode..."
             php artisan down || true
             echo "Running migrations..."
