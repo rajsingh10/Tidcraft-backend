@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\TenantProvisionController;
 use App\Http\Controllers\Api\TenantController;
 use App\Http\Controllers\Api\AddOnController;
+use App\Http\Controllers\Api\InquiryController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -36,6 +37,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/settings/general', [SettingController::class, 'getGeneral']);
     Route::post('/settings/general', [SettingController::class, 'storeGeneral']);
 
+    // Payment Methods Settings API
+    Route::get('/settings/payment-methods', [SettingController::class, 'getPaymentMethods']);
+    Route::post('/settings/payment-methods', [SettingController::class, 'storePaymentMethods']);
+
     // Audit Logs API
     Route::get('/audit-logs', [AuditLogController::class, 'index']);
 
@@ -44,6 +49,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('products/{product}', [ProductController::class, 'update']);
     Route::apiResource('products', ProductController::class);
+
+    Route::post('add-ons/{add_on}', [AddOnController::class, 'update']);
+    Route::apiResource('add-ons', AddOnController::class);
+
+    Route::post('inquiries/{inquiry}', [InquiryController::class, 'update']);
+    Route::apiResource('inquiries', InquiryController::class);
 
     // Tenant Provisioning API
     Route::post('/tenant-provision', [TenantProvisionController::class, 'store']);
