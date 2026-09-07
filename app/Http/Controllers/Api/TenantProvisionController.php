@@ -40,6 +40,17 @@ class TenantProvisionController extends Controller
             'firebase_storage_bucket' => 'nullable|string',
             'firebase_messaging_sender_id' => 'nullable|string',
             'firebase_database_url' => 'nullable|string|url',
+
+            // Add-ons
+            'add_ons' => 'nullable|array',
+            'add_ons.*' => 'exists:add_ons,id',
+
+            // Payment Details
+            'transaction_id' => 'nullable|string',
+            'amount' => 'nullable|numeric',
+            'currency' => 'nullable|string',
+            'payment_method' => 'nullable|string',
+            'payment_status' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -66,6 +77,36 @@ class TenantProvisionController extends Controller
                 'status' => 'provisioning',
             ]);
 
+            // Attach Add-ons if any
+            if ($request->has('add_ons') && is_array($request->add_ons)) {
+                $tenant->addOns()->attach($request->add_ons);
+            }
+
+            // Calculate actual total amount
+            $plan = \App\Models\Plan::find($request->plan_id);
+            $paymentAmount = $plan ? (float) $plan->price : 0;
+            if ($request->has('add_ons') && is_array($request->add_ons)) {
+                $paymentAmount += (float) \App\Models\AddOn::whereIn('id', $request->add_ons)->sum('price');
+            }
+
+            // Create Subscription
+            $tenant->subscriptions()->create([
+                'plan_id' => $request->plan_id,
+                'status' => 'active',
+                'start_date' => now(),
+            ]);
+
+            // Create Payment
+            if ($paymentAmount > 0) {
+                $tenant->payments()->create([
+                    'transaction_id' => $request->transaction_id ?? null,
+                    'amount' => $paymentAmount,
+                    'currency' => $request->currency ?? 'INR',
+                    'payment_method' => $request->payment_method ?? 'razorpay',
+                    'status' => $request->payment_status ?? 'pending',
+                ]);
+            }
+
             // 2. Create Domain Configuration
             TenantDomain::create([
                 'tenant_id' => $tenant->id,
@@ -91,11 +132,49 @@ class TenantProvisionController extends Controller
             // Optionally log the provisioning action
             AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned.");
 
+            // Generate Razorpay Payment Link
+            $paymentLinkStr = null;
+
+            if ($paymentAmount > 0) {
+                $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
+                
+                if (isset($razorpaySettings['razorpay_active']) && $razorpaySettings['razorpay_active'] === 'true') {
+                    $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
+                    $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
+
+                    if ($keyId && $keySecret) {
+                        try {
+                            $api = new \Razorpay\Api\Api($keyId, $keySecret);
+                            
+                            $paymentLinkData = [
+                                'amount' => (int) ($paymentAmount * 100), // convert to paise
+                                'currency' => $request->currency ?? 'INR',
+                                'description' => 'Payment for Tenant Provisioning',
+                                'customer' => [
+                                    'name' => $tenant->business_name,
+                                    'email' => $tenant->primary_contact_email,
+                                    'contact' => $tenant->phone_number ?? ''
+                                ],
+                                'notify' => ['email' => true, 'sms' => true],
+                                'reminder_enable' => true,
+                            ];
+                            
+                            $paymentLinkResponse = $api->paymentLink->create($paymentLinkData);
+                            $paymentLinkStr = $paymentLinkResponse->short_url;
+                        } catch (\Exception $e) {
+                            \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
+                        }
+                    }
+                }
+            }
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Tenant provisioned successfully.',
                 'data' => [
                     'tenant_id' => $tenant->uuid,
+                    'payment_link' => $paymentLinkStr,
+                    'amount' => $paymentAmount
                 ]
             ], 201);
 
@@ -114,7 +193,7 @@ class TenantProvisionController extends Controller
      */
     public function index()
     {
-        $tenants = Tenant::with(['product', 'plan', 'domain'])->get();
+        $tenants = Tenant::with(['product', 'plan', 'domain', 'addOns', 'subscriptions', 'payments'])->get();
         return response()->json([
             'status' => 'success',
             'data' => $tenants
@@ -126,7 +205,7 @@ class TenantProvisionController extends Controller
      */
     public function show($uuid)
     {
-        $tenant = Tenant::with(['product', 'plan', 'domain', 'firebaseConfig'])->where('uuid', $uuid)->first();
+        $tenant = Tenant::with(['product', 'plan', 'domain', 'firebaseConfig', 'addOns', 'subscriptions', 'payments'])->where('uuid', $uuid)->first();
 
         if (!$tenant) {
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
@@ -147,6 +226,16 @@ class TenantProvisionController extends Controller
 
         if (!$tenant) {
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        // Handle cases where frontend FormData sends array as JSON string or comma-separated string
+        if ($request->has('add_ons') && is_string($request->add_ons)) {
+            $decoded = json_decode($request->add_ons, true);
+            if (is_array($decoded)) {
+                $request->merge(['add_ons' => $decoded]);
+            } else {
+                $request->merge(['add_ons' => array_filter(explode(',', $request->add_ons))]);
+            }
         }
 
         $validator = Validator::make($request->all(), [
@@ -171,6 +260,10 @@ class TenantProvisionController extends Controller
             'firebase_storage_bucket' => 'nullable|string',
             'firebase_messaging_sender_id' => 'nullable|string',
             'firebase_database_url' => 'nullable|string|url',
+
+            // Add-ons
+            'add_ons' => 'nullable|array',
+            'add_ons.*' => 'exists:add_ons,id',
         ]);
 
         if ($validator->fails()) {
@@ -187,6 +280,11 @@ class TenantProvisionController extends Controller
             $tenant->update($request->only([
                 'business_name', 'primary_contact_email', 'phone_number', 'address', 'industry', 'product_id', 'plan_id', 'status'
             ]));
+
+            // Sync Add-ons
+            if ($request->has('add_ons') && is_array($request->add_ons)) {
+                $tenant->addOns()->sync($request->add_ons);
+            }
 
             if ($request->hasAny(['domain_type', 'domain'])) {
                 $domainData = [];

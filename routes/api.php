@@ -12,6 +12,8 @@ use App\Http\Controllers\Api\TenantProvisionController;
 use App\Http\Controllers\Api\TenantController;
 use App\Http\Controllers\Api\AddOnController;
 use App\Http\Controllers\Api\InquiryController;
+use App\Http\Controllers\Api\SubscriptionController;
+use App\Http\Controllers\Api\PaymentController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -62,4 +64,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/tenants/{uuid}', [TenantProvisionController::class, 'show']);
     Route::post('/tenants/{uuid}', [TenantProvisionController::class, 'update']); // Using POST for form data with files/nested data
     Route::delete('/tenants/{uuid}', [TenantProvisionController::class, 'destroy']);
+
+    // Dedicated APIs for Subscriptions and Payments
+    Route::post('subscriptions/{subscription}', [SubscriptionController::class, 'update']);
+    Route::apiResource('subscriptions', SubscriptionController::class);
+
+    Route::post('payments/{payment}', [PaymentController::class, 'update']);
+    Route::apiResource('payments', PaymentController::class);
 });
