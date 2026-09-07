@@ -58,6 +58,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('inquiries/{inquiry}', [InquiryController::class, 'update']);
     Route::apiResource('inquiries', InquiryController::class);
 
+    // Admin Notifications API
+    Route::get('/notifications', [\App\Http\Controllers\Api\AdminNotificationController::class, 'index']);
+    Route::get('/notifications/unread', [\App\Http\Controllers\Api\AdminNotificationController::class, 'unread']);
+    Route::post('/notifications/mark-all-read', [\App\Http\Controllers\Api\AdminNotificationController::class, 'markAllAsRead']);
+    Route::post('/notifications/{id}/read', [\App\Http\Controllers\Api\AdminNotificationController::class, 'markAsRead']);
+    Route::post('/notifications/{id}/unread', [\App\Http\Controllers\Api\AdminNotificationController::class, 'markAsUnread']);
+
     // Tenant Provisioning API
     Route::post('/tenant-provision', [TenantProvisionController::class, 'store']);
     Route::get('/tenants', [TenantProvisionController::class, 'index']);
