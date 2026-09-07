@@ -53,6 +53,24 @@ class AuthController extends Controller
 
         AuditLogger::log('Admin Login', 'User Logged In', 'SuperAdmin login successful.', null, null, $user->id);
 
+        // Prepare login details for notification
+        $loginDetails = [
+            'name' => $user->name,
+            'ip' => $request->ip(),
+            'user_agent' => $request->header('User-Agent'),
+            'latitude' => $request->input('latitude'),
+            'longitude' => $request->input('longitude'),
+            'date_time' => now()->toDateTimeString(),
+        ];
+
+        // Send Notification Email if setting allows
+        $sendEmail = \App\Models\Setting::where('key', 'admin_login_mail_send')->value('value');
+        
+        // Treat as true by default, or explicitly check if it's set to true/1
+        if ($sendEmail === null || $sendEmail === 'true' || $sendEmail === '1' || $sendEmail === 1 || $sendEmail === true || $sendEmail === 'on') {
+            \Illuminate\Support\Facades\Mail::to($user->email)->send(new \App\Mail\AdminLoginNotification($loginDetails));
+        }
+
         return response()->json([
             'message' => 'Login successful',
             'user' => $user,

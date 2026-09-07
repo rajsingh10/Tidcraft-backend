@@ -121,9 +121,31 @@ class SettingController extends Controller
 
         AuditLogger::log('Settings Changed', 'SMTP Settings Changed', 'Admin updated SMTP settings.', $oldValues, $data);
 
+        // Dynamically set the config for the current request to test
+        \Illuminate\Support\Facades\Config::set('mail.default', $data['mail_mailer'] ?? config('mail.default'));
+        \Illuminate\Support\Facades\Config::set('mail.mailers.smtp.host', $data['mail_host'] ?? config('mail.mailers.smtp.host'));
+        \Illuminate\Support\Facades\Config::set('mail.mailers.smtp.port', $data['mail_port'] ?? config('mail.mailers.smtp.port'));
+        \Illuminate\Support\Facades\Config::set('mail.mailers.smtp.username', $data['mail_username'] ?? config('mail.mailers.smtp.username'));
+        \Illuminate\Support\Facades\Config::set('mail.mailers.smtp.password', $data['mail_password'] ?? config('mail.mailers.smtp.password'));
+        \Illuminate\Support\Facades\Config::set('mail.mailers.smtp.encryption', $data['mail_encryption'] ?? config('mail.mailers.smtp.encryption'));
+        \Illuminate\Support\Facades\Config::set('mail.from.address', $data['mail_from_address'] ?? config('mail.from.address'));
+        \Illuminate\Support\Facades\Config::set('mail.from.name', $data['mail_from_name'] ?? config('mail.from.name'));
+
+        // Send a test email to verify credentials
+        try {
+            $user = auth()->user();
+            \Illuminate\Support\Facades\Mail::raw('Your SMTP settings have been configured successfully!', function ($message) use ($user) {
+                $message->to($user->email)
+                        ->subject('SMTP Test Email');
+            });
+            $mailMessage = 'SMTP settings updated and test email sent successfully.';
+        } catch (\Exception $e) {
+            $mailMessage = 'SMTP settings updated, but failed to send test email: ' . $e->getMessage();
+        }
+
         return response()->json([
             'status' => 'success',
-            'message' => 'SMTP settings updated successfully.'
+            'message' => $mailMessage
         ]);
     }
 
@@ -141,7 +163,8 @@ class SettingController extends Controller
             'company_email',
             'company_address',
             'company_gst',
-            'company_tagline'
+            'company_tagline',
+            'admin_login_mail_send'
         ];
         
         $settings = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
@@ -173,6 +196,7 @@ class SettingController extends Controller
             'company_address' => 'nullable|string',
             'company_gst' => 'nullable|string',
             'company_tagline' => 'nullable|string',
+            'admin_login_mail_send' => 'nullable|boolean',
         ];
         
         // If file is sent, validate as image
@@ -219,10 +243,14 @@ class SettingController extends Controller
         $newValues = [];
 
         foreach ($data as $key => $value) {
-            // If value is null and it's a file field, maybe we don't want to overwrite if they didn't upload a new one?
-            // Usually, if a user updates a form without choosing a new file, it shouldn't clear the old one.
+            // If value is null and it's a file field, skip updating it
             if ($value === null && in_array($key, ['company_favicon', 'company_short_logo', 'company_logo'])) {
-                continue; // Skip updating file fields if no new file/value is provided
+                continue;
+            }
+
+            // Explicitly cast booleans to strings for the database
+            if (is_bool($value)) {
+                $value = $value ? 'true' : 'false';
             }
 
             $newValues[$key] = $value;
