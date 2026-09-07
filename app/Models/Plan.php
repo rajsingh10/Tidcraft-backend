@@ -6,6 +6,13 @@ use Illuminate\Database\Eloquent\Model;
 
 class Plan extends Model
 {
+    use \Illuminate\Database\Eloquent\SoftDeletes;
+    use \App\Traits\Auditable;
+
+    const CREATED_AT = 'create_at';
+    const UPDATED_AT = 'update_at';
+    const DELETED_AT = 'delete_at';
+
     protected $fillable = [
         'name',
         'description',
@@ -14,6 +21,9 @@ class Plan extends Model
         'is_active',
         'features',
         'is_popular',
+        'create_by',
+        'update_by',
+        'delete_by',
     ];
 
     protected $casts = [
