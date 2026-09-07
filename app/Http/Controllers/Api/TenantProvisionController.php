@@ -108,4 +108,174 @@ class TenantProvisionController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Display a listing of tenants.
+     */
+    public function index()
+    {
+        $tenants = Tenant::with(['product', 'plan', 'domain'])->get();
+        return response()->json([
+            'status' => 'success',
+            'data' => $tenants
+        ]);
+    }
+
+    /**
+     * Display the specified tenant by UUID.
+     */
+    public function show($uuid)
+    {
+        $tenant = Tenant::with(['product', 'plan', 'domain', 'firebaseConfig'])->where('uuid', $uuid)->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $tenant
+        ]);
+    }
+
+    /**
+     * Update the specified tenant in storage.
+     */
+    public function update(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'business_name' => 'nullable|string|max:255',
+            'primary_contact_email' => 'nullable|email|max:255',
+            'phone_number' => 'nullable|string|max:20',
+            'industry' => 'nullable|string|max:255',
+            'address' => 'nullable|string|max:500',
+            'product_id' => 'nullable|exists:products,id',
+            'plan_id' => 'nullable|exists:plans,id',
+            'status' => 'nullable|string',
+            
+            // Domain
+            'domain_type' => 'nullable|in:subdomain,shared,custom',
+            'domain' => 'nullable|string|unique:tenant_domains,domain,' . ($tenant->domain ? $tenant->domain->id : 'NULL') . ',id',
+
+            // Firebase
+            'firebase_project_id' => 'nullable|string',
+            'firebase_api_key' => 'nullable|string',
+            'firebase_app_id' => 'nullable|string',
+            'firebase_auth_domain' => 'nullable|string',
+            'firebase_storage_bucket' => 'nullable|string',
+            'firebase_messaging_sender_id' => 'nullable|string',
+            'firebase_database_url' => 'nullable|string|url',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation Error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $tenant->update($request->only([
+                'business_name', 'primary_contact_email', 'phone_number', 'address', 'industry', 'product_id', 'plan_id', 'status'
+            ]));
+
+            if ($request->hasAny(['domain_type', 'domain'])) {
+                $domainData = [];
+                if ($request->has('domain_type')) $domainData['type'] = $request->domain_type;
+                if ($request->has('domain')) $domainData['domain'] = $request->domain;
+                
+                if ($tenant->domain) {
+                    $tenant->domain->update($domainData);
+                } else {
+                    $domainData['tenant_id'] = $tenant->id;
+                    $domainData['status'] = 'pending';
+                    TenantDomain::create($domainData);
+                }
+            }
+
+            if ($request->hasAny(['firebase_project_id', 'firebase_api_key', 'firebase_app_id', 'firebase_auth_domain', 'firebase_storage_bucket', 'firebase_messaging_sender_id', 'firebase_database_url'])) {
+                $firebaseData = [];
+                if ($request->has('firebase_project_id')) $firebaseData['project_id'] = $request->firebase_project_id;
+                if ($request->has('firebase_api_key')) $firebaseData['api_key'] = $request->firebase_api_key;
+                if ($request->has('firebase_app_id')) $firebaseData['app_id'] = $request->firebase_app_id;
+                if ($request->has('firebase_auth_domain')) $firebaseData['auth_domain'] = $request->firebase_auth_domain;
+                if ($request->has('firebase_storage_bucket')) $firebaseData['storage_bucket'] = $request->firebase_storage_bucket;
+                if ($request->has('firebase_messaging_sender_id')) $firebaseData['messaging_sender_id'] = $request->firebase_messaging_sender_id;
+                if ($request->has('firebase_database_url')) $firebaseData['database_url'] = $request->firebase_database_url;
+
+                if ($tenant->firebaseConfig) {
+                    $tenant->firebaseConfig->update($firebaseData);
+                } else {
+                    $firebaseData['tenant_id'] = $tenant->id;
+                    TenantFirebaseConfig::create($firebaseData);
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Tenant updated successfully.',
+                'data' => $tenant->fresh(['domain', 'firebaseConfig'])
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to update tenant.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Remove the specified tenant from storage (soft delete).
+     */
+    public function destroy($uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Soft delete relationships if they exist
+            if ($tenant->domain) {
+                $tenant->domain->delete();
+            }
+            if ($tenant->firebaseConfig) {
+                $tenant->firebaseConfig->delete();
+            }
+
+            // Soft delete tenant
+            $tenant->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Tenant deleted successfully.'
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to delete tenant.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }
