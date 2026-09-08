@@ -317,6 +317,7 @@ class ClientAuthController extends Controller
         ]);
 
         if ($validator->fails()) {
+            \Illuminate\Support\Facades\Log::info('Reset Password Validation Failed. Request Data:', $request->all());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Validation Error',
