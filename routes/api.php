@@ -17,6 +17,11 @@ use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\client\ClientAuthController;
 Route::post('/login', [AuthController::class, 'login']);
 
+
+Route::get('/ci-test', function () {
+    return response()->json(['status' => 'ok', 'deployed_at' => now()]);
+});
+
 // Client Public Routes
 Route::prefix('client')->group(function () {
     Route::post('/register', [ClientAuthController::class, 'register']);
