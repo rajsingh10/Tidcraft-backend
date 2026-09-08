@@ -316,9 +316,17 @@
                             
                             $embedLogoPath = null;
                             if ($companyLogo) {
-                                $logoPath = public_path(ltrim($companyLogo, '/'));
-                                if (file_exists($logoPath)) {
-                                    $embedLogoPath = $logoPath;
+                                $cleanPath = preg_replace('/^\/?storage\//', '', $companyLogo);
+                                $possiblePaths = [
+                                    public_path(ltrim($companyLogo, '/')),
+                                    storage_path('app/public/' . $cleanPath),
+                                ];
+                                
+                                foreach ($possiblePaths as $path) {
+                                    if (file_exists($path)) {
+                                        $embedLogoPath = $path;
+                                        break;
+                                    }
                                 }
                             }
                             
