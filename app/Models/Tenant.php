@@ -47,4 +47,19 @@ class Tenant extends Model
     {
         return $this->hasOne(TenantFirebaseConfig::class);
     }
+
+    public function addOns()
+    {
+        return $this->belongsToMany(AddOn::class, 'tenant_add_on');
+    }
+
+    public function subscriptions()
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    public function payments()
+    {
+        return $this->hasMany(Payment::class);
+    }
 }

@@ -11,8 +11,20 @@ use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\TenantProvisionController;
 use App\Http\Controllers\Api\TenantController;
 use App\Http\Controllers\Api\AddOnController;
-
+use App\Http\Controllers\Api\InquiryController;
+use App\Http\Controllers\Api\SubscriptionController;
+use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\client\ClientAuthController;
 Route::post('/login', [AuthController::class, 'login']);
+
+// Client Public Routes
+Route::prefix('client')->group(function () {
+    Route::post('/register', [ClientAuthController::class, 'register']);
+    Route::post('/login', [ClientAuthController::class, 'login']);
+    Route::post('/forgot-password', [ClientAuthController::class, 'forgotPassword']);
+    Route::post('/verify-otp', [ClientAuthController::class, 'verifyOtp']);
+    Route::post('/reset-password', [ClientAuthController::class, 'resetPassword']);
+});
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -20,6 +32,14 @@ Route::middleware('auth:sanctum')->group(function () {
     
     Route::get('/profile', [AuthController::class, 'getProfile']);
     Route::post('/profile', [AuthController::class, 'updateProfile']);
+
+    // Client Protected Routes
+    Route::prefix('client')->group(function () {
+        Route::post('/logout', [ClientAuthController::class, 'logout']);
+        Route::get('/profile', [ClientAuthController::class, 'profile']);
+        Route::post('/profile', [ClientAuthController::class, 'updateProfile']);
+        Route::post('/change-password', [ClientAuthController::class, 'changePassword']);
+    });
 
     // Custom POST route for update to bypass PHP's PUT/multipart limitation
     Route::post('product-categories/{product_category}', [ProductCategoryController::class, 'update']);
@@ -36,6 +56,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/settings/general', [SettingController::class, 'getGeneral']);
     Route::post('/settings/general', [SettingController::class, 'storeGeneral']);
 
+    // Payment Methods Settings API
+    Route::get('/settings/payment-methods', [SettingController::class, 'getPaymentMethods']);
+    Route::post('/settings/payment-methods', [SettingController::class, 'storePaymentMethods']);
+
     // Audit Logs API
     Route::get('/audit-logs', [AuditLogController::class, 'index']);
 
@@ -45,13 +69,31 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('products/{product}', [ProductController::class, 'update']);
     Route::apiResource('products', ProductController::class);
 
-<<<<<<< Updated upstream
-    // Tenant Provisioning API
-=======
     Route::post('add-ons/{add_on}', [AddOnController::class, 'update']);
     Route::apiResource('add-ons', AddOnController::class);
 
-    // Tenant API
->>>>>>> Stashed changes
+    Route::post('inquiries/{inquiry}', [InquiryController::class, 'update']);
+    Route::apiResource('inquiries', InquiryController::class);
+
+    // Admin Notifications API
+    Route::get('/notifications', [\App\Http\Controllers\Api\AdminNotificationController::class, 'index']);
+    Route::get('/notifications/unread', [\App\Http\Controllers\Api\AdminNotificationController::class, 'unread']);
+    Route::post('/notifications/mark-all-read', [\App\Http\Controllers\Api\AdminNotificationController::class, 'markAllAsRead']);
+    Route::post('/notifications/{id}/read', [\App\Http\Controllers\Api\AdminNotificationController::class, 'markAsRead']);
+    Route::post('/notifications/{id}/unread', [\App\Http\Controllers\Api\AdminNotificationController::class, 'markAsUnread']);
+
+    // Tenant Provisioning API
     Route::post('/tenant-provision', [TenantProvisionController::class, 'store']);
+    Route::post('/tenant-provision/{uuid}/verify-payment', [TenantProvisionController::class, 'verifyPayment']);
+    Route::get('/tenants', [TenantProvisionController::class, 'index']);
+    Route::get('/tenants/{uuid}', [TenantProvisionController::class, 'show']);
+    Route::post('/tenants/{uuid}', [TenantProvisionController::class, 'update']); // Using POST for form data with files/nested data
+    Route::delete('/tenants/{uuid}', [TenantProvisionController::class, 'destroy']);
+
+    // Dedicated APIs for Subscriptions and Payments
+    Route::post('subscriptions/{subscription}', [SubscriptionController::class, 'update']);
+    Route::apiResource('subscriptions', SubscriptionController::class);
+
+    Route::post('payments/{payment}', [PaymentController::class, 'update']);
+    Route::apiResource('payments', PaymentController::class);
 });
