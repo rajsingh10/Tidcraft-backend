@@ -13,7 +13,7 @@ use App\Models\TenantDomain;
 use App\Models\TenantFirebaseConfig;
 use App\Services\AuditLogger;
 
-class ClientPurchaseController extends Controller
+class ClientPurchaseController extends Controller 
 {
     /**
      * Display a listing of all purchases (tenants) owned by the logged-in client.
