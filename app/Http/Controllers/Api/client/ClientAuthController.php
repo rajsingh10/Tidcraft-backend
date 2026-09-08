@@ -17,7 +17,7 @@ use App\Mail\ForgotPasswordOtpMail;
 class ClientAuthController extends Controller
 {
     /**
-     * Client Register API
+     * Client Register API 
      */
     public function register(Request $request)
     {
