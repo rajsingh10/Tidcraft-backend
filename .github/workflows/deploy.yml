@@ -38,7 +38,7 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/dev'
     timeout-minutes: 10
     steps:
       - name: Deploy to EC2
