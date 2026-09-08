@@ -41,7 +41,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/profile', [ClientAuthController::class, 'updateProfile']);
         Route::post('/change-password', [ClientAuthController::class, 'changePassword']);
 
-        // Client Purchases & Payments
+        // Client Purchases & Payments 
         Route::get('/purchases', [ClientPurchaseController::class, 'index']);
         Route::post('/purchases', [ClientPurchaseController::class, 'store']);
         Route::get('/purchases/{uuid}', [ClientPurchaseController::class, 'show']);
