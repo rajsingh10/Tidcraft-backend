@@ -265,7 +265,7 @@
         
         $logoUrl = null;
         $embedLogoPath = null;
-
+ 
         if ($companyLogo) {
             if (str_starts_with($companyLogo, 'http')) {
                 $logoUrl = $companyLogo;
