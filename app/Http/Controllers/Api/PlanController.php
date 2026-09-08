@@ -33,6 +33,10 @@ class PlanController extends Controller
             'is_active' => 'boolean',
             'features' => 'nullable|array',
             'is_popular' => 'boolean',
+            'max_users' => 'nullable|integer',
+            'max_orders' => 'nullable|integer',
+            'storage_gb' => 'nullable|integer',
+            'duration_days' => 'nullable|integer',
         ]);
 
         $plan = Plan::create($request->all());
@@ -68,6 +72,10 @@ class PlanController extends Controller
             'is_active' => 'boolean',
             'features' => 'nullable|array',
             'is_popular' => 'boolean',
+            'max_users' => 'nullable|integer',
+            'max_orders' => 'nullable|integer',
+            'storage_gb' => 'nullable|integer',
+            'duration_days' => 'nullable|integer',
         ]);
 
         $plan->update($request->all());
