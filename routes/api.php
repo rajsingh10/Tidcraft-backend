@@ -14,8 +14,17 @@ use App\Http\Controllers\Api\AddOnController;
 use App\Http\Controllers\Api\InquiryController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\PaymentController;
-
+use App\Http\Controllers\Api\client\ClientAuthController;
 Route::post('/login', [AuthController::class, 'login']);
+
+// Client Public Routes
+Route::prefix('client')->group(function () {
+    Route::post('/register', [ClientAuthController::class, 'register']);
+    Route::post('/login', [ClientAuthController::class, 'login']);
+    Route::post('/forgot-password', [ClientAuthController::class, 'forgotPassword']);
+    Route::post('/verify-otp', [ClientAuthController::class, 'verifyOtp']);
+    Route::post('/reset-password', [ClientAuthController::class, 'resetPassword']);
+});
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -23,6 +32,14 @@ Route::middleware('auth:sanctum')->group(function () {
     
     Route::get('/profile', [AuthController::class, 'getProfile']);
     Route::post('/profile', [AuthController::class, 'updateProfile']);
+
+    // Client Protected Routes
+    Route::prefix('client')->group(function () {
+        Route::post('/logout', [ClientAuthController::class, 'logout']);
+        Route::get('/profile', [ClientAuthController::class, 'profile']);
+        Route::post('/profile', [ClientAuthController::class, 'updateProfile']);
+        Route::post('/change-password', [ClientAuthController::class, 'changePassword']);
+    });
 
     // Custom POST route for update to bypass PHP's PUT/multipart limitation
     Route::post('product-categories/{product_category}', [ProductCategoryController::class, 'update']);
