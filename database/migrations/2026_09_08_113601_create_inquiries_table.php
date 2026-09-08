@@ -11,8 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('inquiries', function (Blueprint $table) {
-            $table->id();
+        if (!Schema::hasTable('inquiries')) {
+            Schema::create('inquiries', function (Blueprint $table) {
+                $table->id();
             $table->string('customer_name');
             $table->string('email')->nullable();
             $table->string('phone')->nullable();
@@ -29,6 +30,7 @@ return new class extends Migration
             $table->foreignId('update_by')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('delete_by')->nullable()->constrained('users')->nullOnDelete();
         });
+        }
     }
 
     /**
