@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\CurrencyController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
+<<<<<<< HEAD
 // Public API Routes
 Route::post('inquiries', [InquiryController::class, 'store']);
 Route::post('newsletter/subscribe', [\App\Http\Controllers\Api\NewsletterController::class, 'subscribe']);
@@ -55,6 +56,8 @@ Route::get('/ci-test', function () {
     return response()->json(['status' => 'ok', 'deployed_at' => now()]);
 });
 
+=======
+>>>>>>> 1264179 (Remove CI/CD test route)
 // Client Public Routes
 Route::prefix('client')->group(function () {
     Route::post('/register', [ClientAuthController::class, 'register']);
