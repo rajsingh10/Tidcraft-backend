@@ -26,6 +26,7 @@ class PlanController extends Controller
     public function store(Request $request)
     {
         $request->validate([
+            'product_id' => 'required|exists:products,id',
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'price' => 'required|numeric|min:0',
@@ -73,6 +74,7 @@ class PlanController extends Controller
     public function update(Request $request, Plan $plan)
     {
         $request->validate([
+            'product_id' => 'sometimes|required|exists:products,id',
             'name' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
             'price' => 'sometimes|required|numeric|min:0',
