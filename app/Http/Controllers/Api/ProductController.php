@@ -34,6 +34,17 @@ class ProductController extends Controller
      */
     public function store(Request $request)
     {
+        if ($request->hasFile('images')) {
+            foreach ($request->file('images') as $index => $file) {
+                if (!$file->isValid()) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Upload failed for image {$index}. PHP Error Code: " . $file->getError()
+                    ], 422);
+                }
+            }
+        }
+
         $request->validate([
             'name' => 'required|string|max:255',
             'tagline' => 'nullable|string|max:255',
@@ -58,10 +69,19 @@ class ProductController extends Controller
 
         $product = Product::create($data);
 
+        if (is_array($product->images)) {
+            $product->images = array_map(function ($path) {
+                return url('storage/' . $path);
+            }, $product->images);
+        }
+
+        $product->load('category');
+        $product->product_category_name = $product->category ? $product->category->name : null;
+
         return response()->json([
             'status' => 'success',
             'message' => 'Product created successfully.',
-            'data' => $product->load('category')
+            'data' => $product
         ], 201);
     }
 
@@ -90,6 +110,17 @@ class ProductController extends Controller
      */
     public function update(Request $request, Product $product)
     {
+        if ($request->hasFile('images')) {
+            foreach ($request->file('images') as $index => $file) {
+                if (!$file->isValid()) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Upload failed for image {$index}. PHP Error Code: " . $file->getError()
+                    ], 422);
+                }
+            }
+        }
+
         $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'tagline' => 'nullable|string|max:255',
@@ -121,10 +152,19 @@ class ProductController extends Controller
 
         $product->update($data);
 
+        if (is_array($product->images)) {
+            $product->images = array_map(function ($path) {
+                return url('storage/' . $path);
+            }, $product->images);
+        }
+
+        $product->load('category');
+        $product->product_category_name = $product->category ? $product->category->name : null;
+
         return response()->json([
             'status' => 'success',
             'message' => 'Product updated successfully.',
-            'data' => $product->load('category')
+            'data' => $product
         ]);
     }
 
