@@ -19,6 +19,7 @@ class ProductController extends Controller
                     return url('storage/' . $path);
                 }, $product->images);
             }
+            $product->product_category_name = $product->category ? $product->category->name : null;
             return $product;
         });
 
@@ -75,9 +76,12 @@ class ProductController extends Controller
             }, $product->images);
         }
 
+        $product->load('category');
+        $product->product_category_name = $product->category ? $product->category->name : null;
+
         return response()->json([
             'status' => 'success',
-            'data' => $product->load('category')
+            'data' => $product
         ]);
     }
 
