@@ -14,6 +14,7 @@ class Plan extends Model
     const DELETED_AT = 'delete_at';
 
     protected $fillable = [
+        'product_id',
         'name',
         'description',
         'price',

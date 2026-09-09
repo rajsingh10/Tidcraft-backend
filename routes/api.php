@@ -97,6 +97,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tenants/{uuid}', [TenantProvisionController::class, 'update']); // Using POST for form data with files/nested data
     Route::delete('/tenants/{uuid}', [TenantProvisionController::class, 'destroy']);
 
+    // Support Tickets API
+    Route::get('/support-tickets', [\App\Http\Controllers\Api\SupportTicketController::class, 'index']);
+    Route::get('/support-tickets/{id}', [\App\Http\Controllers\Api\SupportTicketController::class, 'show']);
+    Route::post('/support-tickets', [\App\Http\Controllers\Api\SupportTicketController::class, 'store']);
+    Route::post('/support-tickets/{id}', [\App\Http\Controllers\Api\SupportTicketController::class, 'update']);
+
     // Dedicated APIs for Subscriptions and Payments
     Route::post('subscriptions/{subscription}', [SubscriptionController::class, 'update']);
     Route::apiResource('subscriptions', SubscriptionController::class);
