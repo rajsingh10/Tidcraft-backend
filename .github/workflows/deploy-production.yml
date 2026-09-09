@@ -34,19 +34,39 @@ jobs:
           username: ${{ secrets.PROD_EC2_USERNAME }}
           key: ${{ secrets.PROD_EC2_SSH_KEY }}
           port: ${{ secrets.PROD_EC2_PORT }}
+          command_timeout: 8m
           script: |
             set -e
             cd /home/prodtidcraftcomusr/laravel-backend
+
             trap 'php artisan up || true' EXIT
+
+            echo "Pulling latest code..."
             git pull origin main
+
+            echo "Installing dependencies..."
             composer install --optimize-autoloader
+
+            echo "Entering maintenance mode..."
             php artisan down || true
+
+            echo "Running migrations..."
             php artisan migrate --force
+
+            echo "Rebuilding caches..."
             php artisan config:clear
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
+
+            echo "Restarting queue workers..."
             php artisan queue:restart
+
+            echo "Fixing permissions..."
             sudo chown -R prodtidcraftcomusr:www-data /home/prodtidcraftcomusr/laravel-backend
             sudo chmod -R 775 storage bootstrap/cache
+
+            echo "Reloading PHP-FPM..."
             sudo systemctl reload php8.3-fpm
+
+            echo "Backend production deploy complete."
