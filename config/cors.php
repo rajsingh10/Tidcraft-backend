@@ -24,6 +24,7 @@ return [
         'https://dev.tidcraft.com',
         'https://tidcraft.com',
         'https://www.tidcraft.com',
+        'http://localhost:3000',
     ],
 
     /*
