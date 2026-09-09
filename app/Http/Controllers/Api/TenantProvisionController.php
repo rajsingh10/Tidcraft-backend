@@ -16,6 +16,12 @@ class TenantProvisionController extends Controller
 {
     public function store(Request $request)
     {
+        // Auto-construct full domain from subdomain_prefix
+        if ($request->domain_type === 'subdomain' && $request->has('subdomain_prefix')) {
+            $prefix = trim($request->subdomain_prefix, " .");
+            $request->merge(['domain' => $prefix . '.tidcraft.app']);
+        }
+
         $validator = Validator::make($request->all(), [
             // Step 1: Client Info
             'business_name' => 'required|string|max:255',
@@ -32,14 +38,7 @@ class TenantProvisionController extends Controller
             'domain_type' => 'required|in:subdomain,shared,custom',
             'domain' => 'required|string|unique:tenant_domains,domain',
 
-            // Step 5: Firebase Setup
-            'firebase_project_id' => 'nullable|string',
-            'firebase_api_key' => 'nullable|string',
-            'firebase_app_id' => 'nullable|string',
-            'firebase_auth_domain' => 'nullable|string',
-            'firebase_storage_bucket' => 'nullable|string',
-            'firebase_messaging_sender_id' => 'nullable|string',
-            'firebase_database_url' => 'nullable|string|url',
+
 
             // Add-ons
             'add_ons' => 'nullable|array',
@@ -115,17 +114,7 @@ class TenantProvisionController extends Controller
                 'status' => 'pending',
             ]);
 
-            // 3. Create Firebase Configuration
-            TenantFirebaseConfig::create([
-                'tenant_id' => $tenant->id,
-                'project_id' => $request->firebase_project_id,
-                'api_key' => $request->firebase_api_key,
-                'app_id' => $request->firebase_app_id,
-                'auth_domain' => $request->firebase_auth_domain,
-                'storage_bucket' => $request->firebase_storage_bucket,
-                'messaging_sender_id' => $request->firebase_messaging_sender_id,
-                'database_url' => $request->firebase_database_url,
-            ]);
+
 
             DB::commit();
             
