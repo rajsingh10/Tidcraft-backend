@@ -64,7 +64,7 @@ class ProductController extends Controller
                 $path = $image->store('products', 'public');
                 $imagePaths[] = $path;
             }
-            $data['images'] = $imagePaths;
+            $data['images'] = $imagePaths; 
         }
 
         $product = Product::create($data);
