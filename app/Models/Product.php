@@ -20,9 +20,14 @@ class Product extends Model
         'starting_price',
         'badge',
         'description',
+        'images',
         'create_by',
         'update_by',
         'delete_by',
+    ];
+
+    protected $casts = [
+        'images' => 'array',
     ];
 
     public function category()
