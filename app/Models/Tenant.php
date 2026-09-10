@@ -15,6 +15,9 @@ class Tenant extends Model
 
     protected $fillable = [
         'uuid',
+        'client_id',
+        'name',
+        'tenant_key',
         'business_name',
         'primary_contact_email',
         'phone_number',
@@ -28,6 +31,11 @@ class Tenant extends Model
         'delete_by',
     ];
 
+    public function client()
+    {
+        return $this->belongsTo(User::class, 'client_id');
+    }
+
     public function product()
     {
         return $this->belongsTo(Product::class);
@@ -38,14 +46,14 @@ class Tenant extends Model
         return $this->belongsTo(Plan::class);
     }
 
-    public function domain()
+    public function domains()
     {
-        return $this->hasOne(TenantDomain::class);
+        return $this->hasMany(Domain::class);
     }
 
-    public function firebaseConfig()
+    public function firebaseProject()
     {
-        return $this->hasOne(TenantFirebaseConfig::class);
+        return $this->hasOne(FirebaseProject::class);
     }
 
     public function addOns()
@@ -61,5 +69,15 @@ class Tenant extends Model
     public function payments()
     {
         return $this->hasMany(Payment::class);
+    }
+
+    public function database()
+    {
+        return $this->hasOne(TenantDatabase::class);
+    }
+
+    public function provisioningLogs()
+    {
+        return $this->hasMany(ProvisioningLog::class);
     }
 }

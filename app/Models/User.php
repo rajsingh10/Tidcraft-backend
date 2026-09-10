@@ -40,6 +40,26 @@ class User extends Authenticatable
     ];
 
     /**
+     * The accessors to append to the model's array form.
+     *
+     * @var array<int, string>
+     */
+    protected $appends = [
+        'client_logo_url'
+    ];
+
+    /**
+     * Get the full path URL for the client logo.
+     */
+    public function getClientLogoUrlAttribute()
+    {
+        if ($this->client_logo) {
+            return filter_var($this->client_logo, FILTER_VALIDATE_URL) ? $this->client_logo : url('storage/' . $this->client_logo);
+        }
+        return null;
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -51,5 +71,30 @@ class User extends Authenticatable
             'password' => 'hashed',
             'otp_expires_at' => 'datetime',
         ];
+    }
+
+    public function subscriptions()
+    {
+        return $this->hasMany(Subscription::class, 'client_id');
+    }
+
+    public function tenants()
+    {
+        return $this->hasMany(Tenant::class, 'client_id');
+    }
+
+    public function payments()
+    {
+        return $this->hasMany(Payment::class, 'client_id');
+    }
+
+    public function firebaseProjects()
+    {
+        return $this->hasMany(FirebaseProject::class, 'client_id');
+    }
+
+    public function domains()
+    {
+        return $this->hasMany(Domain::class, 'client_id');
     }
 }
