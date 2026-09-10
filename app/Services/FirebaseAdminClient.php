@@ -25,13 +25,29 @@ class FirebaseAdminClient
         $url = 'https://firestore.googleapis.com/v1/projects/' . rawurlencode($projectId)
             . '/databases?databaseId=' . rawurlencode($databaseId);
 
+        $nativePayload = [
+            'type' => 'FIRESTORE_NATIVE',
+            'locationId' => $locationId,
+            'databaseEdition' => 'ENTERPRISE',
+            'firestoreDataAccessMode' => 'DATA_ACCESS_MODE_ENABLED',
+            'mongodbCompatibleDataAccessMode' => 'DATA_ACCESS_MODE_DISABLED',
+            'realtimeUpdatesMode' => 'REALTIME_UPDATES_ENABLED',
+        ];
+
         $response = Http::withToken($accessToken)
             ->timeout(60)
-            ->post($url, [
-                'type' => 'FIRESTORE_NATIVE',
-                'locationId' => $locationId,
-                'databaseEdition' => 'ENTERPRISE',
-            ]);
+            ->post($url, $nativePayload);
+
+        if ($response->status() === 400) {
+            $response = Http::withToken($accessToken)
+                ->timeout(60)
+                ->post($url, [
+                    'type' => 'FIRESTORE_NATIVE',
+                    'locationId' => $locationId,
+                    'databaseEdition' => 'ENTERPRISE',
+                    'mongodbCompatibleDataAccessMode' => 'DATA_ACCESS_MODE_DISABLED',
+                ]);
+        }
 
         if ($response->status() === 400 && str_contains((string) $response->body(), 'databaseEdition')) {
             $response = Http::withToken($accessToken)
