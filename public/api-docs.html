@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tidcraft API Reference</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="api-docs-data.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0f1219;
+            --bg-sidebar: #131720;
+            --bg-card: #181c26;
+            --bg-card-hover: #1f2430;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-blue: #3b82f6;
+            --accent-blue-hover: #2563eb;
+            --border-color: #272d3d;
+            
+            /* Methods */
+            --method-get: #10b981;
+            --method-get-bg: rgba(16, 185, 129, 0.1);
+            --method-post: #3b82f6;
+            --method-post-bg: rgba(59, 130, 246, 0.1);
+            --method-put: #f59e0b;
+            --method-put-bg: rgba(245, 158, 11, 0.1);
+            --method-delete: #ef4444;
+            --method-delete-bg: rgba(239, 68, 68, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 320px;
+            background-color: var(--bg-sidebar);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .sidebar-header {
+            padding: 24px 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+
+        .logo-icon {
+            color: var(--accent-blue);
+            font-size: 24px;
+        }
+
+        .logo-text {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }
+
+        .search-container {
+            position: relative;
+            margin-bottom: 16px;
+        }
+
+        .search-input {
+            width: 100%;
+            background-color: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 10px 10px 10px 36px;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-blue);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .api-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 10px;
+        }
+
+        .api-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .api-list::-webkit-scrollbar-thumb {
+            background-color: var(--border-color);
+            border-radius: 10px;
+        }
+
+        .api-category {
+            margin-bottom: 24px;
+        }
+
+        .category-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+            padding-left: 10px;
+        }
+
+        .api-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin-bottom: 4px;
+        }
+
+        .api-item:hover, .api-item.active {
+            background-color: var(--bg-card-hover);
+        }
+
+        .method-badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 4px 8px;
+            border-radius: 4px;
+            min-width: 48px;
+            text-align: center;
+            text-transform: uppercase;
+        }
+
+        .method-badge.get { color: var(--method-get); background-color: var(--method-get-bg); }
+        .method-badge.post { color: var(--method-post); background-color: var(--method-post-bg); }
+        .method-badge.put, .method-badge.patch { color: var(--method-put); background-color: var(--method-put-bg); }
+        .method-badge.delete { color: var(--method-delete); background-color: var(--method-delete-bg); }
+
+        .api-path {
+            font-size: 13px;
+            font-family: monospace;
+            color: var(--text-secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .api-item.active .api-path {
+            color: var(--text-primary);
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 40px;
+        }
+
+        .main-header {
+            margin-bottom: 40px;
+        }
+
+        .main-title {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .main-subtitle {
+            color: var(--text-secondary);
+            font-size: 15px;
+            line-height: 1.6;
+            max-width: 800px;
+        }
+
+        .section-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .endpoint-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .endpoint-path {
+            font-size: 20px;
+            font-family: monospace;
+            font-weight: 600;
+        }
+        
+        .endpoint-name {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-left: auto;
+        }
+
+        .endpoint-desc {
+            color: var(--text-secondary);
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 20px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 10px 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            position: relative;
+            transition: color 0.2s;
+        }
+
+        .tab:hover {
+            color: var(--text-primary);
+        }
+
+        .tab.active {
+            color: var(--accent-blue);
+        }
+
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background-color: var(--accent-blue);
+        }
+
+        .code-block-container {
+            background-color: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        .code-block-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 16px;
+            background-color: rgba(0,0,0,0.2);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .code-block {
+            padding: 16px;
+            font-family: monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #e2e8f0;
+            overflow-x: auto;
+            white-space: pre;
+        }
+
+        .param-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        .param-table th, .param-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .param-table th {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .param-table td {
+            font-size: 14px;
+        }
+
+        .param-name {
+            font-family: monospace;
+            color: var(--accent-blue);
+            font-weight: 600;
+        }
+
+        .param-type {
+            color: #f59e0b;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .param-req {
+            font-size: 11px;
+            color: var(--method-delete);
+            font-weight: 600;
+        }
+        
+        .empty-params {
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-style: italic;
+            padding: 12px 0;
+        }
+        
+        #endpoints-container {
+            display: none;
+        }
+        
+        #welcome-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 60vh;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+        
+        #welcome-screen h2 {
+            color: var(--text-primary);
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-container">
+                <div class="logo-icon">▲</div>
+                <div class="logo-text">TIDCRAFT API</div>
+            </div>
+            
+            <div class="search-container">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="search-input" class="search-input" placeholder="Search APIs (e.g. /products)...">
+            </div>
+        </div>
+
+        <div class="api-list" id="sidebar-list">
+            <!-- Dynamically populated via JS -->
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="main-header">
+            <h1 class="main-title">Complete API Reference</h1>
+            <p class="main-subtitle">
+                Interactive documentation for Master SaaS Provisioning, Products, Plans, and Tenant operations. Select an endpoint from the sidebar to view details, parameters, and example responses.
+            </p>
+        </div>
+
+        <!-- Render Target -->
+        <div id="welcome-screen">
+            <h2>Select an Endpoint</h2>
+            <p>Choose an API endpoint from the sidebar to view its details, parameters, and example responses.</p>
+        </div>
+        
+        <div id="endpoints-container">
+            <!-- Dynamically populated via JS -->
+        </div>
+        
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            renderSidebar();
+            
+            // Search functionality
+            document.getElementById('search-input').addEventListener('input', (e) => {
+                const term = e.target.value.toLowerCase();
+                renderSidebar(term);
+            });
+        });
+
+        function renderSidebar(searchTerm = '') {
+            const sidebar = document.getElementById('sidebar-list');
+            sidebar.innerHTML = '';
+            
+            apiData.forEach(categoryGroup => {
+                // Filter endpoints
+                const filteredEndpoints = categoryGroup.endpoints.filter(ep => 
+                    ep.path.toLowerCase().includes(searchTerm) || 
+                    ep.name.toLowerCase().includes(searchTerm)
+                );
+                
+                if (filteredEndpoints.length === 0) return;
+                
+                const categoryDiv = document.createElement('div');
+                categoryDiv.className = 'api-category';
+                
+                const title = document.createElement('div');
+                title.className = 'category-title';
+                title.textContent = categoryGroup.category;
+                categoryDiv.appendChild(title);
+                
+                filteredEndpoints.forEach(ep => {
+                    const item = document.createElement('div');
+                    item.className = 'api-item';
+                    item.id = `nav-${ep.id}`;
+                    item.onclick = () => renderEndpoint(ep);
+                    
+                    // The method might be like GET|HEAD, so split it and take first
+                    const method = ep.method.split('|')[0].toLowerCase();
+                    
+                    item.innerHTML = `
+                        <span class="method-badge ${method}">${method}</span>
+                        <span class="api-path">${ep.path}</span>
+                    `;
+                    
+                    categoryDiv.appendChild(item);
+                });
+                
+                sidebar.appendChild(categoryDiv);
+            });
+        }
+        
+        function formatJson(jsonString) {
+            try {
+                if (typeof jsonString === 'object') {
+                    return JSON.stringify(jsonString, null, 2);
+                }
+                const parsed = JSON.parse(jsonString);
+                return JSON.stringify(parsed, null, 2);
+            } catch (e) {
+                return jsonString; // Return as is if not valid JSON
+            }
+        }
+
+        function renderEndpoint(ep) {
+            // Update active state in sidebar
+            document.querySelectorAll('.api-item').forEach(el => el.classList.remove('active'));
+            const navItem = document.getElementById(`nav-${ep.id}`);
+            if (navItem) navItem.classList.add('active');
+            
+            // Show container, hide welcome
+            document.getElementById('welcome-screen').style.display = 'none';
+            const container = document.getElementById('endpoints-container');
+            container.style.display = 'block';
+            
+            const method = ep.method.split('|')[0].toLowerCase();
+            
+            let paramsHtml = '';
+            if (ep.params && ep.params.length > 0) {
+                const rows = ep.params.map(p => `
+                    <tr>
+                        <td>
+                            <span class="param-name">${p.name}</span><br>
+                            ${p.required ? '<span class="param-req">REQUIRED</span>' : '<span class="param-req" style="color:var(--text-secondary)">OPTIONAL</span>'}
+                        </td>
+                        <td><span class="param-type">${p.type}</span></td>
+                        <td>${p.description || '-'}</td>
+                    </tr>
+                `).join('');
+                
+                paramsHtml = `
+                    <table class="param-table">
+                        <thead>
+                            <tr>
+                                <th>Key</th>
+                                <th>Type</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                `;
+            } else {
+                paramsHtml = `<div class="empty-params">No request parameters required.</div>`;
+            }
+
+            container.innerHTML = `
+                <div class="section-card">
+                    <div class="endpoint-header">
+                        <span class="method-badge ${method}" style="font-size: 14px; padding: 6px 12px;">${method}</span>
+                        <span class="endpoint-path">${ep.path}</span>
+                        <span class="endpoint-name">${ep.name}</span>
+                    </div>
+
+                    <p class="endpoint-desc">${ep.description || 'No description provided.'}</p>
+
+                    <div class="tabs">
+                        <div class="tab active" onclick="switchTab(this, 'tab-request-${ep.id}')">Request / Parameters</div>
+                        <div class="tab" onclick="switchTab(this, 'tab-success-${ep.id}')">Success Response</div>
+                        <div class="tab" onclick="switchTab(this, 'tab-error-${ep.id}')">Error Response</div>
+                    </div>
+
+                    <div class="tab-content" id="tab-request-${ep.id}">
+                        ${paramsHtml}
+                    </div>
+
+                    <div class="tab-content" id="tab-success-${ep.id}" style="display: none;">
+                        <div class="code-block-container">
+                            <div class="code-block-header">
+                                <span>RESPONSE (SUCCESS)</span>
+                                <span>application/json</span>
+                            </div>
+                            <div class="code-block">${formatJson(ep.response_success)}</div>
+                        </div>
+                    </div>
+
+                    <div class="tab-content" id="tab-error-${ep.id}" style="display: none;">
+                        <div class="code-block-container">
+                            <div class="code-block-header">
+                                <span>RESPONSE (ERROR)</span>
+                                <span>application/json</span>
+                            </div>
+                            <div class="code-block">${formatJson(ep.response_error)}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Global tab switching logic
+        window.switchTab = function(clickedTab, targetId) {
+            const sectionCard = clickedTab.closest('.section-card');
+            
+            // Remove active from all tabs in this section
+            const tabs = sectionCard.querySelectorAll('.tab');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            
+            // Add active to clicked tab
+            clickedTab.classList.add('active');
+            
+            // Hide all tab contents in this section
+            const contents = sectionCard.querySelectorAll('.tab-content');
+            contents.forEach(content => content.style.display = 'none');
+            
+            // Show target content
+            sectionCard.querySelector('#' + targetId).style.display = 'block';
+        }
+    </script>
+</body>
+</html>
+
