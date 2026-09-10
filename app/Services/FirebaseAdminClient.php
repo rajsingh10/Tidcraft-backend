@@ -80,7 +80,7 @@ class FirebaseAdminClient
         }
     }
 
-    private function accessToken(array $serviceAccount, array $scopes): string
+    public function accessToken(array $serviceAccount, array $scopes): string
     {
         $clientEmail = $serviceAccount['client_email'] ?? null;
         $privateKey = $serviceAccount['private_key'] ?? null;
