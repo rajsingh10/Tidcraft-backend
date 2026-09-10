@@ -48,9 +48,6 @@ class FirebaseProvisionService
         }
 
         $projectId = $serviceAccount['project_id'] ?? $productFirebase->firebase_project_id;
-        if (!empty($serviceAccount['project_id']) && $serviceAccount['project_id'] !== $productFirebase->firebase_project_id) {
-            throw new \Exception("Service account project_id ({$serviceAccount['project_id']}) does not match the selected Firebase project ({$productFirebase->firebase_project_id}).");
-        }
 
         try {
             (new FirebaseAdminClient())->createFirestoreDatabase($serviceAccount, $databaseId, $locationId);

@@ -30,7 +30,17 @@ class FirebaseAdminClient
             ->post($url, [
                 'type' => 'FIRESTORE_NATIVE',
                 'locationId' => $locationId,
+                'databaseEdition' => 'ENTERPRISE',
             ]);
+
+        if ($response->status() === 400 && str_contains((string) $response->body(), 'databaseEdition')) {
+            $response = Http::withToken($accessToken)
+                ->timeout(60)
+                ->post($url, [
+                    'type' => 'FIRESTORE_NATIVE',
+                    'locationId' => $locationId,
+                ]);
+        }
 
         if ($response->status() === 409) {
             return;
