@@ -61,6 +61,12 @@ class TenantProvisionController extends Controller
                 'message' => 'This product has no Firebase project ID. Save it via POST /api/products/{id}/firebase first.',
             ], 422);
         }
+        if (empty($productFirebase->service_account_json)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'This product has no Firebase service account. Upload service_account_json via POST /api/products/{id}/firebase first.',
+            ], 422);
+        }
 
         try {
             DB::beginTransaction();
@@ -128,7 +134,25 @@ class TenantProvisionController extends Controller
 
             DB::commit();
 
-            // Connect product Firebase, create tidcraft_{subdomain} DB, migrate, and seed in background
+            $tenant->load('domains');
+            $firestoreDatabaseId = $tenant->firestoreDatabaseId();
+
+            try {
+                \App\Services\FirebaseProvisionService::provisionFirebase($tenant);
+                $tenant->load('firebaseProject');
+            } catch (\Exception $e) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Tenant was created but Firestore database '.$firestoreDatabaseId.' was not created.',
+                    'error' => $e->getMessage(),
+                    'data' => [
+                        'tenant_id' => $tenant->uuid,
+                        'firebase_database_id' => $firestoreDatabaseId,
+                    ]
+                ], 500);
+            }
+
+            // MySQL tenant DB, migrations, and seed run in background
             \App\Jobs\ProvisionTenantJob::dispatch($tenant);
             
             // Optionally log the provisioning action
@@ -172,12 +196,13 @@ class TenantProvisionController extends Controller
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Tenant created. Firebase, database, migrations, and seed are running in the background.',
+                'message' => 'Tenant created. Firestore database '.$tenant->firestoreDatabaseId().' created. MySQL migrate/seed are running in the background.',
                 'data' => [
                     'tenant_id' => $tenant->uuid,
                     'tenant_status' => $tenant->status,
                     'database_name' => $tenant->provisionedDatabaseName(),
-                    'firebase_project_id' => $productFirebase->firebase_project_id,
+                    'firebase_project_id' => $tenant->firebaseProject?->firebase_project_id ?? $productFirebase->firebase_project_id,
+                    'firebase_database_id' => $tenant->firestoreDatabaseId(),
                     'payment_link' => $paymentLinkStr,
                     'amount' => $paymentAmount
                 ]

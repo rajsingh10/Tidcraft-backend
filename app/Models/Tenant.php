@@ -118,18 +118,19 @@ class Tenant extends Model
     }
 
     /**
-     * Firestore named database id (hyphens only), e.g. "tidcraft-abc".
+     * Firestore named database id. Firebase only allows [a-z0-9-], e.g. tidcraft-acme.
      */
     public function firestoreDatabaseId(): string
     {
-        $id = strtolower(str_replace('_', '-', $this->provisionedDatabaseName()));
-        $id = preg_replace('/[^a-z0-9-]/', '-', $id);
-        $id = trim($id, '-');
+        $prefix = strtolower((string) $this->subdomainPrefix());
+        $prefix = str_replace('_', '-', $prefix);
+        $prefix = preg_replace('/[^a-z0-9-]/', '-', $prefix);
+        $prefix = trim($prefix, '-');
 
-        if (strlen($id) < 4) {
-            $id .= '-db';
+        if ($prefix === '') {
+            $prefix = 't' . $this->id;
         }
 
-        return substr($id, 0, 63);
+        return substr('tidcraft-' . $prefix, 0, 63);
     }
 }
