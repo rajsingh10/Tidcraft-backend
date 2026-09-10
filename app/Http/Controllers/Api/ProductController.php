@@ -200,6 +200,8 @@ class ProductController extends Controller
             'firebase_auth_domain' => 'nullable|string|max:255',
             'firebase_storage_bucket' => 'nullable|string|max:255',
             'firebase_messaging_sender_id' => 'nullable|string|max:255',
+            'firebase_location_id' => 'nullable|string|max:64',
+            'service_account_json' => 'nullable',
         ]);
 
         $data = $request->only([
@@ -210,7 +212,13 @@ class ProductController extends Controller
             'firebase_auth_domain',
             'firebase_storage_bucket',
             'firebase_messaging_sender_id',
+            'firebase_location_id',
         ]);
+
+        $serviceAccountJson = $this->extractServiceAccountJson($request);
+        if ($serviceAccountJson !== null) {
+            $data['service_account_json'] = $serviceAccountJson;
+        }
         
         $data['product_id'] = $product->id;
 
@@ -219,11 +227,48 @@ class ProductController extends Controller
             $data
         );
 
+        $payload = $firebaseProject->toArray();
+        $payload['has_service_account'] = filled($firebaseProject->service_account_json);
+
+        if ($serviceAccountJson !== null) {
+            \App\Models\Tenant::where('product_id', $product->id)
+                ->whereIn('status', ['provisioning', 'active', 'failed'])
+                ->get()
+                ->each(fn ($tenant) => \App\Jobs\ProvisionTenantJob::dispatch($tenant));
+        }
+
         return response()->json([
             'status' => 'success',
             'message' => 'Product Firebase configuration updated successfully.',
-            'data' => $firebaseProject
+            'data' => $payload
         ]);
+    }
+
+    private function extractServiceAccountJson(Request $request): ?string
+    {
+        $raw = null;
+
+        if ($request->hasFile('service_account_json')) {
+            $raw = file_get_contents($request->file('service_account_json')->getRealPath());
+        } elseif ($request->exists('service_account_json') && $request->service_account_json !== null && $request->service_account_json !== '') {
+            $raw = $request->service_account_json;
+            if (is_array($raw)) {
+                $raw = json_encode($raw);
+            }
+        }
+
+        if ($raw === null) {
+            return null;
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded) || ($decoded['type'] ?? null) !== 'service_account' || empty($decoded['private_key']) || empty($decoded['client_email']) || empty($decoded['project_id'])) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'service_account_json' => 'Must be a valid Firebase service account JSON (type, project_id, client_email, private_key).',
+            ]);
+        }
+
+        return $raw;
     }
 
     /**

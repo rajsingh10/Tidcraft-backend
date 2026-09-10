@@ -116,4 +116,20 @@ class Tenant extends Model
 
         return substr($name, 0, 64);
     }
+
+    /**
+     * Firestore named database id (hyphens only), e.g. "tidcraft-abc".
+     */
+    public function firestoreDatabaseId(): string
+    {
+        $id = strtolower(str_replace('_', '-', $this->provisionedDatabaseName()));
+        $id = preg_replace('/[^a-z0-9-]/', '-', $id);
+        $id = trim($id, '-');
+
+        if (strlen($id) < 4) {
+            $id .= '-db';
+        }
+
+        return substr($id, 0, 63);
+    }
 }

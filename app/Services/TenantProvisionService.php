@@ -34,7 +34,7 @@ class TenantProvisionService
                 $tenant,
                 'firebase',
                 'success',
-                'Connected Firebase project ' . $tenant->firebaseProject->firebase_project_id . ' with database id ' . $tenant->firebaseProject->firebase_database_id
+                'Created Firestore database ' . $tenant->firebaseProject->firebase_database_id . ' in project ' . $tenant->firebaseProject->firebase_project_id
             );
         } catch (\Exception $e) {
             self::logProgress($tenant, 'firebase', 'failed', 'Firebase provisioning failed', $e->getMessage());
