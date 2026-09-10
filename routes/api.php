@@ -73,6 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('plans/{plan}', [PlanController::class, 'update']);
     Route::apiResource('plans', PlanController::class);
 
+    Route::post('products/{product}/firebase', [ProductController::class, 'updateFirebase']);
     Route::post('products/{product}', [ProductController::class, 'update']);
     Route::apiResource('products', ProductController::class);
 
