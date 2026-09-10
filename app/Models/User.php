@@ -25,6 +25,7 @@ class User extends Authenticatable
         'email',
         'password',
         'company_name',
+        'profile_image',
         'otp',
         'otp_expires_at',
     ];
@@ -53,10 +54,15 @@ class User extends Authenticatable
      */
     public function getClientLogoUrlAttribute()
     {
-        if ($this->client_logo) {
-            return filter_var($this->client_logo, FILTER_VALIDATE_URL) ? $this->client_logo : url('storage/' . $this->client_logo);
+        if (!$this->profile_image) {
+            return null;
         }
-        return null;
+
+        if (filter_var($this->profile_image, FILTER_VALIDATE_URL) || str_starts_with($this->profile_image, 'http')) {
+            return $this->profile_image;
+        }
+
+        return asset(ltrim($this->profile_image, '/'));
     }
 
     /**

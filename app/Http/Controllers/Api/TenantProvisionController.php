@@ -66,22 +66,7 @@ class TenantProvisionController extends Controller
             DB::beginTransaction();
 
             $clientId = $request->client_id ?? auth()->id();
-            
-            // Update Client (User) with name and logo if provided
-            if ($clientId && ($request->has('client_name') || $request->has('client_logo'))) {
-                $clientUser = \App\Models\User::find($clientId);
-                if ($clientUser) {
-                    if ($request->has('client_name')) {
-                        $clientUser->client_name = $request->client_name;
-                    }
-                    if ($request->hasFile('client_logo')) {
-                        $clientUser->client_logo = $request->file('client_logo')->store('client_logos', 'public');
-                    } elseif ($request->has('client_logo')) {
-                        $clientUser->client_logo = $request->client_logo;
-                    }
-                    $clientUser->save();
-                }
-            }
+            $this->syncClientProfile($request, $clientId);
 
             $tenantKey = Str::slug($request->business_name) . '-p' . $request->product_id;
 
@@ -300,20 +285,7 @@ class TenantProvisionController extends Controller
         try {
             DB::beginTransaction();
 
-            if ($tenant->client_id && ($request->has('client_name') || $request->has('client_logo'))) {
-                $clientUser = \App\Models\User::find($tenant->client_id);
-                if ($clientUser) {
-                    if ($request->has('client_name')) {
-                        $clientUser->client_name = $request->client_name;
-                    }
-                    if ($request->hasFile('client_logo')) {
-                        $clientUser->client_logo = $request->file('client_logo')->store('client_logos', 'public');
-                    } elseif ($request->has('client_logo')) {
-                        $clientUser->client_logo = $request->client_logo;
-                    }
-                    $clientUser->save();
-                }
-            }
+            $this->syncClientProfile($request, $tenant->client_id);
 
             $updateData = $request->only([
                 'client_id', 'business_name', 'primary_contact_email', 'phone_number', 'address', 'industry', 'product_id', 'plan_id', 'status'
@@ -560,5 +532,33 @@ class TenantProvisionController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Map request client_name / client_logo onto users.name / users.profile_image.
+     */
+    private function syncClientProfile(Request $request, $clientId): void
+    {
+        if (!$clientId || !($request->has('client_name') || $request->has('client_logo'))) {
+            return;
+        }
+
+        $clientUser = \App\Models\User::find($clientId);
+        if (!$clientUser) {
+            return;
+        }
+
+        if ($request->filled('client_name')) {
+            $clientUser->name = $request->client_name;
+        }
+
+        if ($request->hasFile('client_logo')) {
+            $path = $request->file('client_logo')->store('profiles', 'public');
+            $clientUser->profile_image = '/storage/' . $path;
+        } elseif ($request->filled('client_logo')) {
+            $clientUser->profile_image = $request->client_logo;
+        }
+
+        $clientUser->save();
     }
 }
