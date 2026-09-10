@@ -20,6 +20,20 @@ return new class extends Migration
 
         $indexNames = collect(Schema::getIndexes('firebase_projects'))->pluck('name')->all();
 
+        // MySQL uses client_product_firebase_unique to support the client_id FK.
+        // Add a standalone client_id index first, or dropping the unique will fail (error 1553).
+        $hasClientIdIndex = collect($indexNames)->contains(
+            fn ($name) => str_contains($name, 'client_id')
+        );
+
+        if (!$hasClientIdIndex) {
+            Schema::table('firebase_projects', function (Blueprint $table) {
+                $table->index('client_id');
+            });
+        }
+
+        $indexNames = collect(Schema::getIndexes('firebase_projects'))->pluck('name')->all();
+
         Schema::table('firebase_projects', function (Blueprint $table) use ($indexNames) {
             if (in_array('client_product_firebase_unique', $indexNames, true)) {
                 $table->dropUnique('client_product_firebase_unique');
@@ -41,8 +55,14 @@ return new class extends Migration
             if (in_array('firebase_projects_tenant_id_unique', $indexNames, true)) {
                 $table->dropUnique(['tenant_id']);
             }
+            if (in_array('firebase_projects_client_id_index', $indexNames, true)) {
+                $table->dropIndex('firebase_projects_client_id_index');
+            }
             if (Schema::hasColumn('firebase_projects', 'firebase_database_id')) {
                 $table->dropColumn('firebase_database_id');
+            }
+            if (!in_array('client_product_firebase_unique', $indexNames, true)) {
+                $table->unique(['client_id', 'product_id'], 'client_product_firebase_unique');
             }
         });
     }
