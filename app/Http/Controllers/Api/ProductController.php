@@ -193,7 +193,7 @@ class ProductController extends Controller
     public function updateFirebase(Request $request, Product $product)
     {
         $request->validate([
-            'firebase_project_id' => 'nullable|string|max:255',
+            'firebase_project_id' => 'required|string|max:255',
             'firebase_project_name' => 'nullable|string|max:255',
             'firebase_app_id' => 'nullable|string|max:255',
             'firebase_api_key' => 'nullable|string|max:255',

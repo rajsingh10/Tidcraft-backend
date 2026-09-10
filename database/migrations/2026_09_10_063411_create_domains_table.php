@@ -11,12 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::dropIfExists('tenant_domains');
+        if (Schema::hasTable('domains')) {
+            return;
+        }
 
         Schema::create('domains', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('tenant_id');
-            $table->unsignedBigInteger('client_id');
+            $table->unsignedBigInteger('client_id')->nullable();
             $table->unsignedBigInteger('product_id');
             $table->string('domain')->unique();
             $table->string('type')->default('subdomain'); // subdomain or custom_domain

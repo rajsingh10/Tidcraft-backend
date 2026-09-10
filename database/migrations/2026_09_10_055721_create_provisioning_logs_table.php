@@ -11,7 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('provisioning_logs', function (Blueprint $table) {
+        if (!Schema::hasTable('provisioning_logs')) {
+            Schema::create('provisioning_logs', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('tenant_id');
             $table->string('step'); // database, migrations, firebase, domain, activation
@@ -24,6 +25,7 @@ return new class extends Migration
 
             $table->foreign('tenant_id')->references('id')->on('tenants')->onDelete('cascade');
         });
+        }
     }
 
     /**

@@ -80,4 +80,40 @@ class Tenant extends Model
     {
         return $this->hasMany(ProvisioningLog::class);
     }
+
+    /**
+     * Subdomain prefix from the first domain, e.g. "abc" from "abc.tidcraft.app".
+     */
+    public function subdomainPrefix(): string
+    {
+        $domain = $this->relationLoaded('domains')
+            ? $this->domains->first()
+            : $this->domains()->first();
+
+        if ($domain && !empty($domain->domain)) {
+            $host = strtolower(trim($domain->domain));
+            $host = preg_replace('/^https?:\/\//', '', $host);
+            $host = explode('/', $host)[0];
+            $prefix = explode('.', $host)[0] ?? '';
+            $prefix = preg_replace('/[^a-z0-9_]/', '_', $prefix);
+
+            if ($prefix !== '') {
+                return $prefix;
+            }
+        }
+
+        $fallback = preg_replace('/[^a-z0-9_]/', '_', strtolower((string) ($this->tenant_key ?: 't' . $this->id)));
+
+        return $fallback !== '' ? $fallback : ('t' . $this->id);
+    }
+
+    /**
+     * Isolated MySQL database name, e.g. "tidcraft_abc".
+     */
+    public function provisionedDatabaseName(): string
+    {
+        $name = 'tidcraft_' . $this->subdomainPrefix();
+
+        return substr($name, 0, 64);
+    }
 }

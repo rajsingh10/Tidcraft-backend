@@ -54,6 +54,14 @@ class TenantProvisionController extends Controller
             ], 422);
         }
 
+        $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $request->product_id)->first();
+        if (!$productFirebase || empty($productFirebase->firebase_project_id)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'This product has no Firebase project ID. Save it via POST /api/products/{id}/firebase first.',
+            ], 422);
+        }
+
         try {
             DB::beginTransaction();
 
@@ -134,6 +142,9 @@ class TenantProvisionController extends Controller
             ]);
 
             DB::commit();
+
+            // Connect product Firebase, create tidcraft_{subdomain} DB, migrate, and seed in background
+            \App\Jobs\ProvisionTenantJob::dispatch($tenant);
             
             // Optionally log the provisioning action
             AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned.");
@@ -176,9 +187,12 @@ class TenantProvisionController extends Controller
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Tenant provisioned successfully.',
+                'message' => 'Tenant created. Firebase, database, migrations, and seed are running in the background.',
                 'data' => [
                     'tenant_id' => $tenant->uuid,
+                    'tenant_status' => $tenant->status,
+                    'database_name' => $tenant->provisionedDatabaseName(),
+                    'firebase_project_id' => $productFirebase->firebase_project_id,
                     'payment_link' => $paymentLinkStr,
                     'amount' => $paymentAmount
                 ]
@@ -199,7 +213,7 @@ class TenantProvisionController extends Controller
      */
     public function index()
     {
-        $tenants = Tenant::with(['client', 'product', 'plan', 'domains', 'addOns', 'subscriptions', 'payments'])->get();
+        $tenants = Tenant::with(['client', 'product', 'plan', 'domains', 'firebaseProject', 'database', 'addOns', 'subscriptions', 'payments'])->get();
         return response()->json([
             'status' => 'success',
             'data' => $tenants
@@ -211,7 +225,7 @@ class TenantProvisionController extends Controller
      */
     public function show($uuid)
     {
-        $tenant = Tenant::with(['client', 'product', 'plan', 'domains', 'firebaseProject', 'addOns', 'subscriptions', 'payments'])->where('uuid', $uuid)->first();
+        $tenant = Tenant::with(['client', 'product', 'plan', 'domains', 'firebaseProject', 'database', 'provisioningLogs', 'addOns', 'subscriptions', 'payments'])->where('uuid', $uuid)->first();
 
         if (!$tenant) {
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
