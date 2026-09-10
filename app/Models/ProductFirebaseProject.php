@@ -15,11 +15,18 @@ class ProductFirebaseProject extends Model
 
     protected $appends = [
         'has_service_account',
+        'firebase_db_collection_url',
     ];
 
     protected $casts = [
         'service_account_json' => 'encrypted',
+        'firebase_db_collection' => 'string',
     ];
+
+    public function getFirebaseDbCollectionUrlAttribute()
+    {
+        return $this->firebase_db_collection ? url('storage/' . $this->firebase_db_collection) : null;
+    }
 
     public function getHasServiceAccountAttribute(): bool
     {
