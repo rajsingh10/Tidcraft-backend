@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
+use App\Models\Subscription;
 use Illuminate\Http\Request;
 
 class PlanController extends Controller
@@ -73,6 +74,13 @@ class PlanController extends Controller
      */
     public function update(Request $request, Plan $plan)
     {
+        if (Subscription::where('plan_id', $plan->id)->exists()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Cannot update plan because it is associated with one or more subscriptions.'
+            ], 400);
+        }
+
         $request->validate([
             'product_id' => 'sometimes|required|exists:products,id',
             'name' => 'sometimes|required|string|max:255',
@@ -110,6 +118,13 @@ class PlanController extends Controller
      */
     public function destroy(Plan $plan)
     {
+        if (Subscription::where('plan_id', $plan->id)->exists()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Cannot delete plan because it is associated with one or more subscriptions.'
+            ], 400);
+        }
+
         $plan->delete();
 
         return response()->json([
