@@ -13,7 +13,7 @@ class ProductController extends Controller
      */
     public function index()
     {
-        $products = Product::with('category')->get()->map(function ($product) {
+        $products = Product::with(['category', 'productFirebaseProject'])->get()->map(function ($product) {
             if (is_array($product->images)) {
                 $product->images = array_map(function ($path) {
                     return url('storage/' . $path);
@@ -96,7 +96,7 @@ class ProductController extends Controller
             }, $product->images);
         }
 
-        $product->load('category');
+        $product->load(['category', 'productFirebaseProject']);
         $product->product_category_name = $product->category ? $product->category->name : null;
 
         return response()->json([
@@ -184,6 +184,45 @@ class ProductController extends Controller
             'status' => 'success',
             'message' => 'Product updated successfully.',
             'data' => $product
+        ]);
+    }
+
+    /**
+     * Update the Firebase configuration for the Product (Master Project).
+     */
+    public function updateFirebase(Request $request, Product $product)
+    {
+        $request->validate([
+            'firebase_project_id' => 'nullable|string|max:255',
+            'firebase_project_name' => 'nullable|string|max:255',
+            'firebase_app_id' => 'nullable|string|max:255',
+            'firebase_api_key' => 'nullable|string|max:255',
+            'firebase_auth_domain' => 'nullable|string|max:255',
+            'firebase_storage_bucket' => 'nullable|string|max:255',
+            'firebase_messaging_sender_id' => 'nullable|string|max:255',
+        ]);
+
+        $data = $request->only([
+            'firebase_project_id',
+            'firebase_project_name',
+            'firebase_app_id',
+            'firebase_api_key',
+            'firebase_auth_domain',
+            'firebase_storage_bucket',
+            'firebase_messaging_sender_id',
+        ]);
+        
+        $data['product_id'] = $product->id;
+
+        $firebaseProject = $product->productFirebaseProject()->updateOrCreate(
+            ['product_id' => $product->id],
+            $data
+        );
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Product Firebase configuration updated successfully.',
+            'data' => $firebaseProject
         ]);
     }
 
