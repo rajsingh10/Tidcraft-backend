@@ -2,11 +2,11 @@ name: Deploy Tidcraft Backend
 
 on:
   push:
-    branches: [dev]
+    branches: [dev, main]
 
 concurrency:
   group: deploy-backend
-  cancel-in-progress: false   # let in-flight deploys finish; don't queue a race
+  cancel-in-progress: false
 
 jobs:
   test:
@@ -17,32 +17,29 @@ jobs:
       DB_DATABASE: ":memory:"
     steps:
       - uses: actions/checkout@v4
-
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
           extensions: mbstring, xml, curl, zip, bcmath, sqlite3
           coverage: none
-
       - name: Cache Composer dependencies
         uses: actions/cache@v4
         with:
           path: vendor
           key: composer-${{ hashFiles('composer.lock') }}
-
       - run: composer install --prefer-dist --no-progress
       - run: cp .env.example .env
       - run: php artisan key:generate
       - run: php artisan test
 
-  deploy:
+  deploy-dev:
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/dev'
+    environment: development
     timeout-minutes: 10
     steps:
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1.0.3
+      - uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.TB_EC2_HOST }}
           username: ${{ secrets.TB_EC2_USERNAME }}
@@ -52,37 +49,47 @@ jobs:
           script: |
             set -e
             cd /home/devtidcraftcomusr/laravel-backend
-
-            # Always exit maintenance mode, even if a later step fails
             trap 'php artisan up || true' EXIT
-
-            echo "Pulling latest code..."
             git pull origin dev
-
-            echo "Installing dependencies..."
             composer install --optimize-autoloader
-
-            echo "Entering maintenance mode..."
             php artisan down || true
-
-            echo "Running migrations..."
             php artisan migrate --force
-
-            echo "Rebuilding caches..."
             php artisan config:clear
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
-
-            echo "Restarting queue workers..."
             php artisan queue:restart
-
-            echo "Fixing permissions..."
             sudo chown -R devtidcraftcomusr:www-data /home/devtidcraftcomusr/laravel-backend
             sudo chmod -R 775 storage bootstrap/cache
-
-            echo "Reloading PHP-FPM..."
             sudo systemctl reload php8.3-fpm
 
-            echo "Backend deploy complete."
-            # trap fires here automatically -> php artisan up
+  deploy-production:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_EC2_HOST }}
+          username: ${{ secrets.PROD_EC2_USERNAME }}
+          key: ${{ secrets.PROD_EC2_SSH_KEY }}
+          port: ${{ secrets.PROD_EC2_PORT }}
+          command_timeout: 8m
+          script: |
+            set -e
+            cd /home/prodtidcraftcomusr/laravel-backend
+            trap 'php artisan up || true' EXIT
+            git pull origin main
+            composer install --optimize-autoloader
+            php artisan down || true
+            php artisan migrate --force
+            php artisan config:clear
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
+            php artisan queue:restart
+            sudo chown -R prodtidcraftcomusr:www-data /home/prodtidcraftcomusr/laravel-backend
+            sudo chmod -R 775 storage bootstrap/cache
+            sudo systemctl reload php8.3-fpm
