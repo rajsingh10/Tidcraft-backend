@@ -111,17 +111,20 @@ class ProductController extends Controller
     public function update(Request $request, Product $product)
     {
         if ($request->hasFile('images')) {
-            foreach ($request->file('images') as $index => $file) {
-                if (!$file->isValid()) {
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => "Upload failed for image {$index}. PHP Error Code: " . $file->getError()
-                    ], 422);
+            $files = $request->file('images');
+            if (is_array($files)) {
+                foreach ($files as $index => $file) {
+                    if ($file && !$file->isValid()) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => "Upload failed for image {$index}. PHP Error Code: " . $file->getError()
+                        ], 422);
+                    }
                 }
             }
         }
 
-        $request->validate([
+        $rules = [
             'name' => 'sometimes|required|string|max:255',
             'tagline' => 'nullable|string|max:255',
             'product_category_id' => 'nullable|exists:product_categories,id',
@@ -129,24 +132,40 @@ class ProductController extends Controller
             'badge' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'images' => 'nullable|array',
-            'images.*' => 'image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
-        ]);
+        ];
+
+        $imagesData = $request->all()['images'] ?? null;
+        if (is_array($imagesData)) {
+            foreach ($imagesData as $key => $value) {
+                if ($request->hasFile("images.$key")) {
+                    $rules["images.$key"] = 'image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048';
+                } else {
+                    $rules["images.$key"] = 'string';
+                }
+            }
+        }
+
+        $request->validate($rules);
 
         $data = $request->all();
 
-        if ($request->hasFile('images')) {
+        if (is_array($imagesData)) {
             $imagePaths = [];
-            // Optional: You could delete old images here if you want to replace them completely
-            foreach ($request->file('images') as $image) {
-                $path = $image->store('products', 'public');
-                $imagePaths[] = $path;
+            foreach ($imagesData as $key => $value) {
+                if ($request->hasFile("images.$key")) {
+                    $file = $request->file("images.$key");
+                    if ($file) {
+                        $imagePaths[] = $file->store('products', 'public');
+                    }
+                } else if (is_string($value)) {
+                    $storageUrl = url('storage') . '/';
+                    if (str_starts_with($value, $storageUrl)) {
+                        $imagePaths[] = str_replace($storageUrl, '', $value);
+                    } else {
+                        $imagePaths[] = $value;
+                    }
+                }
             }
-            
-            // To append images instead of replacing: 
-            // $existingImages = $product->images ?? [];
-            // $data['images'] = array_merge($existingImages, $imagePaths);
-            
-            // For now, this will replace the existing images with the newly uploaded ones.
             $data['images'] = $imagePaths;
         }
 
