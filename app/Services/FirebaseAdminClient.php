@@ -53,6 +53,13 @@ class FirebaseAdminClient
             return;
         }
 
+        if ($response->status() === 403 || str_contains(strtolower((string) $error), 'permission')) {
+            $email = $serviceAccount['client_email'] ?? 'the service account';
+            throw new \Exception(
+                "Failed to create Firestore database '{$databaseId}' in project '{$projectId}': The service account {$email} does not have permission. In Google Cloud Console open project {$projectId} → IAM → grant this service account the role \"Cloud Datastore Owner\" (roles/datastore.owner). Also enable the Cloud Firestore API for this project. Then retry POST /api/tenant-provision."
+            );
+        }
+
         throw new \Exception("Failed to create Firestore database '{$databaseId}' in project '{$projectId}': {$error}");
     }
 
