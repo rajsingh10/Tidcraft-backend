@@ -6,28 +6,32 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::table('tenants', function (Blueprint $table) {
-            $table->unsignedBigInteger('client_id')->nullable()->after('id');
-            $table->string('name')->nullable()->after('uuid'); // tenant_key
-            $table->string('tenant_key')->nullable()->after('name'); // strictly tenant_key per requirements
-
-            $table->foreign('client_id')->references('id')->on('users')->onDelete('cascade');
+            if (!Schema::hasColumn('tenants', 'client_id')) {
+                $table->unsignedBigInteger('client_id')->nullable()->after('id');
+                $table->foreign('client_id')->references('id')->on('users')->onDelete('cascade');
+            }
+            if (!Schema::hasColumn('tenants', 'name')) {
+                $table->string('name')->nullable()->after('uuid');
+            }
+            if (!Schema::hasColumn('tenants', 'tenant_key')) {
+                $table->string('tenant_key')->nullable()->after('name');
+            }
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::table('tenants', function (Blueprint $table) {
-            $table->dropForeign(['client_id']);
-            $table->dropColumn(['client_id', 'name', 'tenant_key']);
+            if (Schema::hasColumn('tenants', 'client_id')) {
+                $table->dropForeign(['client_id']);
+            }
+            $cols = array_values(array_filter(['client_id', 'name', 'tenant_key'], fn ($c) => Schema::hasColumn('tenants', $c)));
+            if ($cols) {
+                $table->dropColumn($cols);
+            }
         });
     }
 };

@@ -11,15 +11,18 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::dropIfExists('tenant_firebase_configs');
+        if (Schema::hasTable('firebase_projects')) {
+            return;
+        }
 
         Schema::create('firebase_projects', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('tenant_id');
-            $table->unsignedBigInteger('client_id');
+            $table->unsignedBigInteger('client_id')->nullable();
             $table->unsignedBigInteger('product_id');
             
             $table->string('firebase_project_id')->nullable();
+            $table->string('firebase_database_id')->nullable();
             $table->string('firebase_project_name')->nullable();
             $table->string('firebase_app_id')->nullable();
             $table->string('firebase_api_key')->nullable();
@@ -32,9 +35,7 @@ return new class extends Migration
             $table->foreign('tenant_id')->references('id')->on('tenants')->onDelete('cascade');
             $table->foreign('client_id')->references('id')->on('users')->onDelete('cascade');
             $table->foreign('product_id')->references('id')->on('products')->onDelete('cascade');
-            
-            // Combination of client_id + product_id must be unique
-            $table->unique(['client_id', 'product_id'], 'client_product_firebase_unique');
+            $table->unique('tenant_id');
         });
     }
 

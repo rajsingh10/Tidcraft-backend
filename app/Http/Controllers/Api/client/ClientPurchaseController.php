@@ -190,6 +190,8 @@ class ClientPurchaseController extends Controller
 
 
             DB::commit();
+
+            \App\Jobs\ProvisionTenantJob::dispatch($tenant);
             
             // Optionally log the provisioning action
             AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned.");

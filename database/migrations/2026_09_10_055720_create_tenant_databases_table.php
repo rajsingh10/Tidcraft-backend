@@ -11,7 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('tenant_databases', function (Blueprint $table) {
+        if (!Schema::hasTable('tenant_databases')) {
+            Schema::create('tenant_databases', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('tenant_id');
             $table->string('database_name')->unique();
@@ -24,6 +25,7 @@ return new class extends Migration
 
             $table->foreign('tenant_id')->references('id')->on('tenants')->onDelete('cascade');
         });
+        }
     }
 
     /**

@@ -2,58 +2,45 @@
 
 namespace App\Services;
 
-use App\Models\Tenant;
 use App\Models\FirebaseProject;
 use App\Models\ProductFirebaseProject;
-use Illuminate\Support\Str;
+use App\Models\Tenant;
 
 class FirebaseProvisionService
 {
     /**
-     * Provision a Firebase project for the tenant (Level 2).
-     *
-     * @param Tenant $tenant
-     * @return \App\Models\FirebaseProject
+     * Attach this tenant to the product's Firebase project and record the
+     * per-subdomain database id (tidcraft_{subdomain}).
      */
-    public static function provisionFirebase(Tenant $tenant)
+    public static function provisionFirebase(Tenant $tenant): FirebaseProject
     {
-        // 1. Identify the Product Firebase (Level 1)
         $productFirebase = ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
-        if (!$productFirebase) {
-            throw new \Exception("Product Firebase configuration missing for product ID: {$tenant->product_id}. Cannot provision client Firebase.");
+
+        if (!$productFirebase || empty($productFirebase->firebase_project_id)) {
+            throw new \Exception("Product Firebase configuration is missing a project ID for product ID: {$tenant->product_id}. Save it via POST /api/products/{id}/firebase before provisioning.");
         }
 
-        // 2. Create the Client Firebase (Level 2)
-        $firebaseConfig = $tenant->firebaseProject()->firstOrCreate([
-            'tenant_id' => $tenant->id,
+        $databaseId = $tenant->provisionedDatabaseName();
+
+        $payload = [
             'client_id' => $tenant->client_id,
-            'product_id' => $tenant->product_id
-        ], [
-            'status' => 'pending',
-            // Pre-fill with temporary or stubs if needed based on Product Firebase context
-            'firebase_project_id' => 'client-' . $tenant->client_id . '-prod-' . $tenant->product_id . '-' . strtolower(Str::random(6)),
-            'firebase_app_id' => '1:' . rand(100000, 999999) . '000000:web:' . Str::random(22),
-            'firebase_api_key' => 'AIzaSy' . Str::random(33),
-            'firebase_auth_domain' => $tenant->tenant_key . '.firebaseapp.com',
-            'firebase_storage_bucket' => $tenant->tenant_key . '.appspot.com',
-            'firebase_messaging_sender_id' => rand(100000, 999999) . '000000',
-        ]);
+            'product_id' => $tenant->product_id,
+            'firebase_project_id' => $productFirebase->firebase_project_id,
+            'firebase_project_name' => $productFirebase->firebase_project_name,
+            'firebase_app_id' => $productFirebase->firebase_app_id,
+            'firebase_api_key' => $productFirebase->firebase_api_key,
+            'firebase_auth_domain' => $productFirebase->firebase_auth_domain,
+            'firebase_storage_bucket' => $productFirebase->firebase_storage_bucket,
+            'firebase_messaging_sender_id' => $productFirebase->firebase_messaging_sender_id,
+            'firebase_database_id' => $databaseId,
+            'status' => 'ready',
+        ];
 
-        if ($firebaseConfig->status === 'ready') {
-            return $firebaseConfig;
-        }
+        $firebaseConfig = $tenant->firebaseProject()->firstOrNew(['tenant_id' => $tenant->id]);
+        $firebaseConfig->fill($payload);
+        $firebaseConfig->tenant_id = $tenant->id;
+        $firebaseConfig->save();
 
-        try {
-            // In a real scenario, we use the Product Firebase Service Account (or Master SA)
-            // to call Google Cloud API to create a new GCP project.
-            
-            // Mark as ready
-            $firebaseConfig->update(['status' => 'ready']);
-
-            return $firebaseConfig;
-        } catch (\Exception $e) {
-            $firebaseConfig->update(['status' => 'failed']);
-            throw $e;
-        }
+        return $firebaseConfig->fresh();
     }
 }

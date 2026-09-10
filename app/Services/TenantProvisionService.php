@@ -2,56 +2,79 @@
 
 namespace App\Services;
 
-use App\Models\Tenant;
 use App\Models\ProvisioningLog;
+use App\Models\Tenant;
 use Illuminate\Support\Facades\Log;
 
 class TenantProvisionService
 {
     /**
      * Run the full provisioning flow for a given tenant.
-     * 
-     * @param Tenant $tenant
-     * @return void
      */
     public static function provision(Tenant $tenant)
     {
-        self::logProgress($tenant, 'database', 'in_progress', 'Starting database provisioning');
+        $tenant->loadMissing(['database', 'firebaseProject', 'domains', 'subscriptions']);
+
+        self::logProgress($tenant, 'database', 'in_progress', 'Creating database ' . $tenant->provisionedDatabaseName());
         try {
-            TenantDatabaseManager::provisionDatabase($tenant);
-            self::logProgress($tenant, 'database', 'success', 'Database provisioned and migrated successfully');
+            TenantDatabaseManager::createDatabase($tenant);
+            $tenant->load('database');
+            self::logProgress($tenant, 'database', 'success', 'Database ' . $tenant->database->database_name . ' created');
         } catch (\Exception $e) {
             self::logProgress($tenant, 'database', 'failed', 'Database provisioning failed', $e->getMessage());
+            $tenant->update(['status' => 'failed']);
             throw $e;
         }
 
-        self::logProgress($tenant, 'firebase', 'in_progress', 'Starting Firebase provisioning');
+        self::logProgress($tenant, 'firebase', 'in_progress', 'Connecting product Firebase project');
         try {
             FirebaseProvisionService::provisionFirebase($tenant);
-            self::logProgress($tenant, 'firebase', 'success', 'Firebase provisioned successfully');
+            $tenant->load('firebaseProject');
+            self::logProgress(
+                $tenant,
+                'firebase',
+                'success',
+                'Connected Firebase project ' . $tenant->firebaseProject->firebase_project_id . ' with database id ' . $tenant->firebaseProject->firebase_database_id
+            );
         } catch (\Exception $e) {
             self::logProgress($tenant, 'firebase', 'failed', 'Firebase provisioning failed', $e->getMessage());
+            $tenant->update(['status' => 'failed']);
             throw $e;
         }
 
-        self::logProgress($tenant, 'domain', 'in_progress', 'Starting Domain provisioning');
+        self::logProgress($tenant, 'migrations', 'in_progress', 'Running tenant migrations');
         try {
-            $domain = $tenant->domains()->firstOrCreate([
-                'tenant_id' => $tenant->id,
-                'client_id' => $tenant->client_id,
-                'product_id' => $tenant->product_id,
-                'domain' => $tenant->tenant_key . '.' . env('APP_DOMAIN', 'yoursaas.com'),
-            ], [
-                'type' => 'subdomain',
-                'status' => 'pending'
-            ]);
+            TenantDatabaseManager::migrate($tenant);
+            self::logProgress($tenant, 'migrations', 'success', 'Tenant migrations completed');
+        } catch (\Exception $e) {
+            self::logProgress($tenant, 'migrations', 'failed', 'Tenant migrations failed', $e->getMessage());
+            $tenant->database?->update(['status' => 'failed']);
+            $tenant->update(['status' => 'failed']);
+            throw $e;
+        }
 
-            if ($domain->status !== 'active') {
+        self::logProgress($tenant, 'seed', 'in_progress', 'Seeding tenant database');
+        try {
+            TenantDatabaseManager::seed($tenant);
+            $tenant->database?->update(['status' => 'ready']);
+            self::logProgress($tenant, 'seed', 'success', 'Tenant database seeded');
+        } catch (\Exception $e) {
+            self::logProgress($tenant, 'seed', 'failed', 'Tenant seeding failed', $e->getMessage());
+            $tenant->database?->update(['status' => 'failed']);
+            $tenant->update(['status' => 'failed']);
+            throw $e;
+        }
+
+        self::logProgress($tenant, 'domain', 'in_progress', 'Activating domain');
+        try {
+            $domain = $tenant->domains()->first();
+            if ($domain && $domain->status !== 'active') {
                 $domain->update(['status' => 'active']);
             }
-            self::logProgress($tenant, 'domain', 'success', 'Domain provisioned successfully');
+            self::logProgress($tenant, 'domain', 'success', 'Domain activated');
         } catch (\Exception $e) {
             self::logProgress($tenant, 'domain', 'failed', 'Domain provisioning failed', $e->getMessage());
+            $tenant->update(['status' => 'failed']);
             throw $e;
         }
 
@@ -69,13 +92,8 @@ class TenantProvisionService
         }
     }
 
-    /**
-     * Helper to log provisioning steps.
-     */
     private static function logProgress(Tenant $tenant, $step, $status, $message, $error = null)
     {
-        // If it's an end status, try to find the in_progress log to set completed_at properly,
-        // or just create a new record for simplicity as an append-only log log.
         ProvisioningLog::create([
             'tenant_id' => $tenant->id,
             'step' => $step,

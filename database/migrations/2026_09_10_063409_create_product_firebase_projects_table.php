@@ -11,6 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (Schema::hasTable('product_firebase_projects')) {
+            return;
+        }
+
         Schema::create('product_firebase_projects', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('product_id')->unique();
