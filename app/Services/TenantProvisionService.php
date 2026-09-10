@@ -36,6 +36,27 @@ class TenantProvisionService
                 'success',
                 'Created Firestore database ' . $tenant->firebaseProject->firebase_database_id . ' in project ' . $tenant->firebaseProject->firebase_project_id
             );
+
+            // Trigger Firestore Data Import if applicable
+            $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+            if ($productFirebase && $productFirebase->firebase_db_collection) {
+                self::logProgress($tenant, 'firebase_import', 'in_progress', 'Importing Firestore data from collection');
+                try {
+                    $jsonContent = \Illuminate\Support\Facades\Storage::disk('public')->get($productFirebase->firebase_db_collection);
+                    if ($jsonContent) {
+                        $data = json_decode($jsonContent, true);
+                        if ($data) {
+                            $serviceAccount = json_decode($productFirebase->service_account_json, true);
+                            $importer = new \App\Services\FirestoreImporter($serviceAccount, $tenant->firebaseProject->firebase_database_id);
+                            $importer->import($data);
+                            self::logProgress($tenant, 'firebase_import', 'success', 'Firestore data imported successfully');
+                        }
+                    }
+                } catch (\Exception $e) {
+                    self::logProgress($tenant, 'firebase_import', 'failed', 'Firestore data import failed', $e->getMessage());
+                    // We do not throw here to allow other provision steps to continue
+                }
+            }
         } catch (\Exception $e) {
             self::logProgress($tenant, 'firebase', 'failed', 'Firebase provisioning failed', $e->getMessage());
             $tenant->update(['status' => 'failed']);
