@@ -188,6 +188,29 @@ class ProductController extends Controller
     }
 
     /**
+     * Get the Firebase configuration for the Product.
+     */
+    public function getFirebase(Product $product)
+    {
+        $firebaseProject = $product->productFirebaseProject;
+
+        if (!$firebaseProject) {
+            return response()->json([
+                'status' => 'success',
+                'data' => null
+            ]);
+        }
+
+        $payload = $firebaseProject->toArray();
+        $payload['has_service_account'] = filled($firebaseProject->service_account_json);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $payload
+        ]);
+    }
+
+    /**
      * Update the Firebase configuration for the Product (Master Project).
      */
     public function updateFirebase(Request $request, Product $product)
@@ -201,6 +224,7 @@ class ProductController extends Controller
             'firebase_storage_bucket' => 'nullable|string|max:255',
             'firebase_messaging_sender_id' => 'nullable|string|max:255',
             'firebase_location_id' => 'nullable|string|max:64',
+            'firebase_db_collection' => 'nullable|file',
             'service_account_json' => 'nullable',
         ]);
 
@@ -214,6 +238,13 @@ class ProductController extends Controller
             'firebase_messaging_sender_id',
             'firebase_location_id',
         ]);
+
+        if ($request->hasFile('firebase_db_collection')) {
+            $file = $request->file('firebase_db_collection');
+            $extension = $file->getClientOriginalExtension() ?: 'json';
+            $filename = \Illuminate\Support\Str::random(40) . '.' . $extension;
+            $data['firebase_db_collection'] = $file->storeAs('products/db_collections', $filename, 'public');
+        }
 
         $serviceAccountJson = $this->extractServiceAccountJson($request);
         if ($serviceAccountJson !== null) {
