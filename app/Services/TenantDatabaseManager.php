@@ -127,7 +127,7 @@ class TenantDatabaseManager
             'database_name' => $tenant->database?->database_name,
             'subdomain' => $tenant->subdomainPrefix(),
             'firebase_project_id' => $tenant->firebaseProject?->firebase_project_id,
-            'firebase_database_id' => $tenant->firebaseProject?->firebase_database_id,
+            'firebase_database_id' => $tenant->firebaseProject?->firebase_database_id ?? $tenant->firestoreDatabaseId(),
             'firebase_api_key' => $tenant->firebaseProject?->firebase_api_key,
             'firebase_app_id' => $tenant->firebaseProject?->firebase_app_id,
             'firebase_auth_domain' => $tenant->firebaseProject?->firebase_auth_domain,

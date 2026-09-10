@@ -41,10 +41,6 @@ class ProvisionTenantJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        if ($tenant->status === 'active' && $tenant->database?->status === 'ready') {
-            return;
-        }
-
         TenantProvisionService::provision($tenant);
     }
 }
