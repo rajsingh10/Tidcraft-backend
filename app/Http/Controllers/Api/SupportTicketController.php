@@ -63,6 +63,17 @@ class SupportTicketController extends Controller
 
         $ticket = SupportTicket::create($validated);
 
+        if (!$isSuperAdmin) {
+            \App\Models\AdminNotification::create([
+                'type' => 'support_ticket',
+                'title' => 'New Support Ticket',
+                'message' => 'A new support ticket has been created: ' . $ticket->subject,
+                'related_id' => $ticket->id,
+                'client_name' => $user->name ?? 'Client',
+                'is_read' => false,
+            ]);
+        }
+
         return response()->json([
             'status' => 'success',
             'message' => 'Ticket created successfully',
@@ -114,6 +125,17 @@ class SupportTicketController extends Controller
         ]);
 
         $ticket->update($validated);
+
+        if (!$user->hasRole('SuperAdmin')) {
+            \App\Models\AdminNotification::create([
+                'type' => 'support_ticket',
+                'title' => 'Support Ticket Updated',
+                'message' => 'Support ticket ' . ($ticket->ticket_id ?? 'TCK') . ' was updated by client.',
+                'related_id' => $ticket->id,
+                'client_name' => $user->name ?? 'Client',
+                'is_read' => false,
+            ]);
+        }
 
         return response()->json([
             'status' => 'success',
