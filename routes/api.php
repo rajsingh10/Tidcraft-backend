@@ -23,6 +23,10 @@ Route::post('/login', [AuthController::class, 'login']);
 // Public API Routes
 Route::post('inquiries', [InquiryController::class, 'store']);
 
+Route::apiResource('plans', PlanController::class)->only(['index', 'show']);
+Route::apiResource('products', ProductController::class)->only(['index', 'show']);
+Route::apiResource('add-ons', AddOnController::class)->only(['index', 'show']);
+
 // Client Public Routes
 Route::prefix('client')->group(function () {
     Route::post('/register', [ClientAuthController::class, 'register']);
@@ -84,17 +88,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/system-logs', [SystemLogController::class, 'destroy']);
 
     Route::post('plans/{plan}', [PlanController::class, 'update']);
-    Route::apiResource('plans', PlanController::class);
+    Route::apiResource('plans', PlanController::class)->except(['index', 'show']);
 
     Route::get('products/{product}/firebase', [ProductController::class, 'getFirebase']);
     Route::post('products/{product}/firebase', [ProductController::class, 'updateFirebase']);
     Route::post('products/{product}', [ProductController::class, 'update']);
-    Route::apiResource('products', ProductController::class);
+    Route::apiResource('products', ProductController::class)->except(['index', 'show']);
 
     Route::post('add-ons/{add_on}', [AddOnController::class, 'update']);
-    Route::apiResource('add-ons', AddOnController::class);
+    Route::apiResource('add-ons', AddOnController::class)->except(['index', 'show']);
 
     Route::post('inquiries/{inquiry}', [InquiryController::class, 'update']);
+    Route::post('inquiries/{inquiry}/status', [InquiryController::class, 'changeStatus']);
     Route::apiResource('inquiries', InquiryController::class)->except('store');
 
     // Admin Notifications API

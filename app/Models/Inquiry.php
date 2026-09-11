@@ -19,6 +19,7 @@ class Inquiry extends Model
         'phone',
         'project_id',
         'description',
+        'status',
         'create_by',
         'update_by',
         'delete_by',

@@ -10,9 +10,15 @@ use Illuminate\Support\Facades\Validator;
 
 class InquiryController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $inquiries = Inquiry::all();
+        $query = Inquiry::query();
+        
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
+        }
+        
+        $inquiries = $query->get();
         return response()->json(['status' => 'success', 'data' => $inquiries]);
     }
 
@@ -35,6 +41,10 @@ class InquiryController extends Controller
         }
 
         $data = $validator->validated();
+        
+        // Force the default status to 'new' on creation
+        $data['status'] = 'new';
+        
         if (auth()->check()) {
             $data['create_by'] = auth()->id();
             $data['update_by'] = auth()->id();
@@ -106,6 +116,7 @@ class InquiryController extends Controller
             'phone' => 'nullable|string|max:20',
             'project_id' => 'nullable|string|max:255',
             'description' => 'nullable|string',
+            'status' => 'nullable|in:new,in_review,resolved',
         ]);
 
         if ($validator->fails()) {
@@ -135,5 +146,29 @@ class InquiryController extends Controller
         
         $inquiry->delete();
         return response()->json(['status' => 'success', 'message' => 'Inquiry deleted.']);
+    }
+
+    // Status change API
+    public function changeStatus(Request $request, string $id)
+    {
+        $inquiry = Inquiry::find($id);
+        if (!$inquiry) {
+            return response()->json(['status' => 'error', 'message' => 'Inquiry not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'status' => 'required|in:new,in_review,resolved',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['status' => 'error', 'message' => 'Validation Error', 'errors' => $validator->errors()], 422);
+        }
+
+        $inquiry->update([
+            'status' => $request->status,
+            'update_by' => auth()->id(),
+        ]);
+
+        return response()->json(['status' => 'success', 'message' => 'Inquiry status updated.', 'data' => $inquiry]);
     }
 }
