@@ -219,6 +219,39 @@ class TenantProvisionController extends Controller
     }
 
     /**
+     * Check if a subdomain prefix is available.
+     */
+    public function checkSubdomain(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'subdomain_prefix' => 'required|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation Error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $prefix = trim($request->subdomain_prefix, " .");
+        $fullDomain = $prefix . '.tidcraft.app';
+
+        $existsInDomains = \App\Models\Domain::where('domain', $fullDomain)->exists();
+        $existsInTenantDomains = \App\Models\TenantDomain::where('domain', $fullDomain)->exists();
+
+        $available = !$existsInDomains && !$existsInTenantDomains;
+
+        return response()->json([
+            'status' => 'success',
+            'available' => $available,
+            'domain' => $fullDomain,
+            'message' => $available ? 'Subdomain is available' : 'Subdomain is already taken'
+        ]);
+    }
+
+    /**
      * Display a listing of tenants.
      */
     public function index()
