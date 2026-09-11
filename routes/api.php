@@ -104,8 +104,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('inquiries/{inquiry}/status', [InquiryController::class, 'changeStatus']);
     Route::apiResource('inquiries', InquiryController::class)->except('store');
 
-    // Dashboard API
+    // Dashboard & Analytics APIs
     Route::get('/dashboard', [\App\Http\Controllers\Api\DashboardController::class, 'index']);
+    Route::get('/usage-metering', [\App\Http\Controllers\Api\UsageMeteringController::class, 'index']);
 
     // Admin Notifications API
     Route::get('/notifications', [\App\Http\Controllers\Api\AdminNotificationController::class, 'index']);
