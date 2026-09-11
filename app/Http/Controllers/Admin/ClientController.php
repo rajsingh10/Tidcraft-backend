@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use App\Services\AuditLogger;
 
 class ClientController extends Controller
 {
@@ -73,6 +74,8 @@ class ClientController extends Controller
         if ($client->profile_image && !str_starts_with($client->profile_image, 'http')) {
             $client->profile_image = asset($client->profile_image);
         }
+
+        AuditLogger::log('Client Created', 'Insert', "A new client ({$client->name}) was created.");
 
         return response()->json([
             'status' => 'success',
@@ -155,6 +158,8 @@ class ClientController extends Controller
             $client->profile_image = asset($client->profile_image);
         }
 
+        AuditLogger::log('Client Updated', 'Update', "Client ({$client->name}) was updated.");
+
         return response()->json([
             'status' => 'success',
             'message' => 'Client updated successfully',
@@ -176,7 +181,10 @@ class ClientController extends Controller
             ], 404);
         }
 
+        $clientName = $client->name;
         $client->delete();
+
+        AuditLogger::log('Client Deleted', 'Delete', "Client ({$clientName}) was deleted.");
 
         return response()->json([
             'status' => 'success',

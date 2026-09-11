@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
+use App\Services\AuditLogger;
 
 class SystemLogController extends Controller
 {
@@ -74,6 +75,7 @@ class SystemLogController extends Controller
         
         if (File::exists($logPath)) {
             File::put($logPath, '');
+            AuditLogger::log('System Logs Cleared', 'Clear', 'Admin cleared the laravel.log file.');
         }
 
         return response()->json([

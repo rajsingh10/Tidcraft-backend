@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ProductFirebaseProject extends Model
 {
+    use \App\Traits\Auditable;
+
     protected $guarded = [];
 
     protected $hidden = [

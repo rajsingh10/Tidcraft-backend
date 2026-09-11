@@ -81,6 +81,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/settings/payment-methods', [SettingController::class, 'storePaymentMethods']);
 
     // Audit Logs API
+    Route::post('/audit-logs/bulk-delete', [AuditLogController::class, 'destroyBulk']);
+    Route::delete('/audit-logs/all', [AuditLogController::class, 'destroyAll']);
     Route::get('/audit-logs', [AuditLogController::class, 'index']);
 
     // System Logs API
