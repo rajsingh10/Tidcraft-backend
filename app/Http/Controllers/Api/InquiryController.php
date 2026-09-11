@@ -129,6 +129,18 @@ class InquiryController extends Controller
         }
 
         $inquiry->update($data);
+        
+        if (!auth()->check() || !auth()->user()->hasRole('SuperAdmin')) {
+            \App\Models\AdminNotification::create([
+                'type' => 'inquiry',
+                'title' => 'Inquiry Updated',
+                'message' => 'Inquiry from ' . $inquiry->customer_name . ' has been updated.',
+                'related_id' => $inquiry->id,
+                'client_name' => $inquiry->customer_name,
+                'is_read' => false,
+            ]);
+        }
+
         return response()->json(['status' => 'success', 'message' => 'Inquiry updated.', 'data' => $inquiry]);
     }
 
