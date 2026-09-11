@@ -185,17 +185,15 @@ class TenantProvisionController extends Controller
         }
 
         $prefix = trim($request->subdomain_prefix, " .");
-        $fullDomain = $prefix . '.tidcraft.app';
 
-        $existsInDomains = \App\Models\Domain::where('domain', $fullDomain)->exists();
-        $existsInTenantDomains = \App\Models\TenantDomain::where('domain', $fullDomain)->exists();
+        $existsInDomains = \App\Models\Domain::where('domain', $prefix)->exists();
 
-        $available = !$existsInDomains && !$existsInTenantDomains;
+        $available = !$existsInDomains;
 
         return response()->json([
             'status' => 'success',
             'available' => $available,
-            'domain' => $fullDomain,
+            'domain' => $prefix,
             'message' => $available ? 'Subdomain is available' : 'Subdomain is already taken'
         ]);
     }
