@@ -21,9 +21,9 @@ class DashboardController extends Controller
         $endOfLastMonth = $now->copy()->subMonth()->endOfMonth();
 
         // 1. Total Clients
-        $totalClients = User::count();
-        $clientsThisMonth = User::where('created_at', '>=', $startOfMonth)->count();
-        $clientsLastMonth = User::whereBetween('created_at', [$startOfLastMonth, $endOfLastMonth])->count();
+        $totalClients = User::role('Client')->count();
+        $clientsThisMonth = User::role('Client')->where('created_at', '>=', $startOfMonth)->count();
+        $clientsLastMonth = User::role('Client')->whereBetween('created_at', [$startOfLastMonth, $endOfLastMonth])->count();
         $clientGrowth = $clientsLastMonth > 0 ? (($clientsThisMonth - $clientsLastMonth) / $clientsLastMonth) * 100 : 0;
         
         $clientsInTrial = 0; // Assuming we add trial tracking later
