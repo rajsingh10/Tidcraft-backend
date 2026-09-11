@@ -97,6 +97,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notifications/{id}/unread', [\App\Http\Controllers\Api\AdminNotificationController::class, 'markAsUnread']);
 
     // Tenant Provisioning API
+    Route::post('/tenant-provision/check-subdomain', [TenantProvisionController::class, 'checkSubdomain']);
     Route::post('/tenant-provision', [TenantProvisionController::class, 'store']);
     Route::post('/tenant-provision/{uuid}/verify-payment', [TenantProvisionController::class, 'verifyPayment']);
     Route::get('/tenants', [TenantProvisionController::class, 'index']);
