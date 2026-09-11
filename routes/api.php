@@ -9,7 +9,7 @@ use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\TenantProvisionController;
-use App\Http\Controllers\Api\TenantController;
+use App\Http\Controllers\Api\SystemLogController;
 use App\Http\Controllers\Api\AddOnController;
 use App\Http\Controllers\Api\InquiryController;
 use App\Http\Controllers\Api\SubscriptionController;
@@ -17,7 +17,11 @@ use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\client\ClientAuthController;
 use App\Http\Controllers\Api\client\ClientPurchaseController;
 use App\Http\Controllers\Admin\ClientController;
+
 Route::post('/login', [AuthController::class, 'login']);
+
+// Public API Routes
+Route::post('inquiries', [InquiryController::class, 'store']);
 
 // Client Public Routes
 Route::prefix('client')->group(function () {
@@ -75,6 +79,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Audit Logs API
     Route::get('/audit-logs', [AuditLogController::class, 'index']);
 
+    // System Logs API
+    Route::get('/system-logs', [SystemLogController::class, 'index']);
+    Route::delete('/system-logs', [SystemLogController::class, 'destroy']);
+
     Route::post('plans/{plan}', [PlanController::class, 'update']);
     Route::apiResource('plans', PlanController::class);
 
@@ -87,7 +95,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('add-ons', AddOnController::class);
 
     Route::post('inquiries/{inquiry}', [InquiryController::class, 'update']);
-    Route::apiResource('inquiries', InquiryController::class);
+    Route::apiResource('inquiries', InquiryController::class)->except('store');
 
     // Admin Notifications API
     Route::get('/notifications', [\App\Http\Controllers\Api\AdminNotificationController::class, 'index']);
