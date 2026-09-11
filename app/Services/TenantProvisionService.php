@@ -46,13 +46,13 @@ class TenantProvisionService
                     if ($jsonContent) {
                         $data = json_decode($jsonContent, true);
                         if ($data) {
-                            $serviceAccount = json_decode($productFirebase->service_account_json, true);
+                            $serviceAccount = json_decode($productFirebase->service_account_json, true) ?? [];
                             $importer = new \App\Services\FirestoreImporter($serviceAccount, $tenant->firebaseProject->firebase_database_id);
                             $importer->import($data);
                             self::logProgress($tenant, 'firebase_import', 'success', 'Firestore data imported successfully');
                         }
                     }
-                } catch (\Exception $e) {
+                } catch (\Throwable $e) {
                     self::logProgress($tenant, 'firebase_import', 'failed', 'Firestore data import failed', $e->getMessage());
                     // We do not throw here to allow other provision steps to continue
                 }

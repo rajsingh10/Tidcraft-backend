@@ -21,10 +21,14 @@ class FirestoreImporter
         ]);
     }
 
+    private array $batchWrites = [];
+    private int $batchLimit = 500;
+
     public function import(array $data)
     {
         $collections = $data['__collections__'] ?? [];
         $this->processCollections($collections, "projects/{$this->projectId}/databases/{$this->databaseId}/documents");
+        $this->flushBatch(); // flush remaining
     }
 
     private function processCollections(array $collections, string $parentPath)
@@ -34,7 +38,7 @@ class FirestoreImporter
                 $subCollections = $docData['__collections__'] ?? [];
                 unset($docData['__collections__']);
 
-                $this->createDocument($parentPath, $collectionId, $docId, $docData);
+                $this->queueDocumentForBatch($parentPath, $collectionId, $docId, $docData);
 
                 if (!empty($subCollections)) {
                     $this->processCollections($subCollections, "{$parentPath}/{$collectionId}/{$docId}");
@@ -43,21 +47,41 @@ class FirestoreImporter
         }
     }
 
-    private function createDocument(string $parentPath, string $collectionId, string $docId, array $docData)
+    private function queueDocumentForBatch(string $parentPath, string $collectionId, string $docId, array $docData)
     {
         $fields = $this->parseFields($docData);
 
-        // We use PATCH to upsert the document.
-        $url = "https://firestore.googleapis.com/v1/{$parentPath}/{$collectionId}/{$docId}";
+        $this->batchWrites[] = [
+            'update' => [
+                'name' => "{$parentPath}/{$collectionId}/{$docId}",
+                'fields' => $fields
+            ]
+        ];
+
+        if (count($this->batchWrites) >= $this->batchLimit) {
+            $this->flushBatch();
+        }
+    }
+
+    private function flushBatch()
+    {
+        if (empty($this->batchWrites)) {
+            return;
+        }
+
+        $url = "https://firestore.googleapis.com/v1/projects/{$this->projectId}/databases/{$this->databaseId}/documents:commit";
 
         $response = Http::withToken($this->accessToken)
-            ->patch($url, [
-                'fields' => $fields
+            ->timeout(60)
+            ->post($url, [
+                'writes' => $this->batchWrites
             ]);
 
         if (!$response->successful()) {
-            Log::error("Failed to insert document {$docId} in {$collectionId}: " . $response->body());
+            Log::error("Firestore batch commit failed: " . $response->body());
         }
+
+        $this->batchWrites = [];
     }
 
     private function parseFields(array $data): array
