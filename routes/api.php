@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\client\ClientAuthController;
 use App\Http\Controllers\Api\client\ClientPurchaseController;
+use App\Http\Controllers\Admin\ClientController;
 Route::post('/login', [AuthController::class, 'login']);
 
 // Client Public Routes
@@ -51,6 +52,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Custom POST route for update to bypass PHP's PUT/multipart limitation
     Route::post('product-categories/{product_category}', [ProductCategoryController::class, 'update']);
     Route::apiResource('product-categories', ProductCategoryController::class);
+
+    // Clients API (Admin Side)
+    Route::post('clients/{client}', [ClientController::class, 'update']);
+    Route::apiResource('clients', ClientController::class);
     // Settings API
     Route::get('/settings', [SettingController::class, 'index']);
     Route::post('/settings', [SettingController::class, 'store']);
