@@ -30,6 +30,27 @@ class ProductController extends Controller
     }
 
     /**
+     * Display a listing of the resource for public access.
+     */
+    public function publicIndex()
+    {
+        $products = Product::with(['category'])->get()->map(function ($product) {
+            if (is_array($product->images)) {
+                $product->images = array_map(function ($path) {
+                    return url('storage/' . $path);
+                }, $product->images);
+            }
+            $product->product_category_name = $product->category ? $product->category->name : null;
+            return $product;
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $products
+        ]);
+    }
+
+    /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)

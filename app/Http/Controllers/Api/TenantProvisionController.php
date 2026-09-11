@@ -97,11 +97,21 @@ class TenantProvisionController extends Controller
                 $tenant->addOns()->attach($request->add_ons);
             }
 
-            // Create Subscription
+                // Create Subscription
             $tenant->subscriptions()->create([
                 'plan_id' => $request->plan_id,
                 'status' => 'active',
                 'start_date' => now(),
+            ]);
+
+            // Create Default Successful Payment
+            $plan = \App\Models\Plan::find($request->plan_id);
+            $tenant->payments()->create([
+                'transaction_id' => 'txn_' . Str::random(12),
+                'amount' => $plan ? $plan->monthly_price : 0,
+                'currency' => 'INR',
+                'payment_method' => 'manual',
+                'status' => 'success',
             ]);
 
 
@@ -565,5 +575,41 @@ class TenantProvisionController extends Controller
         }
 
         $clientUser->save();
+    }
+
+    public function paymentstatuschnage(Request $request)
+    {
+        $request->validate([
+            'tenant_id' => 'required',
+            'status' => 'required|string|in:success,pending,failed,canceled'
+        ]);
+
+        $tenant = Tenant::where('id', $request->tenant_id)
+            ->orWhere('uuid', $request->tenant_id)
+            ->firstOrFail();
+
+        $payment = $tenant->payments()->latest('create_at')->first();
+
+        if ($payment) {
+            $payment->update([
+                'status' => $request->status
+            ]);
+            
+            // Trigger automatic provisioning if we switch it to success and it's not already provisioned
+            if ($request->status === 'success' && $tenant->status === 'provisioning') {
+                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+            }
+        } else {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'No payment record found for this tenant.'
+            ], 404);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Payment status updated successfully',
+            'data' => $payment
+        ]);
     }
 }
