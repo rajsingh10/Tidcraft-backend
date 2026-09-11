@@ -97,13 +97,6 @@ class TenantProvisionController extends Controller
                 $tenant->addOns()->attach($request->add_ons);
             }
 
-            // Calculate actual total amount
-            $plan = \App\Models\Plan::find($request->plan_id);
-            $paymentAmount = $plan ? (float) $plan->price : 0;
-            if ($request->has('add_ons') && is_array($request->add_ons)) {
-                $paymentAmount += (float) \App\Models\AddOn::whereIn('id', $request->add_ons)->sum('price');
-            }
-
             // Create Subscription
             $tenant->subscriptions()->create([
                 'plan_id' => $request->plan_id,
@@ -111,16 +104,7 @@ class TenantProvisionController extends Controller
                 'start_date' => now(),
             ]);
 
-            // Create Payment
-            if ($paymentAmount > 0) {
-                $tenant->payments()->create([
-                    'transaction_id' => null,
-                    'amount' => $paymentAmount,
-                    'currency' => 'INR',
-                    'payment_method' => 'razorpay',
-                    'status' => 'pending',
-                ]);
-            }
+
 
             // 2. Create Domain Configuration
             $domainType = $request->domain_type ?? 'subdomain';
@@ -161,42 +145,6 @@ class TenantProvisionController extends Controller
             // Optionally log the provisioning action
             AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned.");
 
-            // Generate Razorpay Payment Link
-            $paymentLinkStr = null;
-
-            if ($paymentAmount > 0) {
-                $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
-                
-                if (isset($razorpaySettings['razorpay_active']) && filter_var($razorpaySettings['razorpay_active'], FILTER_VALIDATE_BOOLEAN)) {
-                    $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
-                    $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
-
-                    if ($keyId && $keySecret) {
-                        try {
-                            $api = new \Razorpay\Api\Api($keyId, $keySecret);
-                            
-                            $paymentLinkData = [
-                                'amount' => (int) ($paymentAmount * 100), // convert to paise
-                                'currency' => $request->currency ?? 'INR',
-                                'description' => 'Payment for Tenant Provisioning',
-                                'customer' => [
-                                    'name' => $tenant->business_name,
-                                    'email' => $tenant->primary_contact_email,
-                                    'contact' => $tenant->phone_number ?? ''
-                                ],
-                                'notify' => ['email' => true, 'sms' => true],
-                                'reminder_enable' => true,
-                            ];
-                            
-                            $paymentLinkResponse = $api->paymentLink->create($paymentLinkData);
-                            $paymentLinkStr = $paymentLinkResponse->short_url;
-                        } catch (\Exception $e) {
-                            \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
-                        }
-                    }
-                }
-            }
-
             return response()->json([
                 'status' => 'success',
                 'message' => 'Tenant created. Firestore database '.$tenant->firestoreDatabaseId().' created. MySQL migrate/seed are running in the background.',
@@ -206,8 +154,6 @@ class TenantProvisionController extends Controller
                     'database_name' => $tenant->provisionedDatabaseName(),
                     'firebase_project_id' => $tenant->firebaseProject?->firebase_project_id ?? $productFirebase->firebase_project_id,
                     'firebase_database_id' => $tenant->firestoreDatabaseId(),
-                    'payment_link' => $paymentLinkStr,
-                    'amount' => $paymentAmount
                 ]
             ], 201);
 
