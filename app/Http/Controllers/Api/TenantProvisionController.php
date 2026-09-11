@@ -38,8 +38,8 @@ class TenantProvisionController extends Controller
             'plan_id' => 'required|exists:plans,id',
 
             // Step 4: Domain Setup
-            'domain_type' => 'required|in:subdomain,shared,custom',
-            'domain' => 'required|string|unique:domains,domain',
+            'domain_type' => 'nullable|in:subdomain,shared,custom',
+            'domain' => 'nullable|string|unique:domains,domain',
 
             // Add-ons
             'add_ons' => 'nullable|array',
@@ -123,12 +123,15 @@ class TenantProvisionController extends Controller
             }
 
             // 2. Create Domain Configuration
+            $domainType = $request->domain_type ?? 'subdomain';
+            $domainStr = $request->domain ?? Str::uuid()->toString() . '.tidcraft.app';
+
             Domain::create([
                 'tenant_id' => $tenant->id,
                 'client_id' => $clientId,
                 'product_id' => $request->product_id,
-                'type' => $request->domain_type,
-                'domain' => $request->domain,
+                'type' => $domainType,
+                'domain' => $domainStr,
                 'status' => 'pending',
             ]);
 
