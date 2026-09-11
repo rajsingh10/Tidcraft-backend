@@ -10,70 +10,86 @@ class UsageMeteringController extends Controller
 {
     public function index(Request $request)
     {
-        // Fetch tenants with their active plan to extract limits
+        // Fetch tenants with their active plan
         $tenants = Tenant::with(['client', 'plan'])->orderBy('create_at', 'desc')->get();
 
-        $usageData = $tenants->map(function ($tenant) {
+        $nearQuotaCount = 0;
+        
+        $usageData = $tenants->map(function ($tenant) use (&$nearQuotaCount) {
             $plan = $tenant->plan;
             
-            // Extract limits from the plan (fallback to defaults if unlimited or missing)
-            $maxUsers = $plan && $plan->max_users ? $plan->max_users : 1000;
-            $maxOrders = $plan && $plan->max_orders ? $plan->max_orders : 10000;
-            $storageGb = $plan && $plan->storage_gb ? $plan->storage_gb : 100;
-
-            // Mock current usage (in reality, we would query the tenant's isolated DB)
-            // We use the tenant ID as a seed so the mock data stays consistent between reloads
-            srand($tenant->id * 100);
+            // Extract limit for storage (fallback to default)
+            $storageLimit = $plan && $plan->storage_gb ? $plan->storage_gb : 150;
             
-            $currentUsers = rand(1, min($maxUsers, 50));
-            $currentOrders = rand(0, min($maxOrders, 2000));
-            $currentStorage = rand(1, min($storageGb, 20));
+            // Define mock limits for API usage based on plan name
+            $planName = $plan ? strtolower($plan->name) : 'basic';
+            if (str_contains($planName, 'enterprise')) {
+                $apiLimitM = 5.0; // 5.0M
+            } elseif (str_contains($planName, 'professional') || str_contains($planName, 'pro')) {
+                $apiLimitM = 5.0; // 5.0M
+            } else {
+                $apiLimitM = 1.0; // 1.0M
+            }
+
+            // Seed mock data using tenant ID
+            srand($tenant->id * 200);
+            
+            // Current mock usage
+            $currentApiM = round($apiLimitM * (rand(30, 95) / 100), 1);
+            $currentStorageGb = rand(10, min($storageLimit, $storageLimit - 5));
+            $egressTb = round(rand(5, 25) / 10, 1); // 0.5 to 2.5 TB
             
             // Calculate percentages
-            $usersPercent = $maxUsers > 0 ? round(($currentUsers / $maxUsers) * 100) : 0;
-            $ordersPercent = $maxOrders > 0 ? round(($currentOrders / $maxOrders) * 100) : 0;
-            $storagePercent = $storageGb > 0 ? round(($currentStorage / $storageGb) * 100) : 0;
+            $apiPercent = $apiLimitM > 0 ? round(($currentApiM / $apiLimitM) * 100) : 0;
+            $storagePercent = $storageLimit > 0 ? round(($currentStorageGb / $storageLimit) * 100) : 0;
+
+            if ($apiPercent > 85 || $storagePercent > 85) {
+                $nearQuotaCount++;
+            }
 
             return [
                 'tenant_id' => $tenant->id,
-                'business_name' => $tenant->business_name,
-                'client_name' => $tenant->client ? $tenant->client->name : 'Unknown',
-                'plan_name' => $plan ? $plan->name : 'N/A',
-                'status' => $tenant->status,
+                'client' => $tenant->business_name,
+                'tier' => $plan ? $plan->name : 'N/A',
                 
                 'metrics' => [
-                    'users' => [
-                        'used' => $currentUsers,
-                        'limit' => $maxUsers,
-                        'percentage' => $usersPercent
-                    ],
-                    'orders' => [
-                        'used' => $currentOrders,
-                        'limit' => $maxOrders,
-                        'percentage' => $ordersPercent
+                    'api_usage' => [
+                        'used_m' => $currentApiM,
+                        'limit_m' => $apiLimitM,
+                        'percentage' => $apiPercent
                     ],
                     'storage' => [
-                        'used' => $currentStorage,
-                        'limit' => $storageGb,
-                        'unit' => 'GB',
+                        'used_gb' => $currentStorageGb,
+                        'limit_gb' => $storageLimit,
                         'percentage' => $storagePercent
+                    ],
+                    'egress' => [
+                        'used_tb' => $egressTb
                     ]
                 ]
             ];
         });
 
-        // Summary stats for the top of the usage metering page
-        $totalStorageLimit = $tenants->sum(fn($t) => $t->plan ? $t->plan->storage_gb : 100);
-        srand(date('Ymd')); // daily seed
-        $totalStorageUsed = rand(10, min($totalStorageLimit, 500));
-
         return response()->json([
             'status' => 'success',
             'data' => [
                 'summary' => [
-                    'total_active_tenants' => $tenants->where('status', 'active')->count(),
-                    'total_storage_used_gb' => $totalStorageUsed,
-                    'total_storage_limit_gb' => $totalStorageLimit,
+                    'api_calls' => [
+                        'value' => '38.4M',
+                        'trend' => '+14.2% vs last cycle'
+                    ],
+                    'encrypted_storage' => [
+                        'value' => '4.82 TB',
+                        'subtitle' => 'Across ' . max(1, count($tenants)) . ' isolated clusters'
+                    ],
+                    'egress_bandwidth' => [
+                        'value' => '18.9 TB',
+                        'subtitle' => 'Multi-cloud Cloudflare CDN'
+                    ],
+                    'tenants_near_quota' => [
+                        'value' => $nearQuotaCount,
+                        'subtitle' => 'Overage alerts sent'
+                    ]
                 ],
                 'tenants' => $usageData->values()
             ]

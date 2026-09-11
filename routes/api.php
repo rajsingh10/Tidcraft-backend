@@ -22,9 +22,9 @@ Route::post('/login', [AuthController::class, 'login']);
 
 // Public API Routes
 Route::post('inquiries', [InquiryController::class, 'store']);
+Route::get('products/client', [ProductController::class, 'publicIndex']);
 
 Route::apiResource('plans', PlanController::class)->only(['index', 'show']);
-Route::apiResource('products', ProductController::class)->only(['index', 'show']);
 Route::apiResource('add-ons', AddOnController::class)->only(['index', 'show']);
 
 // Client Public Routes
@@ -95,7 +95,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('products/{product}/firebase', [ProductController::class, 'getFirebase']);
     Route::post('products/{product}/firebase', [ProductController::class, 'updateFirebase']);
     Route::post('products/{product}', [ProductController::class, 'update']);
-    Route::apiResource('products', ProductController::class)->except(['index', 'show']);
+    Route::apiResource('products', ProductController::class);
 
     Route::post('add-ons/{add_on}', [AddOnController::class, 'update']);
     Route::apiResource('add-ons', AddOnController::class)->except(['index', 'show']);
@@ -119,6 +119,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tenant-provision/check-subdomain', [TenantProvisionController::class, 'checkSubdomain']);
     Route::post('/tenant-provision', [TenantProvisionController::class, 'store']);
     Route::post('/tenant-provision/{uuid}/verify-payment', [TenantProvisionController::class, 'verifyPayment']);
+    Route::post('/tenant-provision/payment-status-change', [TenantProvisionController::class, 'paymentstatuschnage']);
     Route::get('/tenants', [TenantProvisionController::class, 'index']);
     Route::get('/tenants/{uuid}', [TenantProvisionController::class, 'show']);
     Route::post('/tenants/{uuid}', [TenantProvisionController::class, 'update']); // Using POST for form data with files/nested data
