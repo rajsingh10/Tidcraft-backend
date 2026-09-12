@@ -1,0 +1,948 @@
+﻿The easiest way to understand it is:
+Super Admin is the owner of the entire SaaS platform.
+Product is the software you sell.
+Client/Tenant is the business that buys the software.
+Tenant DB is that client's private data.
+________________
+
+
+1. First forget the technical words
+Imagine you own a company called:
+MySaaS
+You have built two software products:
+MySaaS
+│
+├── Food Delivery Software
+│
+└── Booking Software
+Now you sell Food Delivery Software to:
+Client A = Royal Bites
+Client B = Food King
+Client C = Pizza House
+And Booking Software to:
+Client D = ABC Salon
+Client E = XYZ Spa
+So your structure becomes:
+                   YOUR COMPANY
+                    MySaaS
+                       │
+                 SUPER ADMIN
+                       │
+          ┌────────────┴────────────┐
+          │                         │
+   FOOD DELIVERY                 BOOKING
+     PRODUCT                    PRODUCT
+          │                         │
+    ┌─────┼─────┐              ┌────┴────┐
+    │     │     │              │         │
+ Royal  Food   Pizza           ABC       XYZ
+ Bites  King   House          Salon     Spa
+That's the whole idea.
+
+
+________________
+
+
+2. What is Super Admin?
+Super Admin is you / your company.
+You login to:
+admin.mysaas.com
+You can see everything.
+For example:
+SUPER ADMIN DASHBOARD
+
+
+Products             2
+Clients              5
+Active Subscriptions 5
+Monthly Revenue      ₹1,25,000
+You can manage:
+Products
+Plans
+Clients
+Subscriptions
+Billing
+Usage
+Domains
+Features
+Limits
+Support
+System
+But your clients cannot see this Super Admin panel.
+________________
+
+
+3. What is a Product?
+A product means one software/application that you sell.
+For example:
+Product 1
+Food Delivery
+
+
+Product 2
+Booking
+You can later add:
+Product 3
+CRM
+
+
+Product 4
+POS
+
+
+Product 5
+Inventory
+So:
+                   SaaS
+                     │
+       ┌─────────────┼─────────────┐
+       │             │             │
+ Food Delivery     Booking        CRM
+This is why I recommend having products in the central database.
+________________
+
+
+4. What is a Client?
+A client is a company/business using your product.
+For example:
+Food Delivery Product
+
+
+Client 1 → Royal Bites
+Client 2 → Food King
+Client 3 → Pizza House
+Booking:
+Booking Product
+
+
+Client 4 → ABC Salon
+Client 5 → XYZ Spa
+So client and product have a relationship.
+Example:
+Royal Bites
+     │
+     └── Product = Food Delivery
+And:
+ABC Salon
+     │
+     └── Product = Booking
+________________
+
+
+5. Now the most important part: Tenant
+In your architecture:
+Tenant = one client/business inside your SaaS.
+So:
+Royal Bites = Tenant
+Food King   = Tenant
+Pizza House = Tenant
+Each tenant is isolated from the others.
+________________
+
+
+6. Why separate Tenant DB?
+This is where your original Food Delivery application changes.
+Suppose Royal Bites has:
+Restaurants:
+20
+
+
+Customers:
+10,000
+
+
+Riders:
+100
+
+
+Orders:
+50,000
+Food King has:
+Restaurants:
+10
+
+
+Customers:
+5,000
+
+
+Riders:
+50
+
+
+Orders:
+20,000
+You absolutely don't want Royal Bites accidentally seeing Food King's customers.
+Therefore:
+                   FOOD DELIVERY
+                         │
+             ┌───────────┼───────────┐
+             │           │           │
+             ▼           ▼           ▼
+          Tenant DB    Tenant DB    Tenant DB
+             │           │           │
+          Royal DB     Food DB    Pizza DB
+For example:
+food_tenant_1001
+food_tenant_1002
+food_tenant_1003
+________________
+
+
+7. What is SaaS Control DB?
+This is the central database.
+It does NOT contain all Food Delivery orders/customers.
+Instead, it contains information about your SaaS platform.
+Think of it as the master/control database.
+For example:
+saas_control_db
+It contains:
+products
+plans
+plan_features
+plan_limits
+tenants
+subscriptions
+domains
+usage
+invoices
+payments
+Example:
+TENANTS
+
+
+id    name           product
+--------------------------------
+1001  Royal Bites   Food Delivery
+1002  Food King     Food Delivery
+1003  Pizza House  Food Delivery
+2001  ABC Salon     Booking
+2002  XYZ Spa       Booking
+________________
+
+
+8. What goes into Tenant DB?
+Now let's look at Royal Bites.
+Its DB:
+food_tenant_1001
+contains:
+users
+restaurants
+restaurant_staff
+menus
+categories
+products
+customers
+riders
+orders
+order_items
+payments
+coupons
+delivery_zones
+addresses
+So:
+saas_control_db
+       │
+       │ knows
+       ▼
+Royal Bites
+       │
+       ▼
+food_tenant_1001
+       │
+       ├── Restaurants
+       ├── Customers
+       ├── Riders
+       ├── Orders
+       └── Payments
+________________
+
+
+9. What does Control DB know?
+For Royal Bites, the Control DB might have:
+Tenant ID:
+1001
+
+
+Business:
+Royal Bites
+
+
+Product:
+Food Delivery
+
+
+Plan:
+Professional
+
+
+Subscription:
+Active
+
+
+Domain:
+royalbites.mysaas.com
+
+
+Database:
+food_tenant_1001
+That's enough for the central system to know where Royal Bites belongs.
+________________
+
+
+10. Now let's follow a REAL client creation
+This is the most important workflow.
+You receive a new client:
+Royal Bites wants your Food Delivery software.
+You open:
+Super Admin
+    ↓
+Clients
+    ↓
+Create Client
+You enter:
+Business Name:
+Royal Bites
+
+
+Product:
+Food Delivery
+
+
+Plan:
+Professional
+
+
+Admin:
+John
+
+
+Email:
+john@royalbites.com
+Then click:
+Create Client
+________________
+
+
+11. What happens automatically?
+Your SaaS backend does this:
+Create Client
+      │
+      ▼
+Create Tenant Record
+      │
+      ▼
+Create Tenant Database
+      │
+      ▼
+Run Food Delivery Migrations
+      │
+      ▼
+Run Seeders
+      │
+      ▼
+Create Tenant Admin
+      │
+      ▼
+Create Storage
+      │
+      ▼
+Configure Domain
+      │
+      ▼
+Configure Subscription
+      │
+      ▼
+Health Check
+      │
+      ▼
+Activate Tenant
+You don't manually do these things every time.
+________________
+
+
+12. What does the database look like?
+Central DB:
+saas_control_db
+
+
+products
+------------------------
+1 | Food Delivery
+2 | Booking
+Plans:
+plans
+--------------------------------
+1 | Food Delivery | Starter
+2 | Food Delivery | Professional
+3 | Food Delivery | Enterprise
+
+
+4 | Booking | Basic
+5 | Booking | Professional
+6 | Booking | Enterprise
+Tenants:
+tenants
+------------------------------------------------
+1001 | Royal Bites  | Food Delivery | Professional
+1002 | Food King    | Food Delivery | Starter
+1003 | Pizza House  | Food Delivery | Enterprise
+2001 | ABC Salon    | Booking       | Professional
+________________
+
+
+13. Then databases are created
+Your server might have:
+MySQL Server
+│
+├── saas_control_db
+│
+├── food_tenant_1001
+├── food_tenant_1002
+├── food_tenant_1003
+│
+├── booking_tenant_2001
+└── booking_tenant_2002
+This is what DB-per-tenant means.
+________________
+
+
+14. Now user opens Royal Bites
+They go to:
+royalbites.mysaas.com
+Request reaches:
+Nginx
+   ↓
+Laravel
+   ↓
+Tenant Middleware
+Laravel sees:
+Host = royalbites.mysaas.com
+It asks Control DB:
+Who owns royalbites.mysaas.com?
+Control DB says:
+Tenant ID = 1001
+
+
+Product = Food Delivery
+
+
+Database = food_tenant_1001
+
+
+Subscription = Professional
+Laravel then connects to:
+food_tenant_1001
+Now Royal Bites sees its data.
+________________
+
+
+15. What happens when Food King logs in?
+Food King opens:
+foodking.mysaas.com
+Laravel does:
+Host
+ ↓
+Find Tenant
+ ↓
+Tenant ID = 1002
+ ↓
+Database = food_tenant_1002
+ ↓
+Connect
+So:
+Royal Bites
+    ↓
+food_tenant_1001
+
+
+Food King
+    ↓
+food_tenant_1002
+They never use each other's database.
+________________
+
+
+16. Now where does the Plan come in?
+Suppose Royal Bites selected:
+Professional
+₹5,999/month
+That plan says:
+Users              50
+Restaurants        20
+Riders             100
+Orders/month       10,000
+Storage            100 GB
+This information belongs in the Control DB, not inside every tenant DB.
+________________
+
+
+17. User limit example
+Royal Bites currently has:
+Users = 49
+Limit = 50
+Admin creates one more:
+49 + 1 = 50
+Allowed.
+Now:
+Users = 50
+They try to create another.
+Laravel asks the SaaS entitlement system:
+Can Royal Bites create 1 more user?
+System checks:
+Plan:
+Professional
+
+
+Limit:
+50
+
+
+Current:
+50
+Answer:
+NO
+Response:
+User limit reached. Please upgrade your plan.
+________________
+
+
+18. Order limit example
+Professional plan:
+Orders/month = 10,000
+September usage:
+8,450
+Customer creates an order.
+System checks:
+8,450 + 1 <= 10,000
+Yes.
+Order is created.
+Usage becomes:
+8,451
+When it reaches:
+10,000 / 10,000
+next order can be blocked, based on your policy.
+________________
+
+
+19. Booking product works exactly the same way
+Now ABC Salon uses your Booking Product.
+Its database:
+booking_tenant_2001
+It contains:
+users
+customers
+staff
+services
+bookings
+payments
+calendar
+Its plan:
+Professional
+Limits:
+Users             25
+Staff             50
+Services          100
+Bookings/month    5,000
+Storage           50 GB
+When ABC Salon creates a booking:
+Create Booking
+      ↓
+Tenant = ABC Salon
+      ↓
+Subscription = Professional
+      ↓
+Check monthly_bookings
+      ↓
+Check usage
+      ↓
+Allow / Block
+      ↓
+Create booking
+      ↓
+Increment usage
+Same SaaS engine.
+Only the resource changes:
+Food Delivery → monthly_orders
+
+
+Booking       → monthly_bookings
+________________
+
+
+20. Why Product is important
+Without products, your system becomes hardcoded:
+if food_delivery:
+    check orders
+
+
+if booking:
+    check bookings
+Then later:
+if crm:
+    check contacts
+
+
+if inventory:
+    check products
+This becomes messy.
+Instead:
+Product
+   ↓
+Plan
+   ↓
+Limits
+So the limit engine simply receives:
+monthly_orders
+or:
+monthly_bookings
+or:
+contacts
+It doesn't care which product uses it.
+________________
+
+
+21. Complete example
+Let's say you have:
+                MY SAAS
+                    │
+               SUPER ADMIN
+                    │
+       ┌────────────┴────────────┐
+       │                         │
+ FOOD DELIVERY                BOOKING
+       │                         │
+       │                         │
+ ┌─────┼─────┐             ┌─────┴─────┐
+ │     │     │             │           │
+Royal Food  Pizza          ABC         XYZ
+Bites King  House         Salon        Spa
+Databases:
+                   MySQL
+                      │
+             ┌────────┴────────┐
+             │                 │
+       CONTROL DATABASE       TENANT DATABASES
+             │                 │
+             │        ┌────────┼──────────┐
+             │        │        │          │
+             │      Royal     Food       Pizza
+             │
+             │        ┌────────┴──────────┐
+             │        │                   │
+             │       ABC                 XYZ
+More technically:
+saas_control_db
+│
+├── products
+├── plans
+├── plan_features
+├── plan_limits
+├── tenants
+├── subscriptions
+├── domains
+├── usage_counters
+├── invoices
+└── payments
+
+
+
+
+food_tenant_1001
+├── users
+├── restaurants
+├── customers
+├── riders
+├── orders
+└── payments
+
+
+food_tenant_1002
+├── users
+├── restaurants
+├── customers
+├── riders
+├── orders
+└── payments
+
+
+food_tenant_1003
+├── users
+├── restaurants
+├── customers
+├── riders
+├── orders
+└── payments
+
+
+
+
+booking_tenant_2001
+├── users
+├── customers
+├── staff
+├── services
+├── bookings
+└── payments
+
+
+booking_tenant_2002
+├── users
+├── customers
+├── staff
+├── services
+├── bookings
+└── payments
+________________
+
+
+22. Very important: SaaS Control DB vs Tenant DB
+This distinction will make everything clear.
+SaaS Control DB
+	Tenant DB
+	Products
+	Customers
+	Plans
+	Restaurants
+	Features
+	Riders
+	Limits
+	Orders
+	Tenants
+	Menus
+	Subscriptions
+	Bookings
+	Domains
+	Payments
+	Usage
+	Staff
+	Invoices
+	Tenant users
+	SaaS payments
+	Product data
+	Audit logs
+	Business data
+	Simple rule:
+"Who is the client and what are they allowed to use?" → Control DB
+"What is the client's actual business data?" → Tenant DB
+________________
+
+
+23. One more important concept: SaaS Services
+In the diagram you saw:
+SaaS Services
+Don't think of this as separate microservices.
+Initially, keep these inside your Laravel application.
+For example:
+Laravel
+│
+├── BillingService
+├── UsageService
+├── TenantProvisioningService
+├── SubscriptionService
+├── NotificationService
+└── EntitlementService
+You don't need:
+Billing Microservice
+Usage Microservice
+Notification Microservice
+for your first version.
+Keep it simple.
+________________
+
+
+24. Your Laravel project structure
+I would structure your new SaaS layer roughly like:
+app/
+│
+├── Services/
+│   ├── Tenant/
+│   │   ├── TenantResolver.php
+│   │   └── TenantProvisioner.php
+│   │
+│   ├── Subscription/
+│   │   └── SubscriptionService.php
+│   │
+│   ├── Entitlement/
+│   │   └── EntitlementService.php
+│   │
+│   ├── Usage/
+│   │   └── UsageService.php
+│   │
+│   ├── Billing/
+│   │   └── BillingService.php
+│   │
+│   └── Product/
+│       └── ProductService.php
+│
+├── Models/
+│   ├── Control/
+│   │   ├── Product.php
+│   │   ├── Plan.php
+│   │   ├── Tenant.php
+│   │   ├── Subscription.php
+│   │   └── UsageCounter.php
+│   │
+│   └── Tenant/
+│       ├── User.php
+│       ├── Restaurant.php
+│       ├── Order.php
+│       └── ...
+│
+└── Middleware/
+    └── ResolveTenant.php
+Your existing Food Delivery code can stay largely intact.
+________________
+
+
+25. The complete request flow
+This is probably the most important diagram for your developer team:
+USER
+ │
+ │ opens royalbites.mysaas.com
+ ▼
+NGINX
+ │
+ ▼
+LARAVEL
+ │
+ ▼
+ResolveTenant Middleware
+ │
+ │ domain = royalbites.mysaas.com
+ ▼
+CONTROL DB
+ │
+ │ tenant = 1001
+ │ product = food_delivery
+ │ plan = professional
+ │ database = food_tenant_1001
+ ▼
+SET TENANT CONTEXT
+ │
+ ▼
+CHECK SUBSCRIPTION
+ │
+ ▼
+CHECK PERMISSION
+ │
+ ▼
+CHECK FEATURE / LIMIT
+ │
+ ▼
+CONNECT TENANT DB
+ │
+ ▼
+FOOD DELIVERY LOGIC
+ │
+ ▼
+food_tenant_1001
+ │
+ ▼
+RESPONSE
+________________
+
+
+26. When creating an order
+Even simpler:
+Customer
+   │
+   ▼
+Food Delivery App
+   │
+   ▼
+API
+   │
+   ▼
+Find Tenant
+   │
+   ▼
+Royal Bites
+   │
+   ▼
+Check Subscription
+   │
+   ▼
+Check "Order" Feature
+   │
+   ▼
+Check monthly_orders
+   │
+   ▼
+Check Usage
+   │
+   ├── Limit reached → STOP
+   │
+   └── Available
+          │
+          ▼
+    Create Order
+          │
+          ▼
+  food_tenant_1001
+          │
+          ▼
+ Increment Usage
+________________
+
+
+27. What you should build first
+For your existing project, I would not start by changing everything.
+Do it in this order:
+STEP 1
+Create SaaS Control DB
+        ↓
+STEP 2
+Create Products
+        ↓
+STEP 3
+Create Plans
+        ↓
+STEP 4
+Create Features
+        ↓
+STEP 5
+Create Plan Limits
+        ↓
+STEP 6
+Create Tenants
+        ↓
+STEP 7
+Create Subscriptions
+        ↓
+STEP 8
+Create Tenant DB automatically
+        ↓
+STEP 9
+Tenant Resolver Middleware
+        ↓
+STEP 10
+Connect existing Food Delivery
+        ↓
+STEP 11
+Feature checking
+        ↓
+STEP 12
+User/Restaurant/Rider limits
+        ↓
+STEP 13
+Order usage limit
+        ↓
+STEP 14
+Usage dashboard
+        ↓
+STEP 15
+Billing
+        ↓
+STEP 16
+Custom domain
+        ↓
+STEP 17
+Add Booking Product
+________________
+
+
+The one sentence to remember
+If all of this feels complicated, remember just this:
+Super Admin controls the SaaS → Product defines what software it is → Plan defines what the client gets → Tenant identifies the client → Tenant DB stores that client's actual data → Subscription says whether they are active → Limit/Usage says how much they can use.
+That is the architecture you want.

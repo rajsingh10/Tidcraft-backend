@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('product_firebase_projects', function (Blueprint $table) {
-            $table->string('firebase_db_collection')->nullable()->after('firebase_location_id');
+            $table->string('firebase_db_collection')->nullable();
         });
     }
 
