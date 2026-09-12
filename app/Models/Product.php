@@ -20,6 +20,7 @@ class Product extends Model
         'starting_price',
         'badge',
         'description',
+        'frontend_path',
         'images',
         'create_by',
         'update_by',

@@ -129,6 +129,22 @@ class TenantProvisionController extends Controller
                 'status' => 'pending',
             ]);
 
+            // Create a symlink for the frontend Nginx routing
+            $product = \App\Models\Product::find($request->product_id);
+            if ($product && !empty($product->frontend_path)) {
+                $tenantsDirectory = '/home/devtidcraftcomusr/tenants/';
+                if (!file_exists($tenantsDirectory)) {
+                    @mkdir($tenantsDirectory, 0755, true);
+                }
+                
+                $symlinkPath = rtrim($tenantsDirectory, '/') . '/' . $domainStr;
+                $targetPath = $product->frontend_path;
+
+                if (!file_exists($symlinkPath) && file_exists($targetPath)) {
+                    @symlink($targetPath, $symlinkPath);
+                }
+            }
+
             DB::commit();
 
             $tenant->load('domains');
@@ -149,15 +165,12 @@ class TenantProvisionController extends Controller
                 ], 500);
             }
 
-            // MySQL tenant DB, migrations, and seed run in background
-            \App\Jobs\ProvisionTenantJob::dispatch($tenant);
-            
             // Optionally log the provisioning action
             AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned.");
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Tenant created. Firestore database '.$tenant->firestoreDatabaseId().' created. MySQL migrate/seed are running in the background.',
+                'message' => 'Tenant created. Firestore database '.$tenant->firestoreDatabaseId().' created.',
                 'data' => [
                     'tenant_id' => $tenant->uuid,
                     'tenant_status' => $tenant->status,
