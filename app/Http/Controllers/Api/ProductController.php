@@ -73,6 +73,7 @@ class ProductController extends Controller
             'starting_price' => 'nullable|numeric|min:0',
             'badge' => 'nullable|string|max:255',
             'description' => 'nullable|string',
+            'frontend_path' => 'nullable|string|max:255',
             'images' => 'nullable|array',
             'images.*' => 'image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
         ]);
@@ -152,6 +153,7 @@ class ProductController extends Controller
             'starting_price' => 'nullable|numeric|min:0',
             'badge' => 'nullable|string|max:255',
             'description' => 'nullable|string',
+            'frontend_path' => 'nullable|string|max:255',
             'images' => 'nullable|array',
         ];
 
