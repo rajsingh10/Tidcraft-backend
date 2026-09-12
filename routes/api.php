@@ -9,14 +9,23 @@ use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\TenantProvisionController;
-use App\Http\Controllers\Api\TenantController;
+use App\Http\Controllers\Api\SystemLogController;
 use App\Http\Controllers\Api\AddOnController;
 use App\Http\Controllers\Api\InquiryController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\client\ClientAuthController;
 use App\Http\Controllers\Api\client\ClientPurchaseController;
+use App\Http\Controllers\Admin\ClientController;
+
 Route::post('/login', [AuthController::class, 'login']);
+
+// Public API Routes
+Route::post('inquiries', [InquiryController::class, 'store']);
+Route::get('products/client', [ProductController::class, 'publicIndex']);
+
+Route::apiResource('plans', PlanController::class)->only(['index', 'show']);
+Route::apiResource('add-ons', AddOnController::class)->only(['index', 'show']);
 
 // Client Public Routes
 Route::prefix('client')->group(function () {
@@ -51,6 +60,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Custom POST route for update to bypass PHP's PUT/multipart limitation
     Route::post('product-categories/{product_category}', [ProductCategoryController::class, 'update']);
     Route::apiResource('product-categories', ProductCategoryController::class);
+
+    // Clients API (Admin Side)
+    Route::post('clients/{client}', [ClientController::class, 'update']);
+    Route::apiResource('clients', ClientController::class);
     // Settings API
     Route::get('/settings', [SettingController::class, 'index']);
     Route::post('/settings', [SettingController::class, 'store']);
@@ -68,19 +81,32 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/settings/payment-methods', [SettingController::class, 'storePaymentMethods']);
 
     // Audit Logs API
+    Route::post('/audit-logs/bulk-delete', [AuditLogController::class, 'destroyBulk']);
+    Route::delete('/audit-logs/all', [AuditLogController::class, 'destroyAll']);
     Route::get('/audit-logs', [AuditLogController::class, 'index']);
 
-    Route::post('plans/{plan}', [PlanController::class, 'update']);
-    Route::apiResource('plans', PlanController::class);
+    // System Logs API
+    Route::get('/system-logs', [SystemLogController::class, 'index']);
+    Route::delete('/system-logs', [SystemLogController::class, 'destroy']);
 
+    Route::post('plans/{plan}', [PlanController::class, 'update']);
+    Route::apiResource('plans', PlanController::class)->except(['index', 'show']);
+
+    Route::get('products/{product}/firebase', [ProductController::class, 'getFirebase']);
+    Route::post('products/{product}/firebase', [ProductController::class, 'updateFirebase']);
     Route::post('products/{product}', [ProductController::class, 'update']);
     Route::apiResource('products', ProductController::class);
 
     Route::post('add-ons/{add_on}', [AddOnController::class, 'update']);
-    Route::apiResource('add-ons', AddOnController::class);
+    Route::apiResource('add-ons', AddOnController::class)->except(['index', 'show']);
 
     Route::post('inquiries/{inquiry}', [InquiryController::class, 'update']);
-    Route::apiResource('inquiries', InquiryController::class);
+    Route::post('inquiries/{inquiry}/status', [InquiryController::class, 'changeStatus']);
+    Route::apiResource('inquiries', InquiryController::class)->except('store');
+
+    // Dashboard & Analytics APIs
+    Route::get('/dashboard', [\App\Http\Controllers\Api\DashboardController::class, 'index']);
+    Route::get('/usage-metering', [\App\Http\Controllers\Api\UsageMeteringController::class, 'index']);
 
     // Admin Notifications API
     Route::get('/notifications', [\App\Http\Controllers\Api\AdminNotificationController::class, 'index']);
@@ -90,12 +116,20 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notifications/{id}/unread', [\App\Http\Controllers\Api\AdminNotificationController::class, 'markAsUnread']);
 
     // Tenant Provisioning API
+    Route::post('/tenant-provision/check-subdomain', [TenantProvisionController::class, 'checkSubdomain']);
     Route::post('/tenant-provision', [TenantProvisionController::class, 'store']);
     Route::post('/tenant-provision/{uuid}/verify-payment', [TenantProvisionController::class, 'verifyPayment']);
+    Route::post('/tenant-provision/payment-status-change', [TenantProvisionController::class, 'paymentstatuschnage']);
     Route::get('/tenants', [TenantProvisionController::class, 'index']);
     Route::get('/tenants/{uuid}', [TenantProvisionController::class, 'show']);
     Route::post('/tenants/{uuid}', [TenantProvisionController::class, 'update']); // Using POST for form data with files/nested data
     Route::delete('/tenants/{uuid}', [TenantProvisionController::class, 'destroy']);
+
+    // Support Tickets API
+    Route::get('/support-tickets', [\App\Http\Controllers\Api\SupportTicketController::class, 'index']);
+    Route::get('/support-tickets/{id}', [\App\Http\Controllers\Api\SupportTicketController::class, 'show']);
+    Route::post('/support-tickets', [\App\Http\Controllers\Api\SupportTicketController::class, 'store']);
+    Route::post('/support-tickets/{id}', [\App\Http\Controllers\Api\SupportTicketController::class, 'update']);
 
     // Dedicated APIs for Subscriptions and Payments
     Route::post('subscriptions/{subscription}', [SubscriptionController::class, 'update']);
