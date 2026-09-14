@@ -109,6 +109,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Dashboard & Analytics APIs
     Route::get('/dashboard', [\App\Http\Controllers\Api\DashboardController::class, 'index']);
     Route::get('/usage-metering', [\App\Http\Controllers\Api\UsageMeteringController::class, 'index']);
+    Route::get('/revenue-analytics', [\App\Http\Controllers\Api\DashboardController::class, 'revenueAnalytics']);
 
     // Admin Notifications API
     Route::get('/notifications', [\App\Http\Controllers\Api\AdminNotificationController::class, 'index']);
