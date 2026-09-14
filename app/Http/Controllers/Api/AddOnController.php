@@ -27,6 +27,7 @@ class AddOnController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
+            'product_id' => 'required|exists:products,id',
             'price' => 'required|numeric|min:0',
             'period' => 'required|string|max:255',
             'limit' => 'nullable|string|max:255',
@@ -60,6 +61,7 @@ class AddOnController extends Controller
     {
         $request->validate([
             'name' => 'sometimes|required|string|max:255',
+            'product_id' => 'sometimes|required|exists:products,id',
             'price' => 'sometimes|required|numeric|min:0',
             'period' => 'sometimes|required|string|max:255',
             'limit' => 'nullable|string|max:255',

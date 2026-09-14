@@ -17,7 +17,7 @@ return new class extends Migration
             $table->string('customer_name');
             $table->string('email')->nullable();
             $table->string('phone')->nullable();
-            $table->foreignId('project_id')->nullable()->constrained('projects')->nullOnDelete();
+            $table->unsignedBigInteger('project_id')->nullable();
             $table->text('description')->nullable();
             
             // Custom Timestamps & Soft Deletes

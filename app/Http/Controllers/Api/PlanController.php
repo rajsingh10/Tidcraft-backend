@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
+use App\Models\Subscription;
 use Illuminate\Http\Request;
 
 class PlanController extends Controller
@@ -26,15 +27,24 @@ class PlanController extends Controller
     public function store(Request $request)
     {
         $request->validate([
+            'product_id' => 'required|exists:products,id',
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'price' => 'required|numeric|min:0',
-            'billing_cycle' => 'required|string|max:255',
-            'is_active' => 'boolean',
+            'monthly_price' => 'required|numeric|min:0',
+            'annual_price' => 'required|numeric|min:0',
+            'is_active' => 'nullable|boolean',
             'features' => 'nullable|array',
-            'is_popular' => 'boolean',
+            'integrations' => 'nullable|array',
+            'is_popular' => 'nullable|boolean',
             'max_users' => 'nullable|integer',
             'max_orders' => 'nullable|integer',
+            'additional_order_price' => 'nullable|numeric|min:0',
+            'store_configuration' => 'nullable|string',
+            'has_hybrid_customer_app' => 'nullable|boolean',
+            'has_hybrid_customer_merchant_app' => 'nullable|boolean',
+            'has_unlimited_users_listings' => 'nullable|boolean',
+            'has_white_labeled_solution' => 'nullable|boolean',
+            'has_white_labeled_dashboard' => 'nullable|boolean',
             'storage_gb' => 'nullable|integer',
             'duration_days' => 'nullable|integer',
         ]);
@@ -64,16 +74,32 @@ class PlanController extends Controller
      */
     public function update(Request $request, Plan $plan)
     {
+        if (Subscription::where('plan_id', $plan->id)->exists()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Cannot update plan because it is associated with one or more subscriptions.'
+            ], 400);
+        }
+
         $request->validate([
+            'product_id' => 'sometimes|required|exists:products,id',
             'name' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
-            'price' => 'sometimes|required|numeric|min:0',
-            'billing_cycle' => 'sometimes|required|string|max:255',
-            'is_active' => 'boolean',
+            'monthly_price' => 'sometimes|required|numeric|min:0',
+            'annual_price' => 'sometimes|required|numeric|min:0',
+            'is_active' => 'nullable|boolean',
             'features' => 'nullable|array',
-            'is_popular' => 'boolean',
+            'integrations' => 'nullable|array',
+            'is_popular' => 'nullable|boolean',
             'max_users' => 'nullable|integer',
             'max_orders' => 'nullable|integer',
+            'additional_order_price' => 'nullable|numeric|min:0',
+            'store_configuration' => 'nullable|string',
+            'has_hybrid_customer_app' => 'nullable|boolean',
+            'has_hybrid_customer_merchant_app' => 'nullable|boolean',
+            'has_unlimited_users_listings' => 'nullable|boolean',
+            'has_white_labeled_solution' => 'nullable|boolean',
+            'has_white_labeled_dashboard' => 'nullable|boolean',
             'storage_gb' => 'nullable|integer',
             'duration_days' => 'nullable|integer',
         ]);
@@ -92,6 +118,13 @@ class PlanController extends Controller
      */
     public function destroy(Plan $plan)
     {
+        if (Subscription::where('plan_id', $plan->id)->exists()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Cannot delete plan because it is associated with one or more subscriptions.'
+            ], 400);
+        }
+
         $plan->delete();
 
         return response()->json([

@@ -23,6 +23,8 @@ class Payment extends Model
         'payment_method',
         'status',
         'customer_details',
+        'type',
+        'metadata',
         'create_by',
         'update_by',
         'delete_by',
@@ -30,6 +32,7 @@ class Payment extends Model
 
     protected $casts = [
         'customer_details' => 'array',
+        'metadata' => 'array',
     ];
 
     public function tenant()

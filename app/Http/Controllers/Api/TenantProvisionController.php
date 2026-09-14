@@ -8,8 +8,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use App\Models\Tenant;
-use App\Models\TenantDomain;
-use App\Models\TenantFirebaseConfig;
+use App\Models\Domain;
+use App\Models\FirebaseProject;
 use App\Services\AuditLogger;
 
 class TenantProvisionController extends Controller
@@ -19,11 +19,14 @@ class TenantProvisionController extends Controller
         // Auto-construct full domain from subdomain_prefix
         if ($request->domain_type === 'subdomain' && $request->has('subdomain_prefix')) {
             $prefix = trim($request->subdomain_prefix, " .");
-            $request->merge(['domain' => $prefix . '.tidcraft.app']);
+            $request->merge(['domain' => $prefix . '.tidcraft.com']);
         }
 
         $validator = Validator::make($request->all(), [
             // Step 1: Client Info
+            'client_id' => 'nullable|exists:users,id',
+            'client_name' => 'nullable|string|max:255',
+            'client_logo' => 'nullable',
             'business_name' => 'required|string|max:255',
             'primary_contact_email' => 'required|email|max:255',
             'phone_number' => 'nullable|string|max:20',
@@ -35,21 +38,12 @@ class TenantProvisionController extends Controller
             'plan_id' => 'required|exists:plans,id',
 
             // Step 4: Domain Setup
-            'domain_type' => 'required|in:subdomain,shared,custom',
-            'domain' => 'required|string|unique:tenant_domains,domain',
-
-
+            'domain_type' => 'nullable|in:subdomain,shared,custom',
+            'domain' => 'nullable|string|unique:domains,domain',
 
             // Add-ons
             'add_ons' => 'nullable|array',
             'add_ons.*' => 'exists:add_ons,id',
-
-            // Payment Details
-            'transaction_id' => 'nullable|string',
-            'amount' => 'nullable|numeric',
-            'currency' => 'nullable|string',
-            'payment_method' => 'nullable|string',
-            'payment_status' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -60,12 +54,34 @@ class TenantProvisionController extends Controller
             ], 422);
         }
 
+        $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $request->product_id)->first();
+        if (!$productFirebase || empty($productFirebase->firebase_project_id)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'This product has no Firebase project ID. Save it via POST /api/products/{id}/firebase first.',
+            ], 422);
+        }
+        if (empty($productFirebase->service_account_json)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'This product has no Firebase service account. Upload service_account_json via POST /api/products/{id}/firebase first.',
+            ], 422);
+        }
+
         try {
             DB::beginTransaction();
+
+            $clientId = $request->client_id ?? auth()->id();
+            $this->syncClientProfile($request, $clientId);
+
+            $tenantKey = Str::slug($request->business_name) . '-p' . $request->product_id;
 
             // 1. Create Tenant
             $tenant = Tenant::create([
                 'uuid' => Str::uuid()->toString(),
+                'client_id' => $clientId,
+                'name' => $request->business_name,
+                'tenant_key' => $tenantKey,
                 'business_name' => $request->business_name,
                 'primary_contact_email' => $request->primary_contact_email,
                 'phone_number' => $request->phone_number,
@@ -81,89 +97,53 @@ class TenantProvisionController extends Controller
                 $tenant->addOns()->attach($request->add_ons);
             }
 
-            // Calculate actual total amount
-            $plan = \App\Models\Plan::find($request->plan_id);
-            $paymentAmount = $plan ? (float) $plan->price : 0;
-            if ($request->has('add_ons') && is_array($request->add_ons)) {
-                $paymentAmount += (float) \App\Models\AddOn::whereIn('id', $request->add_ons)->sum('price');
-            }
-
-            // Create Subscription
+                // Create Subscription
             $tenant->subscriptions()->create([
                 'plan_id' => $request->plan_id,
                 'status' => 'active',
                 'start_date' => now(),
             ]);
 
-            // Create Payment
-            if ($paymentAmount > 0) {
-                $tenant->payments()->create([
-                    'transaction_id' => $request->transaction_id ?? null,
-                    'amount' => $paymentAmount,
-                    'currency' => $request->currency ?? 'INR',
-                    'payment_method' => $request->payment_method ?? 'razorpay',
-                    'status' => $request->payment_status ?? 'pending',
-                ]);
-            }
-
-            // 2. Create Domain Configuration
-            TenantDomain::create([
-                'tenant_id' => $tenant->id,
-                'type' => $request->domain_type,
-                'domain' => $request->domain,
-                'status' => 'pending',
+            // Create Default Successful Payment
+            $plan = \App\Models\Plan::find($request->plan_id);
+            $tenant->payments()->create([
+                'transaction_id' => 'txn_' . Str::random(12),
+                'amount' => $plan ? $plan->monthly_price : 0,
+                'currency' => 'INR',
+                'payment_method' => 'manual',
+                'status' => 'success',
             ]);
 
 
 
+            // Create Domain Configuration
+            $domainType = $request->domain_type ?? 'subdomain';
+            $domainStr = $request->domain ?? Str::uuid()->toString() . '.tidcraft.app';
+
+            Domain::create([
+                'tenant_id' => $tenant->id,
+                'client_id' => $clientId,
+                'product_id' => $request->product_id,
+                'type' => $domainType,
+                'domain' => $domainStr,
+                'status' => 'pending',
+            ]);
+
             DB::commit();
-            
+
+            // Dispatch the background provisioning job
+            \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+
             // Optionally log the provisioning action
-            AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned.");
-
-            // Generate Razorpay Payment Link
-            $paymentLinkStr = null;
-
-            if ($paymentAmount > 0) {
-                $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
-                
-                if (isset($razorpaySettings['razorpay_active']) && $razorpaySettings['razorpay_active'] === 'true') {
-                    $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
-                    $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
-
-                    if ($keyId && $keySecret) {
-                        try {
-                            $api = new \Razorpay\Api\Api($keyId, $keySecret);
-                            
-                            $paymentLinkData = [
-                                'amount' => (int) ($paymentAmount * 100), // convert to paise
-                                'currency' => $request->currency ?? 'INR',
-                                'description' => 'Payment for Tenant Provisioning',
-                                'customer' => [
-                                    'name' => $tenant->business_name,
-                                    'email' => $tenant->primary_contact_email,
-                                    'contact' => $tenant->phone_number ?? ''
-                                ],
-                                'notify' => ['email' => true, 'sms' => true],
-                                'reminder_enable' => true,
-                            ];
-                            
-                            $paymentLinkResponse = $api->paymentLink->create($paymentLinkData);
-                            $paymentLinkStr = $paymentLinkResponse->short_url;
-                        } catch (\Exception $e) {
-                            \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
-                        }
-                    }
-                }
-            }
+            AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned and added to the queue.");
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Tenant provisioned successfully.',
+                'message' => 'Tenant created and queued for background provisioning.',
                 'data' => [
                     'tenant_id' => $tenant->uuid,
-                    'payment_link' => $paymentLinkStr,
-                    'amount' => $paymentAmount
+                    'tenant_status' => $tenant->status,
+                    'domain' => $domainStr
                 ]
             ], 201);
 
@@ -178,11 +158,42 @@ class TenantProvisionController extends Controller
     }
 
     /**
+     * Check if a subdomain prefix is available.
+     */
+    public function checkSubdomain(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'subdomain_prefix' => 'required|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation Error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $prefix = trim($request->subdomain_prefix, " .");
+
+        $existsInDomains = \App\Models\Domain::where('domain', $prefix)->exists();
+
+        $available = !$existsInDomains;
+
+        return response()->json([
+            'status' => 'success',
+            'available' => $available,
+            'domain' => $prefix,
+            'message' => $available ? 'Subdomain is available' : 'Subdomain is already taken'
+        ]);
+    }
+
+    /**
      * Display a listing of tenants.
      */
     public function index()
     {
-        $tenants = Tenant::with(['product', 'plan', 'domain', 'addOns', 'subscriptions', 'payments'])->get();
+        $tenants = Tenant::with(['client', 'product', 'plan', 'domains', 'firebaseProject', 'database', 'addOns', 'subscriptions', 'payments'])->get();
         return response()->json([
             'status' => 'success',
             'data' => $tenants
@@ -194,7 +205,7 @@ class TenantProvisionController extends Controller
      */
     public function show($uuid)
     {
-        $tenant = Tenant::with(['product', 'plan', 'domain', 'firebaseConfig', 'addOns', 'subscriptions', 'payments'])->where('uuid', $uuid)->first();
+        $tenant = Tenant::with(['client', 'product', 'plan', 'domains', 'firebaseProject', 'database', 'provisioningLogs', 'addOns', 'subscriptions', 'payments'])->where('uuid', $uuid)->first();
 
         if (!$tenant) {
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
@@ -228,6 +239,9 @@ class TenantProvisionController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
+            'client_id' => 'nullable|exists:users,id',
+            'client_name' => 'nullable|string|max:255',
+            'client_logo' => 'nullable',
             'business_name' => 'nullable|string|max:255',
             'primary_contact_email' => 'nullable|email|max:255',
             'phone_number' => 'nullable|string|max:20',
@@ -239,7 +253,7 @@ class TenantProvisionController extends Controller
             
             // Domain
             'domain_type' => 'nullable|in:subdomain,shared,custom',
-            'domain' => 'nullable|string|unique:tenant_domains,domain,' . ($tenant->domain ? $tenant->domain->id : 'NULL') . ',id',
+            'domain' => 'nullable|string|unique:domains,domain,' . ($tenant->domains()->first() ? $tenant->domains()->first()->id : 'NULL') . ',id',
 
             // Firebase
             'firebase_project_id' => 'nullable|string',
@@ -266,9 +280,23 @@ class TenantProvisionController extends Controller
         try {
             DB::beginTransaction();
 
-            $tenant->update($request->only([
-                'business_name', 'primary_contact_email', 'phone_number', 'address', 'industry', 'product_id', 'plan_id', 'status'
-            ]));
+            $this->syncClientProfile($request, $tenant->client_id);
+
+            $updateData = $request->only([
+                'client_id', 'business_name', 'primary_contact_email', 'phone_number', 'address', 'industry', 'product_id', 'plan_id', 'status'
+            ]);
+            
+            // Auto-generate name/tenant_key if business_name or product_id changed
+            if ($request->has('business_name')) {
+                $updateData['name'] = $request->business_name;
+            }
+            if ($request->has('business_name') || $request->has('product_id')) {
+                $bName = $request->business_name ?? $tenant->business_name;
+                $pId = $request->product_id ?? $tenant->product_id;
+                $updateData['tenant_key'] = Str::slug($bName) . '-p' . $pId;
+            }
+
+            $tenant->update($updateData);
 
             // Sync Add-ons
             if ($request->has('add_ons') && is_array($request->add_ons)) {
@@ -280,30 +308,34 @@ class TenantProvisionController extends Controller
                 if ($request->has('domain_type')) $domainData['type'] = $request->domain_type;
                 if ($request->has('domain')) $domainData['domain'] = $request->domain;
                 
-                if ($tenant->domain) {
-                    $tenant->domain->update($domainData);
+                $existingDomain = $tenant->domains()->first();
+                if ($existingDomain) {
+                    $existingDomain->update($domainData);
                 } else {
                     $domainData['tenant_id'] = $tenant->id;
+                    $domainData['client_id'] = $tenant->client_id;
+                    $domainData['product_id'] = $tenant->product_id;
                     $domainData['status'] = 'pending';
-                    TenantDomain::create($domainData);
+                    Domain::create($domainData);
                 }
             }
 
             if ($request->hasAny(['firebase_project_id', 'firebase_api_key', 'firebase_app_id', 'firebase_auth_domain', 'firebase_storage_bucket', 'firebase_messaging_sender_id', 'firebase_database_url'])) {
                 $firebaseData = [];
-                if ($request->has('firebase_project_id')) $firebaseData['project_id'] = $request->firebase_project_id;
-                if ($request->has('firebase_api_key')) $firebaseData['api_key'] = $request->firebase_api_key;
-                if ($request->has('firebase_app_id')) $firebaseData['app_id'] = $request->firebase_app_id;
-                if ($request->has('firebase_auth_domain')) $firebaseData['auth_domain'] = $request->firebase_auth_domain;
-                if ($request->has('firebase_storage_bucket')) $firebaseData['storage_bucket'] = $request->firebase_storage_bucket;
-                if ($request->has('firebase_messaging_sender_id')) $firebaseData['messaging_sender_id'] = $request->firebase_messaging_sender_id;
-                if ($request->has('firebase_database_url')) $firebaseData['database_url'] = $request->firebase_database_url;
+                if ($request->has('firebase_project_id')) $firebaseData['firebase_project_id'] = $request->firebase_project_id;
+                if ($request->has('firebase_api_key')) $firebaseData['firebase_api_key'] = $request->firebase_api_key;
+                if ($request->has('firebase_app_id')) $firebaseData['firebase_app_id'] = $request->firebase_app_id;
+                if ($request->has('firebase_auth_domain')) $firebaseData['firebase_auth_domain'] = $request->firebase_auth_domain;
+                if ($request->has('firebase_storage_bucket')) $firebaseData['firebase_storage_bucket'] = $request->firebase_storage_bucket;
+                if ($request->has('firebase_messaging_sender_id')) $firebaseData['firebase_messaging_sender_id'] = $request->firebase_messaging_sender_id;
 
-                if ($tenant->firebaseConfig) {
-                    $tenant->firebaseConfig->update($firebaseData);
+                if ($tenant->firebaseProject) {
+                    $tenant->firebaseProject->update($firebaseData);
                 } else {
                     $firebaseData['tenant_id'] = $tenant->id;
-                    TenantFirebaseConfig::create($firebaseData);
+                    $firebaseData['client_id'] = $tenant->client_id;
+                    $firebaseData['product_id'] = $tenant->product_id;
+                    FirebaseProject::create($firebaseData);
                 }
             }
 
@@ -312,7 +344,7 @@ class TenantProvisionController extends Controller
             return response()->json([
                 'status' => 'success',
                 'message' => 'Tenant updated successfully.',
-                'data' => $tenant->fresh(['domain', 'firebaseConfig'])
+                'data' => $tenant->fresh(['domains', 'firebaseProject'])
             ]);
 
         } catch (\Exception $e) {
@@ -340,11 +372,11 @@ class TenantProvisionController extends Controller
             DB::beginTransaction();
 
             // Soft delete relationships if they exist
-            if ($tenant->domain) {
-                $tenant->domain->delete();
+            foreach ($tenant->domains as $domain) {
+                $domain->delete();
             }
-            if ($tenant->firebaseConfig) {
-                $tenant->firebaseConfig->delete();
+            if ($tenant->firebaseProject) {
+                $tenant->firebaseProject->delete();
             }
 
             // Soft delete tenant
@@ -470,14 +502,9 @@ class TenantProvisionController extends Controller
                 ]);
             }
 
-            // If payment was successful, activate the tenant and subscription
+            // If payment was successful, start automatic provisioning
             if ($paymentStatus === 'success') {
-                $tenant->update(['status' => 'active']);
-                
-                $subscription = $tenant->subscriptions()->first();
-                if ($subscription) {
-                    $subscription->update(['status' => 'active']);
-                }
+                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
             }
 
             DB::commit();
@@ -497,6 +524,287 @@ class TenantProvisionController extends Controller
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to verify payment.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Map request client_name / client_logo onto users.name / users.profile_image.
+     */
+    private function syncClientProfile(Request $request, $clientId): void
+    {
+        if (!$clientId || !($request->has('client_name') || $request->has('client_logo'))) {
+            return;
+        }
+
+        $clientUser = \App\Models\User::find($clientId);
+        if (!$clientUser) {
+            return;
+        }
+
+        if ($request->filled('client_name')) {
+            $clientUser->name = $request->client_name;
+        }
+
+        if ($request->hasFile('client_logo')) {
+            $path = $request->file('client_logo')->store('profiles', 'public');
+            $clientUser->profile_image = '/storage/' . $path;
+        } elseif ($request->filled('client_logo')) {
+            $clientUser->profile_image = $request->client_logo;
+        }
+
+        $clientUser->save();
+    }
+
+    public function paymentstatuschnage(Request $request)
+    {
+        $request->validate([
+            'tenant_id' => 'required',
+            'status' => 'required|string|in:success,pending,failed,canceled'
+        ]);
+
+        $tenant = Tenant::where('id', $request->tenant_id)
+            ->orWhere('uuid', $request->tenant_id)
+            ->firstOrFail();
+
+        $payment = $tenant->payments()->latest('create_at')->first();
+
+        if ($payment) {
+            $payment->update([
+                'status' => $request->status
+            ]);
+            
+            // Trigger automatic provisioning if we switch it to success and it's not already provisioned
+            if ($request->status === 'success' && $tenant->status === 'provisioning') {
+                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+            }
+        } else {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'No payment record found for this tenant.'
+            ], 404);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Payment status updated successfully',
+            'data' => $payment
+        ]);
+    }
+
+    public function renewClient(Request $request, $uuid)
+    {
+        $tenant = Tenant::with(['plan', 'addOns'])->where('uuid', $uuid)->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Calculate actual total amount
+            $plan = $tenant->plan;
+            $paymentAmount = $plan ? (float) $plan->monthly_price : 0;
+            
+            if ($tenant->addOns && $tenant->addOns->count() > 0) {
+                $paymentAmount += (float) $tenant->addOns->sum('price');
+            }
+
+            // Create Payment
+            $payment = null;
+            if ($paymentAmount > 0) {
+                $payment = $tenant->payments()->create([
+                    'transaction_id' => 'txn_' . Str::random(12),
+                    'amount' => $paymentAmount,
+                    'currency' => 'INR',
+                    'payment_method' => 'razorpay',
+                    'status' => 'pending',
+                ]);
+            }
+
+            DB::commit();
+
+            // Generate Razorpay Payment Link
+            $paymentLinkStr = null;
+
+            if ($paymentAmount > 0) {
+                $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
+                
+                $isActive = isset($razorpaySettings['razorpay_active']) && in_array($razorpaySettings['razorpay_active'], ['true', '1', true, 1], true);
+                if ($isActive) {
+                    $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
+                    $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
+
+                    if ($keyId && $keySecret) {
+                        try {
+                            $api = new \Razorpay\Api\Api($keyId, $keySecret);
+                            
+                            $customerData = array_filter([
+                                'name' => $tenant->business_name,
+                                'email' => $tenant->primary_contact_email,
+                                'contact' => $tenant->phone_number
+                            ]);
+
+                            $paymentLinkData = [
+                                'amount' => (int) ($paymentAmount * 100), // convert to paise
+                                'currency' => 'INR',
+                                'description' => 'Payment for Tenant Renewal',
+                                'customer' => $customerData,
+                                'notify' => ['email' => true, 'sms' => true],
+                                'reminder_enable' => true,
+                            ];
+                            
+                            $paymentLinkResponse = $api->paymentLink->create($paymentLinkData);
+                            $paymentLinkStr = $paymentLinkResponse->short_url;
+                            
+                            if ($payment) { 
+                                $payment->update(['transaction_id' => $paymentLinkResponse->id]); 
+                            }
+                        } catch (\Exception $e) {
+                            \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
+                        }
+                    }
+                }
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Client renewal payment link generated successfully.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'payment_link' => $paymentLinkStr,
+                    'amount' => $paymentAmount
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to initiate renewal.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    public function renewManual(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $subscription = $tenant->subscriptions()->where('status', 'active')->first();
+        if (!$subscription) {
+            return response()->json(['status' => 'error', 'message' => 'No active subscription found.'], 400);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Extend subscription by 1 month manually
+            $currentEndDate = $subscription->end_date ? \Carbon\Carbon::parse($subscription->end_date) : now();
+            $subscription->end_date = $currentEndDate->addMonth();
+            $subscription->save();
+
+            // Calculate amount based on plan
+            $plan = $subscription->plan;
+            $paymentAmount = $plan ? (float) $plan->monthly_price : 0;
+
+            // Log manual payment for reporting
+            $tenant->payments()->create([
+                'transaction_id' => 'manual_' . Str::random(10),
+                'amount' => $paymentAmount,
+                'currency' => 'INR',
+                'payment_method' => 'manual',
+                'status' => 'success',
+                'type' => 'renewal',
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Tenant subscription manually renewed.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'new_end_date' => $subscription->end_date
+                ]
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to manually renew tenant.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function upgradeManual(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'new_plan_id' => 'required|exists:plans,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['status' => 'error', 'message' => 'Validation Error', 'errors' => $validator->errors()], 422);
+        }
+
+        $subscription = $tenant->subscriptions()->where('status', 'active')->first();
+        if (!$subscription) {
+            return response()->json(['status' => 'error', 'message' => 'No active subscription found.'], 400);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $newPlan = \App\Models\Plan::find($request->new_plan_id);
+
+            // Update subscription to new plan and reset dates
+            $subscription->plan_id = $newPlan->id;
+            $subscription->start_date = now();
+            $subscription->end_date = now()->addMonth();
+            $subscription->save();
+
+            $tenant->plan_id = $newPlan->id;
+            $tenant->save();
+
+            $paymentAmount = (float) $newPlan->monthly_price;
+
+            // Log manual payment for reporting
+            $tenant->payments()->create([
+                'transaction_id' => 'manual_' . Str::random(10),
+                'amount' => $paymentAmount,
+                'currency' => 'INR',
+                'payment_method' => 'manual',
+                'status' => 'success',
+                'type' => 'upgrade',
+                'metadata' => ['new_plan_id' => $newPlan->id]
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Tenant subscription manually upgraded.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'new_plan_id' => $newPlan->id,
+                    'new_end_date' => $subscription->end_date
+                ]
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to manually upgrade tenant.',
                 'error' => $e->getMessage()
             ], 500);
         }

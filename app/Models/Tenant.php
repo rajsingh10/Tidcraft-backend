@@ -15,6 +15,9 @@ class Tenant extends Model
 
     protected $fillable = [
         'uuid',
+        'client_id',
+        'name',
+        'tenant_key',
         'business_name',
         'primary_contact_email',
         'phone_number',
@@ -28,6 +31,11 @@ class Tenant extends Model
         'delete_by',
     ];
 
+    public function client()
+    {
+        return $this->belongsTo(User::class, 'client_id');
+    }
+
     public function product()
     {
         return $this->belongsTo(Product::class);
@@ -38,14 +46,14 @@ class Tenant extends Model
         return $this->belongsTo(Plan::class);
     }
 
-    public function domain()
+    public function domains()
     {
-        return $this->hasOne(TenantDomain::class);
+        return $this->hasMany(Domain::class);
     }
 
-    public function firebaseConfig()
+    public function firebaseProject()
     {
-        return $this->hasOne(TenantFirebaseConfig::class);
+        return $this->hasOne(FirebaseProject::class);
     }
 
     public function addOns()
@@ -61,5 +69,68 @@ class Tenant extends Model
     public function payments()
     {
         return $this->hasMany(Payment::class);
+    }
+
+    public function database()
+    {
+        return $this->hasOne(TenantDatabase::class);
+    }
+
+    public function provisioningLogs()
+    {
+        return $this->hasMany(ProvisioningLog::class);
+    }
+
+    /**
+     * Subdomain prefix from the first domain, e.g. "abc" from "abc.tidcraft.app".
+     */
+    public function subdomainPrefix(): string
+    {
+        $domain = $this->relationLoaded('domains')
+            ? $this->domains->first()
+            : $this->domains()->first();
+
+        if ($domain && !empty($domain->domain)) {
+            $host = strtolower(trim($domain->domain));
+            $host = preg_replace('/^https?:\/\//', '', $host);
+            $host = explode('/', $host)[0];
+            $prefix = explode('.', $host)[0] ?? '';
+            $prefix = preg_replace('/[^a-z0-9_]/', '_', $prefix);
+
+            if ($prefix !== '') {
+                return $prefix;
+            }
+        }
+
+        $fallback = preg_replace('/[^a-z0-9_]/', '_', strtolower((string) ($this->tenant_key ?: 't' . $this->id)));
+
+        return $fallback !== '' ? $fallback : ('t' . $this->id);
+    }
+
+    /**
+     * Isolated MySQL database name, e.g. "tidcraft_abc".
+     */
+    public function provisionedDatabaseName(): string
+    {
+        $name = 'tidcraft_' . $this->subdomainPrefix();
+
+        return substr($name, 0, 64);
+    }
+
+    /**
+     * Firestore named database id. Firebase only allows [a-z0-9-], e.g. tidcraft-acme.
+     */
+    public function firestoreDatabaseId(): string
+    {
+        $prefix = strtolower((string) $this->subdomainPrefix());
+        $prefix = str_replace('_', '-', $prefix);
+        $prefix = preg_replace('/[^a-z0-9-]/', '-', $prefix);
+        $prefix = trim($prefix, '-');
+
+        if ($prefix === '') {
+            $prefix = 't' . $this->id;
+        }
+
+        return substr('tidcraft-' . $prefix, 0, 63);
     }
 }
