@@ -206,7 +206,8 @@ class ClientPurchaseController extends Controller
             if ($paymentAmount > 0) {
                 $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
                 
-                if (isset($razorpaySettings['razorpay_active']) && $razorpaySettings['razorpay_active'] === 'true') {
+                $isActive = isset($razorpaySettings['razorpay_active']) && in_array($razorpaySettings['razorpay_active'], ['true', '1', true, 1], true);
+                if ($isActive) {
                     $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
                     $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
 
@@ -214,15 +215,17 @@ class ClientPurchaseController extends Controller
                         try {
                             $api = new \Razorpay\Api\Api($keyId, $keySecret);
                             
+                            $customerData = array_filter([
+                                'name' => $tenant->business_name,
+                                'email' => $tenant->primary_contact_email,
+                                'contact' => $tenant->phone_number
+                            ]);
+
                             $paymentLinkData = [
                                 'amount' => (int) ($paymentAmount * 100), // convert to paise
                                 'currency' => $request->currency ?? 'INR',
                                 'description' => 'Payment for Tenant Provisioning',
-                                'customer' => [
-                                    'name' => $tenant->business_name,
-                                    'email' => $tenant->primary_contact_email,
-                                    'contact' => $tenant->phone_number ?? ''
-                                ],
+                                'customer' => $customerData,
                                 'notify' => ['email' => true, 'sms' => true],
                                 'reminder_enable' => true,
                             ];
