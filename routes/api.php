@@ -55,6 +55,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/purchases', [ClientPurchaseController::class, 'store']);
         Route::get('/purchases/{uuid}', [ClientPurchaseController::class, 'show']);
         Route::post('/purchases/{uuid}/verify-payment', [ClientPurchaseController::class, 'verifyPayment']);
+        Route::post('/purchases/{uuid}/renew', [ClientPurchaseController::class, 'renew']);
+        Route::post('/purchases/{uuid}/upgrade', [ClientPurchaseController::class, 'upgrade']);
         Route::post('/purchases/{uuid}/domain', [ClientPurchaseController::class, 'setupDomain']);
         Route::get('/payments', [ClientPurchaseController::class, 'payments']);
     });
@@ -128,6 +130,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tenants/{uuid}', [TenantProvisionController::class, 'update']); // Using POST for form data with files/nested data
     Route::delete('/tenants/{uuid}', [TenantProvisionController::class, 'destroy']);
     Route::post('/tenants/{uuid}/renew', [TenantProvisionController::class, 'renewClient']);
+    Route::post('/tenants/{uuid}/renew-manual', [TenantProvisionController::class, 'renewManual']);
+    Route::post('/tenants/{uuid}/upgrade-manual', [TenantProvisionController::class, 'upgradeManual']);
 
     // Support Tickets API
     Route::get('/support-tickets', [\App\Http\Controllers\Api\SupportTicketController::class, 'index']);

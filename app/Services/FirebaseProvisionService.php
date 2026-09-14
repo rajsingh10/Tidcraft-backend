@@ -54,6 +54,9 @@ class FirebaseProvisionService
             
             // 1. Create Firestore Database
             $adminClient->createFirestoreDatabase($serviceAccount, $databaseId, $locationId);
+
+            // 1.5 Copy Indexes from master database 'clientone'
+            $adminClient->copyIndexes($serviceAccount, 'clientone', $databaseId);
             
             // 2. Create GCIP Authentication Tenant
             // display_name must start with a letter, only contain letters/digits/hyphens, and be 4-20 chars.
