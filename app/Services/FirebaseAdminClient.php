@@ -86,6 +86,64 @@ class FirebaseAdminClient
         throw new \Exception("Failed to create Identity Platform Tenant '{$displayName}' in project '{$projectId}': {$error}");
     }
 
+    /**
+     * Copy composite indexes from a source database to a target database.
+     */
+    public function copyIndexes(array $serviceAccount, string $sourceDatabaseId, string $targetDatabaseId): void
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) {
+            return;
+        }
+
+        $accessToken = $this->accessToken($serviceAccount, [
+            'https://www.googleapis.com/auth/datastore',
+            'https://www.googleapis.com/auth/cloud-platform',
+        ]);
+
+        // 1. Fetch indexes from source
+        $listUrl = "https://firestore.googleapis.com/v1/projects/{$projectId}/databases/{$sourceDatabaseId}/collectionGroups/-/indexes";
+        $listResponse = Http::withToken($accessToken)->get($listUrl);
+        
+        if (!$listResponse->successful()) {
+            \Illuminate\Support\Facades\Log::warning("Failed to fetch indexes from source database {$sourceDatabaseId}: " . $listResponse->body());
+            return;
+        }
+
+        $indexes = $listResponse->json('indexes') ?? [];
+
+        // 2. Recreate each index on the target
+        foreach ($indexes as $index) {
+            // Index name looks like: projects/{projectId}/databases/{databaseId}/collectionGroups/{collectionId}/indexes/{indexId}
+            $nameParts = explode('/', $index['name']);
+            $collectionId = null;
+            
+            // Find collectionId which comes right after 'collectionGroups'
+            foreach ($nameParts as $i => $part) {
+                if ($part === 'collectionGroups' && isset($nameParts[$i + 1])) {
+                    $collectionId = $nameParts[$i + 1];
+                    break;
+                }
+            }
+
+            if (!$collectionId) continue;
+
+            $createUrl = "https://firestore.googleapis.com/v1/projects/{$projectId}/databases/{$targetDatabaseId}/collectionGroups/{$collectionId}/indexes";
+            
+            $payload = [
+                'queryScope' => $index['queryScope'] ?? 'COLLECTION',
+                'fields' => $index['fields'] ?? []
+            ];
+
+            // Send async POST request to create index (they take time to build, we just trigger them)
+            $createResponse = Http::withToken($accessToken)->post($createUrl, $payload);
+            
+            if (!$createResponse->successful() && $createResponse->status() !== 409) { // 409 means already exists
+                \Illuminate\Support\Facades\Log::warning("Failed to create index on {$targetDatabaseId} for {$collectionId}: " . $createResponse->body());
+            }
+        }
+    }
+
     private function waitForOperation(string $accessToken, ?string $operationName): void
     {
         if (!$operationName) {
