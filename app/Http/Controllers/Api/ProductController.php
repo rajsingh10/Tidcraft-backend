@@ -289,6 +289,7 @@ class ProductController extends Controller
                 ->whereIn('status', ['provisioning', 'active', 'failed'])
                 ->get()
                 ->each(fn ($tenant) => \App\Jobs\ProvisionTenantJob::dispatch($tenant));
+            \App\Helpers\QueueRunner::runBackground();
         }
 
         return response()->json([

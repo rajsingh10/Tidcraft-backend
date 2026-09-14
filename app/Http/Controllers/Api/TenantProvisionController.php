@@ -133,6 +133,7 @@ class TenantProvisionController extends Controller
 
             // Dispatch the background provisioning job
             \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+            \App\Helpers\QueueRunner::runBackground();
 
             // Optionally log the provisioning action
             AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned and added to the queue.");
@@ -505,6 +506,7 @@ class TenantProvisionController extends Controller
             // If payment was successful, start automatic provisioning
             if ($paymentStatus === 'success') {
                 \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+            \App\Helpers\QueueRunner::runBackground();
             }
 
             DB::commit();
@@ -578,6 +580,7 @@ class TenantProvisionController extends Controller
             // Trigger automatic provisioning if we switch it to success and it's not already provisioned
             if ($request->status === 'success' && $tenant->status === 'provisioning') {
                 \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+            \App\Helpers\QueueRunner::runBackground();
             }
         } else {
             return response()->json([
