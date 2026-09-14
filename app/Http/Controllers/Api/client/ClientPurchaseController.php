@@ -108,8 +108,8 @@ class ClientPurchaseController extends Controller
             'plan_id' => 'required|exists:plans,id',
 
             // Step 4: Domain Setup
-            'domain_type' => 'required|in:subdomain,shared,custom',
-            'domain' => 'required|string|unique:tenant_domains,domain',
+            'domain_type' => 'nullable|in:subdomain,shared,custom',
+            'domain' => 'nullable|string|unique:tenant_domains,domain',
 
 
 
@@ -180,18 +180,22 @@ class ClientPurchaseController extends Controller
             }
 
             // 2. Create Domain Configuration
-            TenantDomain::create([
-                'tenant_id' => $tenant->id,
-                'type' => $request->domain_type,
-                'domain' => $request->domain,
-                'status' => 'pending',
-            ]);
+            if ($request->has('domain_type') && $request->has('domain')) {
+                TenantDomain::create([
+                    'tenant_id' => $tenant->id,
+                    'type' => $request->domain_type,
+                    'domain' => $request->domain,
+                    'status' => 'pending',
+                ]);
+            }
 
 
 
             DB::commit();
 
-            \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+            if (($paymentAmount == 0 || $request->payment_status === 'success') && $request->has('domain_type') && $request->has('domain')) {
+                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+            }
             
             // Optionally log the provisioning action
             AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned.");
@@ -356,8 +360,9 @@ class ClientPurchaseController extends Controller
                 ]);
             }
 
-            // If payment was successful, start automatic provisioning
-            if ($paymentStatus === 'success') {
+            // If payment was successful and domain exists, start automatic provisioning
+            $domainExists = TenantDomain::where('tenant_id', $tenant->id)->exists();
+            if ($paymentStatus === 'success' && $domainExists) {
                 \App\Jobs\ProvisionTenantJob::dispatch($tenant);
             }
 
@@ -378,6 +383,69 @@ class ClientPurchaseController extends Controller
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to verify payment.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function setupDomain(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        // Auto-construct full domain from subdomain_prefix
+        if ($request->domain_type === 'subdomain' && $request->has('subdomain_prefix')) {
+            $prefix = trim($request->subdomain_prefix, " .");
+            $request->merge(['domain' => $prefix . '.tidcraft.com']);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'domain_type' => 'required|in:subdomain,shared,custom',
+            'domain' => 'required|string|unique:tenant_domains,domain',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation Error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            TenantDomain::create([
+                'tenant_id' => $tenant->id,
+                'type' => $request->domain_type,
+                'domain' => $request->domain,
+                'status' => 'pending',
+            ]);
+
+            DB::commit();
+
+            // Check if payment is successful, if so dispatch provisioning
+            $payment = $tenant->payments()->latest()->first();
+            if ($payment && $payment->status === 'success') {
+                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Domain configured successfully.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'domain' => $request->domain
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to configure domain.',
                 'error' => $e->getMessage()
             ], 500);
         }
