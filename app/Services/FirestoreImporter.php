@@ -54,7 +54,7 @@ class FirestoreImporter
         $this->batchWrites[] = [
             'update' => [
                 'name' => "{$parentPath}/{$collectionId}/{$docId}",
-                'fields' => $fields
+                'fields' => empty($fields) ? new \stdClass() : $fields
             ]
         ];
 
@@ -145,9 +145,10 @@ class FirestoreImporter
                 foreach ($value as $item) {
                     $arrayValues[] = $this->parseValue($item);
                 }
-                return ['arrayValue' => ['values' => $arrayValues]];
+                return ['arrayValue' => empty($arrayValues) ? new \stdClass() : ['values' => $arrayValues]];
             } else {
-                return ['mapValue' => ['fields' => $this->parseFields($value)]];
+                $mapFields = $this->parseFields($value);
+                return ['mapValue' => ['fields' => empty($mapFields) ? new \stdClass() : $mapFields]];
             }
         }
 
