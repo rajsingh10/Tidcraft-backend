@@ -19,7 +19,7 @@ class TenantProvisionController extends Controller
         // Auto-construct full domain from subdomain_prefix
         if ($request->domain_type === 'subdomain' && $request->has('subdomain_prefix')) {
             $prefix = trim($request->subdomain_prefix, " .");
-            $request->merge(['domain' => $prefix . '.tidcraft.app']);
+            $request->merge(['domain' => $prefix . '.tidcraft.com']);
         }
 
         $validator = Validator::make($request->all(), [
@@ -624,5 +624,101 @@ class TenantProvisionController extends Controller
             'message' => 'Payment status updated successfully',
             'data' => $payment
         ]);
+    }
+
+    public function renewClient(Request $request, $uuid)
+    {
+        $tenant = Tenant::with(['plan', 'addOns'])->where('uuid', $uuid)->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Calculate actual total amount
+            $plan = $tenant->plan;
+            $paymentAmount = $plan ? (float) $plan->monthly_price : 0;
+            
+            if ($tenant->addOns && $tenant->addOns->count() > 0) {
+                $paymentAmount += (float) $tenant->addOns->sum('price');
+            }
+
+            // Create Payment
+            $payment = null;
+            if ($paymentAmount > 0) {
+                $payment = $tenant->payments()->create([
+                    'transaction_id' => 'txn_' . Str::random(12),
+                    'amount' => $paymentAmount,
+                    'currency' => 'INR',
+                    'payment_method' => 'razorpay',
+                    'status' => 'pending',
+                ]);
+            }
+
+            DB::commit();
+
+            // Generate Razorpay Payment Link
+            $paymentLinkStr = null;
+
+            if ($paymentAmount > 0) {
+                $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
+                
+                $isActive = isset($razorpaySettings['razorpay_active']) && in_array($razorpaySettings['razorpay_active'], ['true', '1', true, 1], true);
+                if ($isActive) {
+                    $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
+                    $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
+
+                    if ($keyId && $keySecret) {
+                        try {
+                            $api = new \Razorpay\Api\Api($keyId, $keySecret);
+                            
+                            $customerData = array_filter([
+                                'name' => $tenant->business_name,
+                                'email' => $tenant->primary_contact_email,
+                                'contact' => $tenant->phone_number
+                            ]);
+
+                            $paymentLinkData = [
+                                'amount' => (int) ($paymentAmount * 100), // convert to paise
+                                'currency' => 'INR',
+                                'description' => 'Payment for Tenant Renewal',
+                                'customer' => $customerData,
+                                'notify' => ['email' => true, 'sms' => true],
+                                'reminder_enable' => true,
+                            ];
+                            
+                            $paymentLinkResponse = $api->paymentLink->create($paymentLinkData);
+                            $paymentLinkStr = $paymentLinkResponse->short_url;
+                            
+                            if ($payment) { 
+                                $payment->update(['transaction_id' => $paymentLinkResponse->id]); 
+                            }
+                        } catch (\Exception $e) {
+                            \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
+                        }
+                    }
+                }
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Client renewal payment link generated successfully.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'payment_link' => $paymentLinkStr,
+                    'amount' => $paymentAmount
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to initiate renewal.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }

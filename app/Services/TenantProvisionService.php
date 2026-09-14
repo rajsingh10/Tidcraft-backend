@@ -15,16 +15,17 @@ class TenantProvisionService
     {
         $tenant->loadMissing(['database', 'firebaseProject', 'domains', 'subscriptions']);
 
-        self::logProgress($tenant, 'database', 'in_progress', 'Creating database ' . $tenant->provisionedDatabaseName());
-        try {
-            TenantDatabaseManager::createDatabase($tenant);
-            $tenant->load('database');
-            self::logProgress($tenant, 'database', 'success', 'Database ' . $tenant->database->database_name . ' created');
-        } catch (\Exception $e) {
-            self::logProgress($tenant, 'database', 'failed', 'Database provisioning failed', $e->getMessage());
-            $tenant->update(['status' => 'failed']);
-            throw $e;
-        }
+        // Database creation is disabled because we are using Firebase only
+        // self::logProgress($tenant, 'database', 'in_progress', 'Creating database ' . $tenant->provisionedDatabaseName());
+        // try {
+        //     TenantDatabaseManager::createDatabase($tenant);
+        //     $tenant->load('database');
+        //     self::logProgress($tenant, 'database', 'success', 'Database ' . $tenant->database->database_name . ' created');
+        // } catch (\Exception $e) {
+        //     self::logProgress($tenant, 'database', 'failed', 'Database provisioning failed', $e->getMessage());
+        //     $tenant->update(['status' => 'failed']);
+        //     throw $e;
+        // }
 
         self::logProgress($tenant, 'firebase', 'in_progress', 'Connecting product Firebase project');
         try {
@@ -63,28 +64,30 @@ class TenantProvisionService
             throw $e;
         }
 
-        self::logProgress($tenant, 'migrations', 'in_progress', 'Running tenant migrations');
-        try {
-            TenantDatabaseManager::migrate($tenant);
-            self::logProgress($tenant, 'migrations', 'success', 'Tenant migrations completed');
-        } catch (\Exception $e) {
-            self::logProgress($tenant, 'migrations', 'failed', 'Tenant migrations failed', $e->getMessage());
-            $tenant->database?->update(['status' => 'failed']);
-            $tenant->update(['status' => 'failed']);
-            throw $e;
-        }
+        // Migrations disabled for Firebase
+        // self::logProgress($tenant, 'migrations', 'in_progress', 'Running tenant migrations');
+        // try {
+        //     TenantDatabaseManager::migrate($tenant);
+        //     self::logProgress($tenant, 'migrations', 'success', 'Tenant migrations completed');
+        // } catch (\Exception $e) {
+        //     self::logProgress($tenant, 'migrations', 'failed', 'Tenant migrations failed', $e->getMessage());
+        //     $tenant->database?->update(['status' => 'failed']);
+        //     $tenant->update(['status' => 'failed']);
+        //     throw $e;
+        // }
 
-        self::logProgress($tenant, 'seed', 'in_progress', 'Seeding tenant database');
-        try {
-            TenantDatabaseManager::seed($tenant);
-            $tenant->database?->update(['status' => 'ready']);
-            self::logProgress($tenant, 'seed', 'success', 'Tenant database seeded');
-        } catch (\Exception $e) {
-            self::logProgress($tenant, 'seed', 'failed', 'Tenant seeding failed', $e->getMessage());
-            $tenant->database?->update(['status' => 'failed']);
-            $tenant->update(['status' => 'failed']);
-            throw $e;
-        }
+        // Seeding disabled for Firebase
+        // self::logProgress($tenant, 'seed', 'in_progress', 'Seeding tenant database');
+        // try {
+        //     TenantDatabaseManager::seed($tenant);
+        //     $tenant->database?->update(['status' => 'ready']);
+        //     self::logProgress($tenant, 'seed', 'success', 'Tenant database seeded');
+        // } catch (\Exception $e) {
+        //     self::logProgress($tenant, 'seed', 'failed', 'Tenant seeding failed', $e->getMessage());
+        //     $tenant->database?->update(['status' => 'failed']);
+        //     $tenant->update(['status' => 'failed']);
+        //     throw $e;
+        // }
 
         self::logProgress($tenant, 'domain', 'in_progress', 'Activating domain');
         try {
