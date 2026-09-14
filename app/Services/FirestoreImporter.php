@@ -78,7 +78,7 @@ class FirestoreImporter
             ]);
 
         if (!$response->successful()) {
-            Log::error("Firestore batch commit failed: " . $response->body());
+            throw new \Exception("Firestore batch commit failed: " . $response->body());
         }
 
         $this->batchWrites = [];
