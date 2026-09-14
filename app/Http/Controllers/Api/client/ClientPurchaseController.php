@@ -138,6 +138,8 @@ class ClientPurchaseController extends Controller
 
             // 1. Create Tenant
             $tenant = Tenant::create([
+                'client_id' => $user->id,
+                'create_by' => $user->id,
                 'uuid' => Str::uuid()->toString(),
                 'business_name' => $request->business_name,
                 'primary_contact_email' => $user->email, // Always use the logged-in client's email securely
@@ -434,7 +436,7 @@ class ClientPurchaseController extends Controller
             DB::commit();
 
             // Check if payment is successful, if so dispatch provisioning
-            $payment = $tenant->payments()->latest()->first();
+            $payment = $tenant->payments()->latest('create_at')->first();
             if ($payment && $payment->status === 'success') {
                 \App\Jobs\ProvisionTenantJob::dispatch($tenant);
             }
