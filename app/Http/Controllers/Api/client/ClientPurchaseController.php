@@ -281,6 +281,119 @@ class ClientPurchaseController extends Controller
         }
     }
 
+    public function renew(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->where('client_id', auth()->id())->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $subscription = $tenant->subscriptions()->where('status', 'active')->first();
+        if (!$subscription) {
+            return response()->json(['status' => 'error', 'message' => 'No active subscription found to renew.'], 400);
+        }
+
+        $plan = $subscription->plan;
+        if (!$plan) {
+            return response()->json(['status' => 'error', 'message' => 'Subscription plan not found.'], 400);
+        }
+
+        $paymentAmount = (float) $plan->monthly_price;
+        
+        $payment = $tenant->payments()->create([
+            'amount' => $paymentAmount,
+            'currency' => 'INR',
+            'payment_method' => 'razorpay',
+            'status' => 'pending',
+            'type' => 'renewal',
+        ]);
+
+        $paymentLinkStr = $this->generateRazorpayLink($tenant, $paymentAmount, 'Payment for Subscription Renewal');
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Renewal payment initiated.',
+            'data' => [
+                'tenant_id' => $tenant->uuid,
+                'payment_link' => $paymentLinkStr,
+                'amount' => $paymentAmount
+            ]
+        ]);
+    }
+
+    public function upgrade(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->where('client_id', auth()->id())->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'new_plan_id' => 'required|exists:plans,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['status' => 'error', 'message' => 'Validation Error', 'errors' => $validator->errors()], 422);
+        }
+
+        $newPlan = \App\Models\Plan::find($request->new_plan_id);
+        $paymentAmount = (float) $newPlan->monthly_price;
+
+        $payment = $tenant->payments()->create([
+            'amount' => $paymentAmount,
+            'currency' => 'INR',
+            'payment_method' => 'razorpay',
+            'status' => 'pending',
+            'type' => 'upgrade',
+            'metadata' => ['new_plan_id' => $newPlan->id]
+        ]);
+
+        $paymentLinkStr = $this->generateRazorpayLink($tenant, $paymentAmount, 'Payment for Plan Upgrade to ' . $newPlan->name);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Upgrade payment initiated.',
+            'data' => [
+                'tenant_id' => $tenant->uuid,
+                'payment_link' => $paymentLinkStr,
+                'amount' => $paymentAmount
+            ]
+        ]);
+    }
+
+    private function generateRazorpayLink($tenant, $amount, $description)
+    {
+        $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
+        $isActive = isset($razorpaySettings['razorpay_active']) && in_array($razorpaySettings['razorpay_active'], ['true', '1', true, 1], true);
+        
+        if (!$isActive) return null;
+
+        $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
+        $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
+
+        if ($keyId && $keySecret) {
+            try {
+                $api = new \Razorpay\Api\Api($keyId, $keySecret);
+                $paymentLinkData = [
+                    'amount' => (int) ($amount * 100),
+                    'currency' => 'INR',
+                    'description' => $description,
+                    'customer' => array_filter([
+                        'name' => $tenant->business_name,
+                        'email' => $tenant->primary_contact_email,
+                        'contact' => $tenant->phone_number
+                    ]),
+                    'notify' => ['email' => true, 'sms' => true],
+                    'reminder_enable' => true,
+                ];
+                return $api->paymentLink->create($paymentLinkData)->short_url;
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
+            }
+        }
+        return null;
+    }
+
     public function verifyPayment(Request $request, $uuid)
     {
         $tenant = Tenant::where('uuid', $uuid)->first();
@@ -385,10 +498,34 @@ class ClientPurchaseController extends Controller
                 ]);
             }
 
-            // If payment was successful and domain exists, start automatic provisioning
-            $domainExists = Domain::where('tenant_id', $tenant->id)->exists();
-            if ($paymentStatus === 'success' && $domainExists) {
-                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+            // Handle post-payment logic based on payment type
+            if ($paymentStatus === 'success') {
+                $paymentType = $payment ? $payment->type : 'provisioning';
+
+                if ($paymentType === 'renewal') {
+                    $subscription = $tenant->subscriptions()->where('status', 'active')->first();
+                    if ($subscription) {
+                        // Extend by 1 month by default (could be adjusted based on plan duration)
+                        $currentEndDate = $subscription->end_date ? \Carbon\Carbon::parse($subscription->end_date) : now();
+                        $subscription->end_date = $currentEndDate->addMonth();
+                        $subscription->save();
+                    }
+                } elseif ($paymentType === 'upgrade') {
+                    $subscription = $tenant->subscriptions()->where('status', 'active')->first();
+                    $metadata = $payment->metadata ?? [];
+                    if ($subscription && isset($metadata['new_plan_id'])) {
+                        $subscription->plan_id = $metadata['new_plan_id'];
+                        $subscription->start_date = now();
+                        $subscription->end_date = now()->addMonth();
+                        $subscription->save();
+                    }
+                } else {
+                    // Provisioning type
+                    $domainExists = Domain::where('tenant_id', $tenant->id)->exists();
+                    if ($domainExists && $tenant->status === 'provisioning') {
+                        \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                    }
+                }
             }
 
             DB::commit();
