@@ -57,6 +57,35 @@ class FirebaseAdminClient
         throw new \Exception("Failed to create Firestore database '{$databaseId}' in project '{$projectId}': {$error}");
     }
 
+    public function createIdentityTenant(array $serviceAccount, string $displayName): string
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) {
+            throw new \Exception('Firebase service account JSON is missing project_id.');
+        }
+
+        $accessToken = $this->accessToken($serviceAccount, [
+            'https://www.googleapis.com/auth/cloud-platform',
+        ]);
+
+        $url = 'https://identitytoolkit.googleapis.com/v2/projects/' . rawurlencode($projectId) . '/tenants';
+
+        $response = Http::withToken($accessToken)
+            ->timeout(30)
+            ->post($url, [
+                'displayName' => $displayName,
+                'allowPasswordSignup' => true,
+                'enableEmailLinkSignin' => false,
+            ]);
+
+        if ($response->successful()) {
+            return $response->json('name'); // e.g. "projects/12345/tenants/tenant-abcd"
+        }
+
+        $error = $response->json('error.message') ?? $response->body();
+        throw new \Exception("Failed to create Identity Platform Tenant '{$displayName}' in project '{$projectId}': {$error}");
+    }
+
     private function waitForOperation(string $accessToken, ?string $operationName): void
     {
         if (!$operationName) {
