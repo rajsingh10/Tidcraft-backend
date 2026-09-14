@@ -34,6 +34,7 @@ class FirebaseAdminClient
                 'databaseEdition' => 'ENTERPRISE',
                 'firestoreDataAccessMode' => 'DATA_ACCESS_MODE_ENABLED',
                 'mongodbCompatibleDataAccessMode' => 'DATA_ACCESS_MODE_DISABLED',
+                'realtimeUpdatesMode' => 'REALTIME_UPDATES_MODE_ENABLED',
             ]);
 
         if ($response->status() === 409) {
