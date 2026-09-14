@@ -133,14 +133,32 @@ class ClientPurchaseController extends Controller
             ], 422);
         }
 
+        $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $request->product_id)->first();
+        if (!$productFirebase || empty($productFirebase->firebase_project_id)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'This product has no Firebase project ID configured. Please contact support.',
+            ], 422);
+        }
+        if (empty($productFirebase->service_account_json)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'This product has no Firebase service account configured. Please contact support.',
+            ], 422);
+        }
+
         try {
             DB::beginTransaction();
+
+            $tenantKey = Str::slug($request->business_name) . '-p' . $request->product_id;
 
             // 1. Create Tenant
             $tenant = Tenant::create([
                 'client_id' => $user->id,
                 'create_by' => $user->id,
                 'uuid' => Str::uuid()->toString(),
+                'name' => $request->business_name,
+                'tenant_key' => $tenantKey,
                 'business_name' => $request->business_name,
                 'primary_contact_email' => $user->email, // Always use the logged-in client's email securely
                 'phone_number' => $request->phone_number,
