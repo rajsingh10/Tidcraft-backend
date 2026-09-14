@@ -19,7 +19,7 @@ class TenantProvisionController extends Controller
         // Auto-construct full domain from subdomain_prefix
         if ($request->domain_type === 'subdomain' && $request->has('subdomain_prefix')) {
             $prefix = trim($request->subdomain_prefix, " .");
-            $request->merge(['domain' => $prefix . '.tidcraft.app']);
+            $request->merge(['domain' => $prefix . '.tidcraft.com']);
         }
 
         $validator = Validator::make($request->all(), [
