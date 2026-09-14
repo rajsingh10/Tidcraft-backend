@@ -217,6 +217,7 @@ class ClientPurchaseController extends Controller
 
             if (($paymentAmount == 0 || $request->payment_status === 'success') && $request->has('domain_type') && $request->has('domain')) {
                 \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                \App\Helpers\QueueRunner::runBackground();
             }
             
             // Optionally log the provisioning action
@@ -524,6 +525,7 @@ class ClientPurchaseController extends Controller
                     $domainExists = Domain::where('tenant_id', $tenant->id)->exists();
                     if ($domainExists && $tenant->status === 'provisioning') {
                         \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                \App\Helpers\QueueRunner::runBackground();
                     }
                 }
             }
@@ -594,6 +596,7 @@ class ClientPurchaseController extends Controller
             $payment = $tenant->payments()->latest('create_at')->first();
             if ($payment && $payment->status === 'success') {
                 \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                \App\Helpers\QueueRunner::runBackground();
             }
 
             return response()->json([
