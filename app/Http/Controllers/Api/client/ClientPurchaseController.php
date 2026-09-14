@@ -156,7 +156,7 @@ class ClientPurchaseController extends Controller
 
             // Calculate actual total amount
             $plan = \App\Models\Plan::find($request->plan_id);
-            $paymentAmount = $plan ? (float) $plan->price : 0;
+            $paymentAmount = $plan ? (float) $plan->monthly_price : 0;
             if ($request->has('add_ons') && is_array($request->add_ons)) {
                 $paymentAmount += (float) \App\Models\AddOn::whereIn('id', $request->add_ons)->sum('price');
             }
