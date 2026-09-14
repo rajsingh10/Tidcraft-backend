@@ -688,4 +688,125 @@ class TenantProvisionController extends Controller
             ], 500);
         }
     }
+    public function renewManual(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $subscription = $tenant->subscriptions()->where('status', 'active')->first();
+        if (!$subscription) {
+            return response()->json(['status' => 'error', 'message' => 'No active subscription found.'], 400);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Extend subscription by 1 month manually
+            $currentEndDate = $subscription->end_date ? \Carbon\Carbon::parse($subscription->end_date) : now();
+            $subscription->end_date = $currentEndDate->addMonth();
+            $subscription->save();
+
+            // Calculate amount based on plan
+            $plan = $subscription->plan;
+            $paymentAmount = $plan ? (float) $plan->monthly_price : 0;
+
+            // Log manual payment for reporting
+            $tenant->payments()->create([
+                'transaction_id' => 'manual_' . Str::random(10),
+                'amount' => $paymentAmount,
+                'currency' => 'INR',
+                'payment_method' => 'manual',
+                'status' => 'success',
+                'type' => 'renewal',
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Tenant subscription manually renewed.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'new_end_date' => $subscription->end_date
+                ]
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to manually renew tenant.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function upgradeManual(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'new_plan_id' => 'required|exists:plans,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['status' => 'error', 'message' => 'Validation Error', 'errors' => $validator->errors()], 422);
+        }
+
+        $subscription = $tenant->subscriptions()->where('status', 'active')->first();
+        if (!$subscription) {
+            return response()->json(['status' => 'error', 'message' => 'No active subscription found.'], 400);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $newPlan = \App\Models\Plan::find($request->new_plan_id);
+
+            // Update subscription to new plan and reset dates
+            $subscription->plan_id = $newPlan->id;
+            $subscription->start_date = now();
+            $subscription->end_date = now()->addMonth();
+            $subscription->save();
+
+            $tenant->plan_id = $newPlan->id;
+            $tenant->save();
+
+            $paymentAmount = (float) $newPlan->monthly_price;
+
+            // Log manual payment for reporting
+            $tenant->payments()->create([
+                'transaction_id' => 'manual_' . Str::random(10),
+                'amount' => $paymentAmount,
+                'currency' => 'INR',
+                'payment_method' => 'manual',
+                'status' => 'success',
+                'type' => 'upgrade',
+                'metadata' => ['new_plan_id' => $newPlan->id]
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Tenant subscription manually upgraded.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'new_plan_id' => $newPlan->id,
+                    'new_end_date' => $subscription->end_date
+                ]
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to manually upgrade tenant.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }
