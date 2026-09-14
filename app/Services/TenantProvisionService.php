@@ -95,7 +95,24 @@ class TenantProvisionService
             if ($domain && $domain->status !== 'active') {
                 $domain->update(['status' => 'active']);
             }
-            self::logProgress($tenant, 'domain', 'success', 'Domain activated');
+
+            // Create a symlink for the frontend Nginx routing
+            $product = \App\Models\Product::find($tenant->product_id);
+            if ($product && !empty($product->frontend_path) && $domain) {
+                $tenantsDirectory = '/home/devtidcraftcomusr/tenants/';
+                if (!file_exists($tenantsDirectory)) {
+                    mkdir($tenantsDirectory, 0755, true);
+                }
+                
+                $symlinkPath = rtrim($tenantsDirectory, '/') . '/' . $domain->domain;
+                $targetPath = $product->frontend_path;
+
+                if (!file_exists($symlinkPath) && file_exists($targetPath)) {
+                    symlink($targetPath, $symlinkPath);
+                }
+            }
+
+            self::logProgress($tenant, 'domain', 'success', 'Domain activated and symlink created');
         } catch (\Exception $e) {
             self::logProgress($tenant, 'domain', 'failed', 'Domain provisioning failed', $e->getMessage());
             $tenant->update(['status' => 'failed']);
