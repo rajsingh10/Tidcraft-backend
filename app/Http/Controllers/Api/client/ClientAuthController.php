@@ -128,6 +128,14 @@ class ClientAuthController extends Controller
             $user->profile_image = asset($user->profile_image);
         }
 
+        $purchases = \App\Models\Tenant::with(['product', 'plan', 'domains', 'payments'])
+            ->where(function($query) use ($user) {
+                $query->where('create_by', $user->id)
+                      ->orWhere('client_id', $user->id);
+            })
+            ->orderBy('create_at', 'desc')
+            ->get();
+
         return response()->json([
             'status' => 'success',
             'data' => [
@@ -135,6 +143,7 @@ class ClientAuthController extends Controller
                 'email' => $user->email,
                 'contact' => $user->contact ?? null,
                 'profile_image' => $user->profile_image ?? null,
+                'purchases' => $purchases->isEmpty() ? null : $purchases,
             ]
         ]);
     }
