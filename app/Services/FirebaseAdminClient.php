@@ -144,6 +144,65 @@ class FirebaseAdminClient
         }
     }
 
+    /**
+     * Set default public read/write security rules for the given database.
+     */
+    public function setDefaultSecurityRules(array $serviceAccount, string $databaseId): void
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) {
+            return;
+        }
+
+        $accessToken = $this->accessToken($serviceAccount, [
+            'https://www.googleapis.com/auth/firebase',
+            'https://www.googleapis.com/auth/cloud-platform',
+        ]);
+
+        $rulesUrl = "https://firebaserules.googleapis.com/v1/projects/{$projectId}/rulesets";
+        $rulesContent = "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if true;\n    }\n  }\n}";
+
+        $rulesetResponse = Http::withToken($accessToken)->post($rulesUrl, [
+            'source' => [
+                'files' => [
+                    [
+                        'name' => 'firestore.rules',
+                        'content' => $rulesContent
+                    ]
+                ]
+            ]
+        ]);
+
+        if (!$rulesetResponse->successful()) {
+            \Illuminate\Support\Facades\Log::warning("Failed to create ruleset for {$databaseId}: " . $rulesetResponse->body());
+            return;
+        }
+
+        $rulesetName = $rulesetResponse->json('name');
+        $releaseName = "projects/{$projectId}/releases/cloud.firestore/{$databaseId}";
+        $releaseUrl = "https://firebaserules.googleapis.com/v1/{$releaseName}";
+
+        $getRelease = Http::withToken($accessToken)->get($releaseUrl);
+
+        if ($getRelease->successful()) {
+            $updateResponse = Http::withToken($accessToken)->patch($releaseUrl, [
+                'rulesetName' => $rulesetName
+            ]);
+            if (!$updateResponse->successful()) {
+                \Illuminate\Support\Facades\Log::warning("Failed to update release for {$databaseId}: " . $updateResponse->body());
+            }
+        } else {
+            $createUrl = "https://firebaserules.googleapis.com/v1/projects/{$projectId}/releases";
+            $createResponse = Http::withToken($accessToken)->post($createUrl, [
+                'name' => $releaseName,
+                'rulesetName' => $rulesetName
+            ]);
+            if (!$createResponse->successful()) {
+                \Illuminate\Support\Facades\Log::warning("Failed to create release for {$databaseId}: " . $createResponse->body());
+            }
+        }
+    }
+
     private function waitForOperation(string $accessToken, ?string $operationName): void
     {
         if (!$operationName) {
