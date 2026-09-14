@@ -9,7 +9,7 @@ use App\Models\Payment;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use App\Models\TenantDomain;
+use App\Models\Domain;
 use App\Models\TenantFirebaseConfig;
 use App\Services\AuditLogger;
 
@@ -109,7 +109,7 @@ class ClientPurchaseController extends Controller
 
             // Step 4: Domain Setup
             'domain_type' => 'nullable|in:subdomain,shared,custom',
-            'domain' => 'nullable|string|unique:tenant_domains,domain',
+            'domain' => 'nullable|string|unique:domains,domain',
 
 
 
@@ -181,8 +181,10 @@ class ClientPurchaseController extends Controller
 
             // 2. Create Domain Configuration
             if ($request->has('domain_type') && $request->has('domain')) {
-                TenantDomain::create([
+                Domain::create([
                     'tenant_id' => $tenant->id,
+                    'client_id' => $user->id,
+                    'product_id' => $tenant->product_id,
                     'type' => $request->domain_type,
                     'domain' => $request->domain,
                     'status' => 'pending',
@@ -364,7 +366,7 @@ class ClientPurchaseController extends Controller
             }
 
             // If payment was successful and domain exists, start automatic provisioning
-            $domainExists = TenantDomain::where('tenant_id', $tenant->id)->exists();
+            $domainExists = Domain::where('tenant_id', $tenant->id)->exists();
             if ($paymentStatus === 'success' && $domainExists) {
                 \App\Jobs\ProvisionTenantJob::dispatch($tenant);
             }
@@ -406,7 +408,7 @@ class ClientPurchaseController extends Controller
 
         $validator = Validator::make($request->all(), [
             'domain_type' => 'required|in:subdomain,shared,custom',
-            'domain' => 'required|string|unique:tenant_domains,domain',
+            'domain' => 'required|string|unique:domains,domain',
         ]);
 
         if ($validator->fails()) {
@@ -420,8 +422,10 @@ class ClientPurchaseController extends Controller
         try {
             DB::beginTransaction();
 
-            TenantDomain::create([
+            Domain::create([
                 'tenant_id' => $tenant->id,
+                'client_id' => $tenant->client_id ?? $tenant->create_by,
+                'product_id' => $tenant->product_id,
                 'type' => $request->domain_type,
                 'domain' => $request->domain,
                 'status' => 'pending',
