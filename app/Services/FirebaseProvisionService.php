@@ -50,10 +50,23 @@ class FirebaseProvisionService
         $projectId = $serviceAccount['project_id'] ?? $productFirebase->firebase_project_id;
 
         try {
-            (new FirebaseAdminClient())->createFirestoreDatabase($serviceAccount, $databaseId, $locationId);
+            $adminClient = new FirebaseAdminClient();
+            
+            // 1. Create Firestore Database
+            $adminClient->createFirestoreDatabase($serviceAccount, $databaseId, $locationId);
+            
+            // 2. Create GCIP Authentication Tenant
+            $tenantDisplayName = $tenant->business_name ?? $databaseId;
+            $gcipTenantPath = $adminClient->createIdentityTenant($serviceAccount, $tenantDisplayName);
+            
+            // The API returns the resource name e.g., "projects/12345/tenants/tenant-abcd"
+            $parts = explode('/', $gcipTenantPath);
+            $gcipTenantId = end($parts);
+
             $firebaseConfig->update([
                 'firebase_project_id' => $projectId,
                 'firebase_database_id' => $databaseId,
+                'firebase_tenant_id' => $gcipTenantId,
                 'status' => 'ready',
             ]);
         } catch (\Exception $e) {
