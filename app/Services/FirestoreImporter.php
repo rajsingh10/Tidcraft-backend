@@ -96,7 +96,8 @@ class FirestoreImporter
     private function parseValue($value): array
     {
         if (is_null($value)) {
-            return ['nullValue' => null];
+            // Firestore REST API requires the string "NULL_VALUE" for nulls.
+            return ['nullValue' => 'NULL_VALUE'];
         }
 
         if (is_bool($value)) {
