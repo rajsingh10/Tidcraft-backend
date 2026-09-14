@@ -54,7 +54,7 @@ class FirestoreImporter
         $this->batchWrites[] = [
             'update' => [
                 'name' => "{$parentPath}/{$collectionId}/{$docId}",
-                'fields' => $fields
+                'fields' => empty($fields) ? new \stdClass() : $fields
             ]
         ];
 
@@ -78,7 +78,7 @@ class FirestoreImporter
             ]);
 
         if (!$response->successful()) {
-            Log::error("Firestore batch commit failed: " . $response->body());
+            throw new \Exception("Firestore batch commit failed: " . $response->body());
         }
 
         $this->batchWrites = [];
@@ -96,7 +96,8 @@ class FirestoreImporter
     private function parseValue($value): array
     {
         if (is_null($value)) {
-            return ['nullValue' => null];
+            // Firestore REST API requires the string "NULL_VALUE" for nulls.
+            return ['nullValue' => 'NULL_VALUE'];
         }
 
         if (is_bool($value)) {
@@ -144,9 +145,10 @@ class FirestoreImporter
                 foreach ($value as $item) {
                     $arrayValues[] = $this->parseValue($item);
                 }
-                return ['arrayValue' => ['values' => $arrayValues]];
+                return ['arrayValue' => empty($arrayValues) ? new \stdClass() : ['values' => $arrayValues]];
             } else {
-                return ['mapValue' => ['fields' => $this->parseFields($value)]];
+                $mapFields = $this->parseFields($value);
+                return ['mapValue' => ['fields' => empty($mapFields) ? new \stdClass() : $mapFields]];
             }
         }
 

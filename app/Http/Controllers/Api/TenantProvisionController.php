@@ -116,7 +116,7 @@ class TenantProvisionController extends Controller
 
 
 
-            // 2. Create Domain Configuration
+            // Create Domain Configuration
             $domainType = $request->domain_type ?? 'subdomain';
             $domainStr = $request->domain ?? Str::uuid()->toString() . '.tidcraft.app';
 
@@ -129,54 +129,21 @@ class TenantProvisionController extends Controller
                 'status' => 'pending',
             ]);
 
-            // Create a symlink for the frontend Nginx routing
-            $product = \App\Models\Product::find($request->product_id);
-            if ($product && !empty($product->frontend_path)) {
-                $tenantsDirectory = '/home/devtidcraftcomusr/tenants/';
-                if (!file_exists($tenantsDirectory)) {
-                    @mkdir($tenantsDirectory, 0755, true);
-                }
-                
-                $symlinkPath = rtrim($tenantsDirectory, '/') . '/' . $domainStr;
-                $targetPath = $product->frontend_path;
-
-                if (!file_exists($symlinkPath) && file_exists($targetPath)) {
-                    @symlink($targetPath, $symlinkPath);
-                }
-            }
-
             DB::commit();
 
-            $tenant->load('domains');
-            $firestoreDatabaseId = $tenant->firestoreDatabaseId();
-
-            try {
-                \App\Services\FirebaseProvisionService::provisionFirebase($tenant);
-                $tenant->load('firebaseProject');
-            } catch (\Exception $e) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Tenant was created but Firestore database '.$firestoreDatabaseId.' was not created.',
-                    'error' => $e->getMessage(),
-                    'data' => [
-                        'tenant_id' => $tenant->uuid,
-                        'firebase_database_id' => $firestoreDatabaseId,
-                    ]
-                ], 500);
-            }
+            // Dispatch the background provisioning job
+            \App\Jobs\ProvisionTenantJob::dispatch($tenant);
 
             // Optionally log the provisioning action
-            AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned.");
+            AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned and added to the queue.");
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Tenant created. Firestore database '.$tenant->firestoreDatabaseId().' created.',
+                'message' => 'Tenant created and queued for background provisioning.',
                 'data' => [
                     'tenant_id' => $tenant->uuid,
                     'tenant_status' => $tenant->status,
-                    'database_name' => $tenant->provisionedDatabaseName(),
-                    'firebase_project_id' => $tenant->firebaseProject?->firebase_project_id ?? $productFirebase->firebase_project_id,
-                    'firebase_database_id' => $tenant->firestoreDatabaseId(),
+                    'domain' => $domainStr
                 ]
             ], 201);
 
