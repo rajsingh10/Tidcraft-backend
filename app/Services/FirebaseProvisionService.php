@@ -55,9 +55,25 @@ class FirebaseProvisionService
             // 1. Create Firestore Database
             $adminClient->createFirestoreDatabase($serviceAccount, $databaseId, $locationId);
 
-            // 1.5 Copy Indexes from master database 'clientone'
-            $adminClient->copyIndexes($serviceAccount, 'clientone', $databaseId);
-
+            // 1.5 Setup Indexes from local JSON based on product
+            $product = \App\Models\Product::find($tenant->product_id);
+            if ($product) {
+                // Determine folder name (e.g. "Food App" -> "food-app")
+                $productSlug = \Illuminate\Support\Str::slug($product->name);
+                $indexPath = public_path("collection/{$productSlug}/firestore_indexes.json");
+                
+                if (file_exists($indexPath)) {
+                    $indexData = json_decode(file_get_contents($indexPath), true);
+                    if (isset($indexData['indexes']) && is_array($indexData['indexes'])) {
+                        $adminClient->createIndexesFromJson($serviceAccount, $databaseId, $indexData['indexes']);
+                        \Illuminate\Support\Facades\Log::info("Successfully triggered index creation for {$databaseId} from {$indexPath}");
+                    }
+                } else {
+                    \Illuminate\Support\Facades\Log::warning("No firestore_indexes.json found for product {$product->name} at {$indexPath}");
+                }
+            } else {
+                \Illuminate\Support\Facades\Log::warning("Product not found for tenant {$tenant->id}, skipping indexes.");
+            }
             // 1.6 Set default public security rules
             $adminClient->setDefaultSecurityRules($serviceAccount, $databaseId);
             
