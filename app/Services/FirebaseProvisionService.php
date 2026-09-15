@@ -83,6 +83,24 @@ class FirebaseProvisionService
                     }
                 }
                 
+                // Extremely robust fallback: scan the directory for partial matches!
+                if (!$productSlug) {
+                    $collectionDir = public_path('collection');
+                    if (is_dir($collectionDir)) {
+                        $folders = array_diff(scandir($collectionDir), ['..', '.']);
+                        $firstWord = explode('-', \Illuminate\Support\Str::slug($product->name))[0]; // 'park' or 'food'
+                        
+                        foreach ($folders as $folder) {
+                            if (is_dir($collectionDir . '/' . $folder) && strpos(strtolower($folder), strtolower($firstWord)) !== false) {
+                                $productSlug = $folder; // found 'park-app'
+                                $indexPath = $collectionDir . '/' . $folder . '/firestore_indexes.json';
+                                $collectionPath = $collectionDir . '/' . $folder . '/collections.json';
+                                break;
+                            }
+                        }
+                    }
+                }
+                
                 if ($productSlug && file_exists($indexPath)) {
                     $indexData = json_decode(file_get_contents($indexPath), true);
                     if (isset($indexData['indexes']) && is_array($indexData['indexes'])) {
