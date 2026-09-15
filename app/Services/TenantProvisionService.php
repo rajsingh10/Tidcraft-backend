@@ -53,8 +53,18 @@ class TenantProvisionService
                             self::logProgress($tenant, 'firebase_import', 'success', 'Firestore data imported successfully');
                         }
                     }
+
+                    // Auto-create Firebase Auth Admin User
+                    self::logProgress($tenant, 'firebase_auth_admin', 'in_progress', 'Creating Firebase admin user for tenant');
+                    $adminEmail = $tenant->primary_contact_email ?? ($tenant->client ? $tenant->client->email : 'admin@' . ($tenant->domains()->first()?->domain ?? 'tidcraft.com'));
+                    $baseName = trim($tenant->name ?: $tenant->business_name);
+                    $adminPassword = empty($baseName) ? 'tidcraft' : str_replace(' ', '', strtolower($baseName)) . '-tidcraft';
+
+                    $firebaseAdmin = new \App\Services\FirebaseAdminClient();
+                    $firebaseAdmin->createAuthUser($serviceAccount, $adminEmail, $adminPassword);
+                    self::logProgress($tenant, 'firebase_auth_admin', 'success', "Admin user created: Email: {$adminEmail}, Password: {$adminPassword}");
                 } catch (\Throwable $e) {
-                    self::logProgress($tenant, 'firebase_import', 'failed', 'Firestore data import failed', $e->getMessage());
+                    self::logProgress($tenant, 'firebase_import', 'failed', 'Firestore data import / user creation failed', $e->getMessage());
                     // We do not throw here to allow other provision steps to continue
                 }
             }
