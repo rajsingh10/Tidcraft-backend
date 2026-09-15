@@ -137,6 +137,22 @@ class TenantProvisionService
                 $subscription->update(['status' => 'active']);
             }
             self::logProgress($tenant, 'activation', 'success', 'Tenant activated successfully');
+
+            // Send email to client
+            $adminEmail = $tenant->primary_contact_email ?? ($tenant->client ? $tenant->client->email : 'admin@' . ($tenant->domains()->first()?->domain ?? 'tidcraft.com'));
+            $baseName = trim($tenant->name ?: $tenant->business_name);
+            $adminPassword = empty($baseName) ? 'tidcraft' : str_replace(' ', '', strtolower($baseName)) . '-tidcraft';
+            $domainObj = $tenant->domains()->first();
+            $domainUrl = 'https://' . ($domainObj ? $domainObj->domain : 'tidcraft.com');
+
+            try {
+                \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\TenantProvisionedEmail($tenant, $adminEmail, $adminPassword, $domainUrl));
+                self::logProgress($tenant, 'email', 'success', 'Provisioned email sent to ' . $adminEmail);
+            } catch (\Exception $e) {
+                Log::error('Failed to send provisioned email: ' . $e->getMessage());
+                self::logProgress($tenant, 'email', 'failed', 'Failed to send provisioned email', $e->getMessage());
+            }
+
         } catch (\Exception $e) {
             self::logProgress($tenant, 'activation', 'failed', 'Tenant activation failed', $e->getMessage());
             throw $e;
@@ -157,6 +173,56 @@ class TenantProvisionService
 
         if ($status === 'failed') {
             Log::error("Provisioning failed for tenant {$tenant->id} at step {$step}: {$error}");
+        }
+    }
+
+    /**
+     * Block a tenant by pointing their symlink to an expired page.
+     */
+    public static function blockTenant(Tenant $tenant)
+    {
+        $domain = $tenant->domains()->first();
+        if (!$domain) return;
+
+        $tenantsDirectory = '/home/devtidcraftcomusr/tenants/';
+        $symlinkPath = rtrim($tenantsDirectory, '/') . '/' . $domain->domain;
+        $expiredPath = '/home/devtidcraftcomusr/expired-page';
+
+        // Ensure the expired page directory exists
+        if (!file_exists($expiredPath)) {
+            @mkdir($expiredPath, 0755, true);
+            $html = '<html><head><title>Subscription Expired</title><style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f3f4f6;text-align:center;} .card{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,0.1);max-width:500px;} h1{color:#ef4444;}</style></head><body><div class="card"><h1>Subscription Expired</h1><p>Your access to this application has been temporarily disabled because your subscription is no longer active.</p><p>Please renew your plan to restore access.</p></div></body></html>';
+            @file_put_contents($expiredPath . '/index.html', $html);
+        }
+
+        // Replace symlink
+        if (is_link($symlinkPath) || file_exists($symlinkPath)) {
+            unlink($symlinkPath);
+        }
+        symlink($expiredPath, $symlinkPath);
+    }
+
+    /**
+     * Unblock a tenant by restoring their symlink to the product's frontend path.
+     */
+    public static function unblockTenant(Tenant $tenant)
+    {
+        $domain = $tenant->domains()->first();
+        $product = \App\Models\Product::find($tenant->product_id);
+
+        if (!$domain || !$product || empty($product->frontend_path)) return;
+
+        $tenantsDirectory = '/home/devtidcraftcomusr/tenants/';
+        $symlinkPath = rtrim($tenantsDirectory, '/') . '/' . $domain->domain;
+        $targetPath = $product->frontend_path;
+
+        // Replace symlink
+        if (is_link($symlinkPath) || file_exists($symlinkPath)) {
+            unlink($symlinkPath);
+        }
+        
+        if (file_exists($targetPath)) {
+            symlink($targetPath, $symlinkPath);
         }
     }
 }

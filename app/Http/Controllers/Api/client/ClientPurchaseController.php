@@ -23,7 +23,7 @@ class ClientPurchaseController extends Controller
         $user = $request->user();
 
         // Fetch tenants linked to this user's email
-        $tenants = Tenant::with(['product', 'plan', 'domain', 'subscriptions'])
+        $tenants = Tenant::with(['product', 'plan', 'domains', 'subscriptions'])
             ->where('create_by', $user->id)
             ->get();
 
@@ -41,7 +41,7 @@ class ClientPurchaseController extends Controller
         $user = $request->user();
 
         // Fetch the specific tenant ensuring it belongs to this client
-        $tenant = Tenant::with(['product', 'plan', 'domain', 'firebaseConfig', 'addOns', 'subscriptions', 'provisioningLogs'])
+        $tenant = Tenant::with(['product', 'plan', 'domains', 'firebaseProject', 'addOns', 'subscriptions', 'provisioningLogs'])
             ->where('uuid', $uuid)
             ->where('create_by', $user->id)
             ->first();
@@ -434,7 +434,7 @@ class ClientPurchaseController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
         }
 
-        $subscription = $tenant->subscriptions()->where('status', 'active')->first();
+        $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired'])->first();
         if (!$subscription) {
             return response()->json(['status' => 'error', 'message' => 'No active subscription found to renew.'], 400);
         }
@@ -649,21 +649,36 @@ class ClientPurchaseController extends Controller
                 $paymentType = $payment ? $payment->type : 'provisioning';
 
                 if ($paymentType === 'renewal') {
-                    $subscription = $tenant->subscriptions()->where('status', 'active')->first();
+                    $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired'])->first();
                     if ($subscription) {
                         // Extend by 1 month by default (could be adjusted based on plan duration)
                         $currentEndDate = $subscription->end_date ? \Carbon\Carbon::parse($subscription->end_date) : now();
+                        if ($currentEndDate->isPast()) {
+                            $currentEndDate = now();
+                        }
                         $subscription->end_date = $currentEndDate->addMonth();
+                        $subscription->status = 'active';
                         $subscription->save();
                     }
+                    if ($tenant->status === 'expired') {
+                        $tenant->status = 'active';
+                        $tenant->save();
+                        \App\Services\TenantProvisionService::unblockTenant($tenant);
+                    }
                 } elseif ($paymentType === 'upgrade') {
-                    $subscription = $tenant->subscriptions()->where('status', 'active')->first();
+                    $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired'])->first();
                     $metadata = $payment->metadata ?? [];
                     if ($subscription && isset($metadata['new_plan_id'])) {
                         $subscription->plan_id = $metadata['new_plan_id'];
                         $subscription->start_date = now();
                         $subscription->end_date = now()->addMonth();
+                        $subscription->status = 'active';
                         $subscription->save();
+                    }
+                    if ($tenant->status === 'expired') {
+                        $tenant->status = 'active';
+                        $tenant->save();
+                        \App\Services\TenantProvisionService::unblockTenant($tenant);
                     }
                 } else {
                     // Provisioning type
