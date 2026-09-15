@@ -219,6 +219,28 @@ class TenantProvisionController extends Controller
     }
 
     /**
+     * Display the provisioning status steps for a specific tenant.
+     */
+    public function provisioningStatus($uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $logs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)
+            ->orderBy('id', 'asc')
+            ->get();
+
+        return response()->json([
+            'status' => 'success',
+            'tenant_status' => $tenant->status,
+            'data' => $logs
+        ]);
+    }
+
+    /**
      * Update the specified tenant in storage.
      */
     public function update(Request $request, $uuid)

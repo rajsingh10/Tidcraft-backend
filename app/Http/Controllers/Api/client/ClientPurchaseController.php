@@ -41,7 +41,7 @@ class ClientPurchaseController extends Controller
         $user = $request->user();
 
         // Fetch the specific tenant ensuring it belongs to this client
-        $tenant = Tenant::with(['product', 'plan', 'domain', 'firebaseConfig', 'addOns', 'subscriptions'])
+        $tenant = Tenant::with(['product', 'plan', 'domain', 'firebaseConfig', 'addOns', 'subscriptions', 'provisioningLogs'])
             ->where('uuid', $uuid)
             ->where('create_by', $user->id)
             ->first();
@@ -56,6 +56,35 @@ class ClientPurchaseController extends Controller
         return response()->json([
             'status' => 'success',
             'data' => $tenant
+        ]);
+    }
+
+    /**
+     * Display the provisioning status steps for a specific purchase.
+     */
+    public function provisioningStatus(Request $request, $uuid)
+    {
+        $user = $request->user();
+
+        $tenant = Tenant::where('uuid', $uuid)
+            ->where('create_by', $user->id)
+            ->first();
+
+        if (!$tenant) {
+            return response()->json([
+                'status' => 'error', 
+                'message' => 'Purchase not found or you do not have permission to view it.'
+            ], 404);
+        }
+
+        $logs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)
+            ->orderBy('id', 'asc')
+            ->get();
+
+        return response()->json([
+            'status' => 'success',
+            'tenant_status' => $tenant->status,
+            'data' => $logs
         ]);
     }
 
