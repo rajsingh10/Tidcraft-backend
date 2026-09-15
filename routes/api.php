@@ -147,6 +147,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/support-tickets', [\App\Http\Controllers\Api\SupportTicketController::class, 'store']);
     Route::post('/support-tickets/{id}', [\App\Http\Controllers\Api\SupportTicketController::class, 'update']);
     Route::post('/support-tickets/{id}/status', [\App\Http\Controllers\Api\SupportTicketController::class, 'changeStatus']);
+    // Invoices API
+    Route::get('/invoices', [\App\Http\Controllers\Api\InvoiceController::class, 'index']);
+    Route::get('/invoices/{id}', [\App\Http\Controllers\Api\InvoiceController::class, 'show']);
+    Route::get('/invoices/{id}/pdf', [\App\Http\Controllers\Api\InvoiceController::class, 'downloadPdf']);
 
     // Dedicated APIs for Subscriptions and Payments
     Route::post('subscriptions/{subscription}', [SubscriptionController::class, 'update']);
