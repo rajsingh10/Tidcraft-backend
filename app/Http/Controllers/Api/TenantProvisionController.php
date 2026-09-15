@@ -633,10 +633,49 @@ class TenantProvisionController extends Controller
                 ]);
             }
 
-            // If payment was successful, start automatic provisioning
+            // Handle post-payment logic based on payment type
             if ($paymentStatus === 'success') {
-                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
-            \App\Helpers\QueueRunner::runBackground();
+                $paymentType = $payment ? $payment->type : 'provisioning';
+
+                if ($paymentType === 'renewal') {
+                    $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired'])->first();
+                    if ($subscription) {
+                        $currentEndDate = $subscription->end_date ? \Carbon\Carbon::parse($subscription->end_date) : now();
+                        if ($currentEndDate->isPast()) {
+                            $currentEndDate = now();
+                        }
+                        $subscription->end_date = $currentEndDate->addMonth();
+                        $subscription->status = 'active';
+                        $subscription->save();
+                    }
+                    if ($tenant->status === 'expired') {
+                        $tenant->status = 'active';
+                        $tenant->save();
+                        \App\Services\TenantProvisionService::unblockTenant($tenant);
+                    }
+                } elseif ($paymentType === 'upgrade') {
+                    $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired'])->first();
+                    $metadata = $payment->metadata ?? [];
+                    if ($subscription && isset($metadata['new_plan_id'])) {
+                        $subscription->plan_id = $metadata['new_plan_id'];
+                        $subscription->start_date = now();
+                        $subscription->end_date = now()->addMonth();
+                        $subscription->status = 'active';
+                        $subscription->save();
+                    }
+                    if ($tenant->status === 'expired') {
+                        $tenant->status = 'active';
+                        $tenant->save();
+                        \App\Services\TenantProvisionService::unblockTenant($tenant);
+                    }
+                } else {
+                    // Provisioning type
+                    $domainExists = Domain::where('tenant_id', $tenant->id)->exists();
+                    if ($domainExists && $tenant->status === 'provisioning') {
+                        \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                        \App\Helpers\QueueRunner::runBackground();
+                    }
+                }
             }
 
             DB::commit();
@@ -707,10 +746,28 @@ class TenantProvisionController extends Controller
                 'status' => $request->status
             ]);
             
-            // Trigger automatic provisioning if we switch it to success and it's not already provisioned
-            if ($request->status === 'success' && $tenant->status === 'provisioning') {
-                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
-            \App\Helpers\QueueRunner::runBackground();
+            // Handle post-payment logic
+            if ($request->status === 'success') {
+                if ($tenant->status === 'provisioning') {
+                    \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                    \App\Helpers\QueueRunner::runBackground();
+                } else if ($payment->type === 'renewal' || $payment->type === 'upgrade') {
+                    $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired'])->first();
+                    if ($subscription) {
+                        $currentEndDate = $subscription->end_date ? \Carbon\Carbon::parse($subscription->end_date) : now();
+                        if ($currentEndDate->isPast()) {
+                            $currentEndDate = now();
+                        }
+                        $subscription->end_date = $currentEndDate->addMonth();
+                        $subscription->status = 'active';
+                        $subscription->save();
+                    }
+                    if ($tenant->status === 'expired') {
+                        $tenant->status = 'active';
+                        $tenant->save();
+                        \App\Services\TenantProvisionService::unblockTenant($tenant);
+                    }
+                }
             }
         } else {
             return response()->json([
