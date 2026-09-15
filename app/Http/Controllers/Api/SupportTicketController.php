@@ -164,4 +164,42 @@ class SupportTicketController extends Controller
             'message' => 'Ticket deleted successfully'
         ]);
     }
+
+    /**
+     * Update the status of the specified resource.
+     */
+    public function changeStatus(Request $request, string $id)
+    {
+        $user = $request->user();
+        $query = SupportTicket::query();
+
+        if (!$user->hasRole('SuperAdmin')) {
+            $query->where('tenant_id', $user->tenant_id);
+        }
+
+        $ticket = $query->findOrFail($id);
+
+        $validated = $request->validate([
+            'status' => 'required|string|in:In Progress,Open,Resolved',
+        ]);
+
+        $ticket->update(['status' => $validated['status']]);
+
+        if (!$user->hasRole('SuperAdmin')) {
+            \App\Models\AdminNotification::create([
+                'type' => 'support_ticket',
+                'title' => 'Support Ticket Status Updated',
+                'message' => 'Support ticket ' . ($ticket->ticket_id ?? 'TCK') . ' status was updated to ' . $validated['status'] . '.',
+                'related_id' => $ticket->id,
+                'client_name' => $user->name ?? 'Client',
+                'is_read' => false,
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Ticket status updated successfully',
+            'data' => $ticket->load(['tenant', 'assignee'])
+        ]);
+    }
 }
