@@ -130,6 +130,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tenant-provision/{uuid}/verify-payment', [TenantProvisionController::class, 'verifyPayment']);
     Route::post('/tenant-provision/payment-status-change', [TenantProvisionController::class, 'paymentstatuschnage']);
     Route::get('/tenants', [TenantProvisionController::class, 'index']);
+    Route::get('/tenants/backups', [TenantProvisionController::class, 'listAllBackups']);
     Route::get('/tenants/{uuid}', [TenantProvisionController::class, 'show']);
     Route::get('/tenants/{uuid}/provisioning-status', [TenantProvisionController::class, 'provisioningStatus']);
     Route::get('/tenants/{uuid}/backups', [TenantProvisionController::class, 'listBackups']);

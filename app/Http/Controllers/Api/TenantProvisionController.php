@@ -292,6 +292,16 @@ class TenantProvisionController extends Controller
     /**
      * List all Firebase backups for this tenant.
      */
+    public function listAllBackups()
+    {
+        $backups = \App\Models\TenantBackup::with(['tenant.client', 'tenant.product'])->latest()->paginate(20);
+        
+        return response()->json([
+            'status' => 'success',
+            'data' => $backups
+        ]);
+    }
+
     public function listBackups($uuid)
     {
         $tenant = Tenant::where('uuid', $uuid)->first();
@@ -319,7 +329,14 @@ class TenantProvisionController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
         }
 
-        $backup = $tenant->tenantBackups()->findOrFail($backupId);
+        $backup = $tenant->tenantBackups()->find($backupId);
+
+        if (!$backup) {
+            return response()->json([
+                'status' => 'error', 
+                'message' => "Backup with ID '{$backupId}' not found. Please ensure you are passing the actual database ID of the backup, not a timestamp."
+            ], 404);
+        }
 
         $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
         if (!$productFirebase || empty($productFirebase->service_account_json)) {
