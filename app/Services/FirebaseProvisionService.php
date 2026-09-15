@@ -67,12 +67,14 @@ class FirebaseProvisionService
                     if (isset($indexData['indexes']) && is_array($indexData['indexes'])) {
                         $adminClient->createIndexesFromJson($serviceAccount, $databaseId, $indexData['indexes']);
                         \Illuminate\Support\Facades\Log::info("Successfully triggered index creation for {$databaseId} from {$indexPath}");
+                    } else {
+                        throw new \Exception("Invalid firestore_indexes.json format at {$indexPath}");
                     }
                 } else {
-                    \Illuminate\Support\Facades\Log::warning("No firestore_indexes.json found for product {$product->name} at {$indexPath}");
+                    throw new \Exception("Missing firestore_indexes.json for product {$product->name}. Expected at: {$indexPath}");
                 }
             } else {
-                \Illuminate\Support\Facades\Log::warning("Product not found for tenant {$tenant->id}, skipping indexes.");
+                throw new \Exception("Product not found for tenant {$tenant->id}");
             }
             // 1.6 Set default public security rules
             $adminClient->setDefaultSecurityRules($serviceAccount, $databaseId);
