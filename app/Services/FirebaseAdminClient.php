@@ -87,6 +87,43 @@ class FirebaseAdminClient
         throw new \Exception("Failed to create Identity Platform Tenant '{$displayName}' in project '{$projectId}': {$error}");
     }
 
+    public function deleteIdentityTenant(array $serviceAccount, string $tenantId): void
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) return;
+
+        $accessToken = $this->accessToken($serviceAccount, [
+            'https://www.googleapis.com/auth/cloud-platform',
+        ]);
+
+        $url = 'https://identitytoolkit.googleapis.com/v2/projects/' . rawurlencode($projectId) . '/tenants/' . rawurlencode($tenantId);
+
+        $response = Http::withToken($accessToken)->timeout(30)->delete($url);
+        
+        if (!$response->successful() && $response->status() !== 404) {
+            \Illuminate\Support\Facades\Log::warning("Failed to delete Identity Platform Tenant '{$tenantId}': " . $response->body());
+        }
+    }
+
+    public function deleteFirestoreDatabase(array $serviceAccount, string $databaseId): void
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) return;
+
+        $accessToken = $this->accessToken($serviceAccount, [
+            'https://www.googleapis.com/auth/datastore',
+            'https://www.googleapis.com/auth/cloud-platform',
+        ]);
+
+        $url = 'https://firestore.googleapis.com/v1/projects/' . rawurlencode($projectId) . '/databases/' . rawurlencode($databaseId);
+
+        $response = Http::withToken($accessToken)->timeout(30)->delete($url);
+
+        if (!$response->successful() && $response->status() !== 404) {
+            \Illuminate\Support\Facades\Log::warning("Failed to delete Firestore Database '{$databaseId}': " . $response->body());
+        }
+    }
+
     /**
      * Copy composite indexes from a source database to a target database.
      */

@@ -109,7 +109,7 @@ class TenantProvisionService
             // Create a symlink for the frontend Nginx routing
             $product = \App\Models\Product::find($tenant->product_id);
             if ($product && !empty($product->frontend_path) && $domain) {
-                $tenantsDirectory = '/home/devtidcraftcomusr/tenants/';
+                $tenantsDirectory = env('TENANTS_DIRECTORY', '/home/devtidcraftcomusr/tenants/');
                 if (!file_exists($tenantsDirectory)) {
                     mkdir($tenantsDirectory, 0755, true);
                 }
@@ -184,9 +184,9 @@ class TenantProvisionService
         $domain = $tenant->domains()->first();
         if (!$domain) return;
 
-        $tenantsDirectory = '/home/devtidcraftcomusr/tenants/';
+        $tenantsDirectory = env('TENANTS_DIRECTORY', '/home/devtidcraftcomusr/tenants/');
         $symlinkPath = rtrim($tenantsDirectory, '/') . '/' . $domain->domain;
-        $expiredPath = '/home/devtidcraftcomusr/expired-page';
+        $expiredPath = env('EXPIRED_PAGE_DIRECTORY', '/home/devtidcraftcomusr/expired-page');
 
         // Ensure the expired page directory exists
         if (!file_exists($expiredPath)) {
@@ -212,7 +212,7 @@ class TenantProvisionService
 
         if (!$domain || !$product || empty($product->frontend_path)) return;
 
-        $tenantsDirectory = '/home/devtidcraftcomusr/tenants/';
+        $tenantsDirectory = env('TENANTS_DIRECTORY', '/home/devtidcraftcomusr/tenants/');
         $symlinkPath = rtrim($tenantsDirectory, '/') . '/' . $domain->domain;
         $targetPath = $product->frontend_path;
 
