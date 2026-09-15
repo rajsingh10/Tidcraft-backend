@@ -382,8 +382,6 @@ class ClientPurchaseController extends Controller
 
                     if ($keyId && $keySecret) {
                         try {
-                            $api = new \Razorpay\Api\Api($keyId, $keySecret);
-                            
                             $customerData = array_filter([
                                 'name' => $tenant->business_name,
                                 'email' => $tenant->primary_contact_email,
@@ -399,8 +397,14 @@ class ClientPurchaseController extends Controller
                                 'reminder_enable' => true,
                             ];
                             
-                            $paymentLinkResponse = $api->paymentLink->create($paymentLinkData);
-                            $paymentLinkStr = $paymentLinkResponse->short_url;
+                            $response = \Illuminate\Support\Facades\Http::withBasicAuth($keyId, $keySecret)
+                                ->post('https://api.razorpay.com/v1/payment_links', $paymentLinkData);
+
+                            if ($response->successful()) {
+                                $paymentLinkStr = $response->json('short_url');
+                            } else {
+                                throw new \Exception('Razorpay Error: ' . $response->body());
+                            }
                         } catch (\Exception $e) {
                             $paymentErrorStr = $e->getMessage();
                             \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
