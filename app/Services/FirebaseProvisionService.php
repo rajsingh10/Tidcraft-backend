@@ -58,8 +58,14 @@ class FirebaseProvisionService
             // 1.5 Setup Indexes from local JSON based on product
             $product = \App\Models\Product::find($tenant->product_id);
             if ($product) {
-                // Determine folder name (e.g. "Food App" -> "food-app")
-                $productSlug = \Illuminate\Support\Str::slug($product->name);
+                // Determine folder name from frontend_path (e.g. "/home/.../parkme-app" -> "parkme-app")
+                // If frontend_path is empty, fallback to slugified name
+                if (!empty($product->frontend_path)) {
+                    $productSlug = basename(trim($product->frontend_path, '/'));
+                } else {
+                    $productSlug = \Illuminate\Support\Str::slug($product->name);
+                }
+                
                 $indexPath = public_path("collection/{$productSlug}/firestore_indexes.json");
                 
                 if (file_exists($indexPath)) {
