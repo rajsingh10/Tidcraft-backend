@@ -183,6 +183,41 @@ class FirebaseAdminClient
     }
 
     /**
+     * Create composite indexes from a parsed JSON array (e.g. from firestore_indexes.json).
+     */
+    public function createIndexesFromJson(array $serviceAccount, string $targetDatabaseId, array $indexes): void
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) {
+            return;
+        }
+
+        $accessToken = $this->accessToken($serviceAccount, [
+            'https://www.googleapis.com/auth/datastore',
+            'https://www.googleapis.com/auth/cloud-platform',
+        ]);
+
+        foreach ($indexes as $index) {
+            $collectionId = $index['collectionGroup'] ?? null;
+            if (!$collectionId) continue;
+
+            $createUrl = "https://firestore.googleapis.com/v1/projects/{$projectId}/databases/{$targetDatabaseId}/collectionGroups/{$collectionId}/indexes";
+            
+            $payload = [
+                'queryScope' => $index['queryScope'] ?? 'COLLECTION',
+                'fields' => $index['fields'] ?? []
+            ];
+
+            // Send async POST request to create index
+            $createResponse = Http::withToken($accessToken)->post($createUrl, $payload);
+            
+            if (!$createResponse->successful() && $createResponse->status() !== 409) { // 409 means already exists
+                \Illuminate\Support\Facades\Log::warning("Failed to create index on {$targetDatabaseId} for {$collectionId} from JSON: " . $createResponse->body());
+            }
+        }
+    }
+
+    /**
      * Set default public read/write security rules for the given database.
      */
     public function setDefaultSecurityRules(array $serviceAccount, string $databaseId): void
