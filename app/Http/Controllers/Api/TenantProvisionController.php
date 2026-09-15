@@ -428,7 +428,18 @@ class TenantProvisionController extends Controller
                 $updateData['tenant_key'] = Str::slug($bName) . '-p' . $pId;
             }
 
+            $oldStatus = $tenant->status;
             $tenant->update($updateData);
+
+            // Handle suspending / un-suspending domains
+            if ($request->has('status') && $request->status !== $oldStatus) {
+                $newStatus = strtolower($request->status);
+                if (in_array($newStatus, ['suspended', 'past due', 'past_due', 'expired'])) {
+                    \App\Services\TenantProvisionService::blockTenant($tenant);
+                } elseif ($newStatus === 'active') {
+                    \App\Services\TenantProvisionService::unblockTenant($tenant);
+                }
+            }
 
             // Sync Add-ons
             if ($request->has('add_ons') && is_array($request->add_ons)) {
@@ -503,11 +514,31 @@ class TenantProvisionController extends Controller
         try {
             DB::beginTransaction();
 
-            // Soft delete relationships if they exist
+            // Remove domain symlink completely
+            $tenantsDirectory = env('TENANTS_DIRECTORY', '/home/devtidcraftcomusr/tenants/');
             foreach ($tenant->domains as $domain) {
+                $symlinkPath = rtrim($tenantsDirectory, '/') . '/' . $domain->domain;
+                if (is_link($symlinkPath) || file_exists($symlinkPath)) {
+                    unlink($symlinkPath);
+                }
                 $domain->delete();
             }
+
+            // Drop Firebase resources
             if ($tenant->firebaseProject) {
+                $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+                if ($productFirebase && !empty($productFirebase->service_account_json)) {
+                    $serviceAccount = json_decode($productFirebase->service_account_json, true) ?? [];
+                    if (!empty($serviceAccount)) {
+                        $adminClient = new \App\Services\FirebaseAdminClient();
+                        if ($tenant->firebaseProject->firebase_tenant_id) {
+                            $adminClient->deleteIdentityTenant($serviceAccount, $tenant->firebaseProject->firebase_tenant_id);
+                        }
+                        if ($tenant->firebaseProject->firebase_database_id) {
+                            $adminClient->deleteFirestoreDatabase($serviceAccount, $tenant->firebaseProject->firebase_database_id);
+                        }
+                    }
+                }
                 $tenant->firebaseProject->delete();
             }
 
@@ -763,11 +794,18 @@ class TenantProvisionController extends Controller
                         $subscription->status = 'active';
                         $subscription->save();
                     }
-                    if ($tenant->status === 'expired') {
+                    if ($tenant->status === 'expired' || $tenant->status === 'past_due') {
                         $tenant->status = 'active';
                         $tenant->save();
                         \App\Services\TenantProvisionService::unblockTenant($tenant);
                     }
+                }
+            } else {
+                // Payment is not success, disable access
+                if (in_array($tenant->status, ['active', 'expired', 'past_due', 'suspended'])) {
+                    $tenant->status = 'past_due';
+                    $tenant->save();
+                    \App\Services\TenantProvisionService::blockTenant($tenant);
                 }
             }
         } else {
