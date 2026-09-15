@@ -17,7 +17,8 @@ class SupportTicketController extends Controller
         $query = SupportTicket::with(['tenant', 'assignee'])->latest();
 
         if (!$user->hasRole('SuperAdmin')) {
-            $query->where('tenant_id', $user->tenant_id);
+            $tenantIds = \App\Models\Tenant::where('create_by', $user->id)->pluck('id');
+            $query->whereIn('tenant_id', $tenantIds);
         }
 
         return response()->json([
@@ -45,13 +46,23 @@ class SupportTicketController extends Controller
         ]);
 
         if (!$isSuperAdmin) {
-            if (!$user->tenant_id) {
+            $tenantId = $request->input('tenant_id');
+            if (!$tenantId) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Your account is not assigned to a tenant. Only SuperAdmins can specify a tenant_id manually.'
+                    'message' => 'You must provide a tenant_id for the support ticket.'
+                ], 422);
+            }
+
+            $ownsTenant = \App\Models\Tenant::where('id', $tenantId)->where('create_by', $user->id)->exists();
+            if (!$ownsTenant) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'You do not have permission to create a ticket for this tenant.'
                 ], 403);
             }
-            $validated['tenant_id'] = $user->tenant_id;
+
+            $validated['tenant_id'] = $tenantId;
             $validated['status'] = 'Open';
         }
 
@@ -90,7 +101,8 @@ class SupportTicketController extends Controller
         $query = SupportTicket::with(['tenant', 'assignee']);
 
         if (!$user->hasRole('SuperAdmin')) {
-            $query->where('tenant_id', $user->tenant_id);
+            $tenantIds = \App\Models\Tenant::where('create_by', $user->id)->pluck('id');
+            $query->whereIn('tenant_id', $tenantIds);
         }
 
         $ticket = $query->findOrFail($id);
@@ -110,7 +122,8 @@ class SupportTicketController extends Controller
         $query = SupportTicket::query();
 
         if (!$user->hasRole('SuperAdmin')) {
-            $query->where('tenant_id', $user->tenant_id);
+            $tenantIds = \App\Models\Tenant::where('create_by', $user->id)->pluck('id');
+            $query->whereIn('tenant_id', $tenantIds);
         }
 
         $ticket = $query->findOrFail($id);
@@ -153,7 +166,8 @@ class SupportTicketController extends Controller
         $query = SupportTicket::query();
 
         if (!$user->hasRole('SuperAdmin')) {
-            $query->where('tenant_id', $user->tenant_id);
+            $tenantIds = \App\Models\Tenant::where('create_by', $user->id)->pluck('id');
+            $query->whereIn('tenant_id', $tenantIds);
         }
 
         $ticket = $query->findOrFail($id);
@@ -174,7 +188,8 @@ class SupportTicketController extends Controller
         $query = SupportTicket::query();
 
         if (!$user->hasRole('SuperAdmin')) {
-            $query->where('tenant_id', $user->tenant_id);
+            $tenantIds = \App\Models\Tenant::where('create_by', $user->id)->pluck('id');
+            $query->whereIn('tenant_id', $tenantIds);
         }
 
         $ticket = $query->findOrFail($id);
