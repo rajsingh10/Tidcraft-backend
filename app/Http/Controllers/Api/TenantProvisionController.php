@@ -224,10 +224,14 @@ class TenantProvisionController extends Controller
      */
     public function provisioningStatus($uuid)
     {
-        $tenant = Tenant::where('uuid', $uuid)
-            ->orWhere('tenant_key', $uuid)
-            ->orWhere('id', $uuid)
-            ->first();
+        $query = Tenant::where('uuid', $uuid)
+            ->orWhere('tenant_key', $uuid);
+            
+        if (is_numeric($uuid)) {
+            $query->orWhere('id', $uuid);
+        }
+        
+        $tenant = $query->first();
 
         if (!$tenant) {
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
