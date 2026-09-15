@@ -269,6 +269,37 @@ class FirebaseAdminClient
         return $accessToken;
     }
 
+    public function createAuthUser(array $serviceAccount, string $email, string $password): void
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) {
+            throw new \Exception('Firebase service account JSON is missing project_id.');
+        }
+
+        $accessToken = $this->accessToken($serviceAccount, [
+            'https://www.googleapis.com/auth/identitytoolkit',
+            'https://www.googleapis.com/auth/cloud-platform',
+        ]);
+
+        $url = 'https://identitytoolkit.googleapis.com/v1/projects/' . rawurlencode($projectId) . '/accounts';
+
+        $response = Http::withToken($accessToken)
+            ->timeout(30)
+            ->post($url, [
+                'email' => $email,
+                'password' => $password,
+            ]);
+
+        if (!$response->successful()) {
+            $error = $response->json('error.message') ?? $response->body();
+            if (str_contains($error, 'EMAIL_EXISTS')) {
+                \Illuminate\Support\Facades\Log::warning("Firebase Auth user {$email} already exists. Skipping creation.");
+            } else {
+                throw new \Exception("Failed to create Firebase Auth user '{$email}': {$error}");
+            }
+        }
+    }
+
     private function base64UrlEncode(string $data): string
     {
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
