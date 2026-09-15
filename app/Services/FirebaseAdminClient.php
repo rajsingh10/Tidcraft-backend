@@ -212,7 +212,7 @@ class FirebaseAdminClient
             $createResponse = Http::withToken($accessToken)->post($createUrl, $payload);
             
             if (!$createResponse->successful() && $createResponse->status() !== 409) { // 409 means already exists
-                \Illuminate\Support\Facades\Log::warning("Failed to create index on {$targetDatabaseId} for {$collectionId} from JSON: " . $createResponse->body());
+                throw new \Exception("Failed to create index on {$targetDatabaseId} for {$collectionId} from JSON: " . $createResponse->body());
             }
         }
     }
