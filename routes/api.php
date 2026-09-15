@@ -137,6 +137,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/tenants/{uuid}/backup/firebase', [TenantProvisionController::class, 'backupFirebase']);
     Route::post('/tenants/{uuid}/backup/{backupId}/restore', [TenantProvisionController::class, 'restoreBackup']);
     Route::post('/tenants/{uuid}', [TenantProvisionController::class, 'update']); // Using POST for form data with files/nested data
+
     Route::delete('/tenants/{uuid}', [TenantProvisionController::class, 'destroy']);
     Route::post('/tenants/{uuid}/renew', [TenantProvisionController::class, 'renewClient']);
     Route::post('/tenants/{uuid}/renew-manual', [TenantProvisionController::class, 'renewManual']);
