@@ -89,6 +89,122 @@ class ClientPurchaseController extends Controller
     }
 
     /**
+     * Download a JSON backup of the Firebase Firestore DB for this purchase.
+     */
+    public function backupFirebase(Request $request, $uuid)
+    {
+        $user = $request->user();
+
+        $tenant = Tenant::where('uuid', $uuid)
+            ->where('create_by', $user->id)
+            ->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+        
+        if (!$productFirebase || empty($productFirebase->service_account_json)) {
+            return response()->json(['status' => 'error', 'message' => 'Firebase is not configured for this product.'], 400);
+        }
+
+        try {
+            $serviceAccount = json_decode($productFirebase->service_account_json, true);
+            $databaseId = $tenant->firestoreDatabaseId();
+            
+            $exporter = new \App\Services\FirestoreExporter($serviceAccount, $databaseId);
+            $data = $exporter->export();
+            
+            $fileName = $tenant->tenant_key . '_firebase_backup_' . date('Y-m-d_H-i-s') . '.json';
+            $jsonContent = json_encode($data, JSON_PRETTY_PRINT);
+            
+            // Save to Storage
+            $path = 'backups/' . $fileName;
+            \Illuminate\Support\Facades\Storage::disk('local')->put($path, $jsonContent);
+            
+            // Log in DB
+            $tenant->tenantBackups()->create([
+                'file_name' => $fileName,
+                'file_path' => $path,
+                'file_size' => strlen($jsonContent)
+            ]);
+            
+            return response()->streamDownload(function () use ($jsonContent) {
+                echo $jsonContent;
+            }, $fileName, [
+                'Content-Type' => 'application/json',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['status' => 'error', 'message' => 'Backup failed: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * List all Firebase backups for this purchase.
+     */
+    public function listBackups(Request $request, $uuid)
+    {
+        $user = $request->user();
+
+        $tenant = Tenant::where('uuid', $uuid)->where('create_by', $user->id)->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        $backups = $tenant->tenantBackups()->latest()->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $backups
+        ]);
+    }
+
+    /**
+     * Restore a specific backup.
+     */
+    public function restoreBackup(Request $request, $uuid, $backupId)
+    {
+        $user = $request->user();
+
+        $tenant = Tenant::where('uuid', $uuid)->where('create_by', $user->id)->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        $backup = $tenant->tenantBackups()->findOrFail($backupId);
+
+        $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+        if (!$productFirebase || empty($productFirebase->service_account_json)) {
+            return response()->json(['status' => 'error', 'message' => 'Firebase is not configured for this product.'], 400);
+        }
+
+        try {
+            $jsonContent = \Illuminate\Support\Facades\Storage::disk('local')->get($backup->file_path);
+            if (!$jsonContent) {
+                return response()->json(['status' => 'error', 'message' => 'Backup file not found in storage.'], 404);
+            }
+
+            $data = json_decode($jsonContent, true);
+
+            $serviceAccount = json_decode($productFirebase->service_account_json, true);
+            $databaseId = $tenant->firestoreDatabaseId();
+
+            $importer = new \App\Services\FirestoreImporter($serviceAccount, $databaseId);
+            $importer->import($data);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Backup restored successfully.'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['status' => 'error', 'message' => 'Restore failed: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Display a listing of all payments made by this client.
      */
     public function payments(Request $request)
