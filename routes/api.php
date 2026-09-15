@@ -138,6 +138,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/support-tickets/{id}', [\App\Http\Controllers\Api\SupportTicketController::class, 'show']);
     Route::post('/support-tickets', [\App\Http\Controllers\Api\SupportTicketController::class, 'store']);
     Route::post('/support-tickets/{id}', [\App\Http\Controllers\Api\SupportTicketController::class, 'update']);
+    Route::post('/support-tickets/{id}/status', [\App\Http\Controllers\Api\SupportTicketController::class, 'changeStatus']);
 
     // Dedicated APIs for Subscriptions and Payments
     Route::post('subscriptions/{subscription}', [SubscriptionController::class, 'update']);
