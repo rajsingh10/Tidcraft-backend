@@ -176,8 +176,9 @@ class TenantProvisionController extends Controller
         }
 
         $prefix = trim($request->subdomain_prefix, " .");
+        $fullDomain = $prefix . '.tidcraft.com';
 
-        $existsInDomains = \App\Models\Domain::where('domain', $prefix)->exists();
+        $existsInDomains = \App\Models\Domain::where('domain', $fullDomain)->exists();
 
         $available = !$existsInDomains;
 
