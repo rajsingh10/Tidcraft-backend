@@ -370,6 +370,7 @@ class ClientPurchaseController extends Controller
 
             // Generate Razorpay Payment Link
             $paymentLinkStr = null;
+            $paymentErrorStr = null;
 
             if ($paymentAmount > 0) {
                 $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
@@ -401,9 +402,14 @@ class ClientPurchaseController extends Controller
                             $paymentLinkResponse = $api->paymentLink->create($paymentLinkData);
                             $paymentLinkStr = $paymentLinkResponse->short_url;
                         } catch (\Exception $e) {
+                            $paymentErrorStr = $e->getMessage();
                             \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
                         }
+                    } else {
+                        $paymentErrorStr = 'razorpay_key_id or razorpay_key_secret is missing in settings table';
                     }
+                } else {
+                    $paymentErrorStr = 'razorpay_active is not set to 1 or true in settings table';
                 }
             }
 
@@ -413,6 +419,7 @@ class ClientPurchaseController extends Controller
                 'data' => [
                     'tenant_id' => $tenant->uuid,
                     'payment_link' => $paymentLinkStr,
+                    'payment_link_error' => $paymentErrorStr,
                     'amount' => $paymentAmount
                 ]
             ], 201);
