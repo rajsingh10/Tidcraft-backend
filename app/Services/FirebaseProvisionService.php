@@ -60,15 +60,30 @@ class FirebaseProvisionService
             if ($product) {
                 // Determine folder name from frontend_path (e.g. "/home/.../parkme-app" -> "parkme-app")
                 // If frontend_path is empty, fallback to slugified name
+                $productSlug = null;
+                $indexPath = null;
+                $collectionPath = null;
+
+                $possibleSlugs = [];
                 if (!empty($product->frontend_path)) {
-                    $productSlug = basename(trim($product->frontend_path, '/'));
-                } else {
-                    $productSlug = \Illuminate\Support\Str::slug($product->name);
+                    $possibleSlugs[] = basename(trim($product->frontend_path, '/')); // e.g. parkme-app
+                }
+                $possibleSlugs[] = \Illuminate\Support\Str::slug($product->name); // e.g. park-me
+                $possibleSlugs[] = \Illuminate\Support\Str::slug($product->name) . '-app'; // e.g. park-me-app
+                $possibleSlugs[] = str_replace('me', '', \Illuminate\Support\Str::slug($product->name)) . '-app'; // park-app
+                
+                // Find the first folder that exists
+                foreach ($possibleSlugs as $slug) {
+                    $path = public_path("collection/{$slug}");
+                    if (is_dir($path)) {
+                        $productSlug = $slug;
+                        $indexPath = $path . '/firestore_indexes.json';
+                        $collectionPath = $path . '/collections.json';
+                        break;
+                    }
                 }
                 
-                $indexPath = public_path("collection/{$productSlug}/firestore_indexes.json");
-                
-                if (file_exists($indexPath)) {
+                if ($productSlug && file_exists($indexPath)) {
                     $indexData = json_decode(file_get_contents($indexPath), true);
                     if (isset($indexData['indexes']) && is_array($indexData['indexes'])) {
                         $adminClient->createIndexesFromJson($serviceAccount, $databaseId, $indexData['indexes']);
@@ -77,7 +92,14 @@ class FirebaseProvisionService
                         throw new \Exception("Invalid firestore_indexes.json format at {$indexPath}");
                     }
                 } else {
-                    throw new \Exception("Missing firestore_indexes.json for product {$product->name}. Expected at: {$indexPath}");
+                    $checkedDirs = implode(', ', $possibleSlugs);
+                    throw new \Exception("Missing public/collection/ folder or firestore_indexes.json for product {$product->name}. Checked paths: {$checkedDirs}");
+                }
+
+                // 1.55 Dispatch Job to Import Collections
+                if ($collectionPath && file_exists($collectionPath)) {
+                    \App\Jobs\ImportFirestoreCollectionsJob::dispatch($serviceAccount, $databaseId, $collectionPath);
+                    \Illuminate\Support\Facades\Log::info("Dispatched ImportFirestoreCollectionsJob for {$databaseId}");
                 }
             } else {
                 throw new \Exception("Product not found for tenant {$tenant->id}");
