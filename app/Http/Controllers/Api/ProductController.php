@@ -357,53 +357,59 @@ class ProductController extends Controller
      */
     public function uploadAttachments(Request $request, Product $product)
     {
-        if ($request->has('source_code_zip') && !$request->hasFile('source_code_zip')) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'The source_code_zip was not sent as a valid file. If using Postman, ensure the field type is set to "File".'
-            ], 422);
-        }
+        $data = [];
 
         if ($request->hasFile('source_code_zip')) {
-            $file = $request->file('source_code_zip');
-            if (!$file->isValid()) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => "Upload failed for source_code_zip. PHP Error Code: " . $file->getError() . ". This usually means the file exceeds upload_max_filesize in php.ini."
-                ], 422);
+            $files = $request->file('source_code_zip');
+            // If they accidentally sent a single file, make it an array so we can loop over it
+            if (!is_array($files)) {
+                $files = [$files];
             }
-            if (strtolower($file->getClientOriginalExtension()) !== 'zip') {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'The source code zip must be a file of type: zip.'
-                ], 422);
+            
+            $paths = [];
+            foreach ($files as $index => $file) {
+                if (!$file->isValid()) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Upload failed for source_code_zip file " . ($index + 1) . ". PHP Error Code: " . $file->getError() . ". This usually means the file exceeds upload_max_filesize in php.ini."
+                    ], 422);
+                }
+                if (strtolower($file->getClientOriginalExtension()) !== 'zip') {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'All source code zips must be a file of type: zip.'
+                    ], 422);
+                }
+                
+                $originalName = $file->getClientOriginalName();
+                $paths[] = $file->storeAs('products/attachments', $originalName, 'public');
             }
+            $data['source_code_zip'] = $paths;
         }
 
         if ($request->hasFile('setup_document_pdf')) {
             $file = $request->file('setup_document_pdf');
+            if (is_array($file)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'The setup_document_pdf must be a single file, not an array of files.'
+                ], 422);
+            }
             if (!$file->isValid()) {
                 return response()->json([
                     'status' => 'error',
                     'message' => "Upload failed for setup_document_pdf. PHP Error Code: " . $file->getError()
                 ], 422);
             }
+            $originalName = $file->getClientOriginalName();
+            $data['setup_document_pdf'] = $file->storeAs('products/attachments', $originalName, 'public');
         }
 
         $request->validate([
-            'source_code_zip' => 'nullable|file|max:1022976', // max 999MB
+            'source_code_zip' => 'nullable|array',
+            'source_code_zip.*' => 'file|max:1022976', // max 999MB per file
             'setup_document_pdf' => 'nullable|file|mimes:pdf|max:20480', // max 20MB
         ]);
-
-        $data = [];
-
-        if ($request->hasFile('source_code_zip')) {
-            $data['source_code_zip'] = $request->file('source_code_zip')->store('products/attachments', 'public');
-        }
-
-        if ($request->hasFile('setup_document_pdf')) {
-            $data['setup_document_pdf'] = $request->file('setup_document_pdf')->store('products/attachments', 'public');
-        }
 
         if (empty($data)) {
             return response()->json([

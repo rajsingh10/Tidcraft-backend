@@ -31,6 +31,7 @@ class Product extends Model
 
     protected $casts = [
         'images' => 'array',
+        'source_code_zip' => 'array',
     ];
 
     public function category()
