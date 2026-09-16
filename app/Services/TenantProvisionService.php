@@ -40,6 +40,8 @@ class TenantProvisionService
 
             // Trigger Firestore Data Import if applicable
             $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+            $serviceAccount = $productFirebase ? (json_decode($productFirebase->service_account_json, true) ?? []) : [];
+
             if ($productFirebase && $productFirebase->firebase_db_collection) {
                 self::logProgress($tenant, 'firebase_import', 'in_progress', 'Importing Firestore data from collection');
                 try {
@@ -47,25 +49,68 @@ class TenantProvisionService
                     if ($jsonContent) {
                         $data = json_decode($jsonContent, true);
                         if ($data) {
-                            $serviceAccount = json_decode($productFirebase->service_account_json, true) ?? [];
                             $importer = new \App\Services\FirestoreImporter($serviceAccount, $tenant->firebaseProject->firebase_database_id);
                             $importer->import($data);
                             self::logProgress($tenant, 'firebase_import', 'success', 'Firestore data imported successfully');
                         }
                     }
+                } catch (\Throwable $e) {
+                    self::logProgress($tenant, 'firebase_import', 'failed', 'Firestore data import failed', $e->getMessage());
+                }
+            }
 
-                    // Auto-create Firebase Auth Admin User
-                    self::logProgress($tenant, 'firebase_auth_admin', 'in_progress', 'Creating Firebase admin user for tenant');
+            // Auto-create Firebase Auth Admin User & Firestore admin document (Runs unconditionally for all tenants)
+            if (!empty($serviceAccount) && $tenant->firebaseProject) {
+                self::logProgress($tenant, 'firebase_auth_admin', 'in_progress', 'Creating Firebase admin user for tenant');
+                try {
                     $adminEmail = $tenant->primary_contact_email ?? ($tenant->client ? $tenant->client->email : 'admin@' . ($tenant->domains()->first()?->domain ?? 'tidcraft.com'));
                     $baseName = trim($tenant->name ?: $tenant->business_name);
                     $adminPassword = empty($baseName) ? 'tidcraft' : str_replace(' ', '', strtolower($baseName)) . '-tidcraft';
 
                     $firebaseAdmin = new \App\Services\FirebaseAdminClient();
                     $firebaseAdmin->createAuthUser($serviceAccount, $adminEmail, $adminPassword);
-                    self::logProgress($tenant, 'firebase_auth_admin', 'success', "Admin user created: Email: {$adminEmail}, Password: {$adminPassword}");
+
+                    // Create admin record in Firestore (admin_users & users collections)
+                    try {
+                        $adminId = (string) $tenant->id;
+                        $importer = new \App\Services\FirestoreImporter($serviceAccount, $tenant->firebaseProject->firebase_database_id);
+                        $importer->import([
+                            '__collections__' => [
+                                'admin_users' => [
+                                    $adminId => [
+                                        'id' => $adminId,
+                                        'name' => $baseName ?: 'Super Admin',
+                                        'email' => strtolower($adminEmail),
+                                        'password' => \Illuminate\Support\Facades\Hash::make($adminPassword),
+                                        'role' => 'admin',
+                                        'role_id' => '1',
+                                        'role_name' => 'Super Administrator',
+                                        'created_at' => date('Y-m-d H:i:s'),
+                                        'updated_at' => date('Y-m-d H:i:s'),
+                                    ]
+                                ],
+                                'users' => [
+                                    $adminId => [
+                                        'id' => $adminId,
+                                        'name' => $baseName ?: 'Super Admin',
+                                        'email' => strtolower($adminEmail),
+                                        'password' => \Illuminate\Support\Facades\Hash::make($adminPassword),
+                                        'role' => 'admin',
+                                        'role_id' => '1',
+                                        'role_name' => 'Super Administrator',
+                                        'created_at' => date('Y-m-d H:i:s'),
+                                        'updated_at' => date('Y-m-d H:i:s'),
+                                    ]
+                                ]
+                            ]
+                        ]);
+                    } catch (\Throwable $fEx) {
+                        \Illuminate\Support\Facades\Log::warning("Could not auto-insert admin user into Firestore: " . $fEx->getMessage());
+                    }
+
+                    self::logProgress($tenant, 'firebase_auth_admin', 'success', "Admin user created in Auth & Firestore: Email: {$adminEmail}, Password: {$adminPassword}");
                 } catch (\Throwable $e) {
-                    self::logProgress($tenant, 'firebase_import', 'failed', 'Firestore data import / user creation failed', $e->getMessage());
-                    // We do not throw here to allow other provision steps to continue
+                    self::logProgress($tenant, 'firebase_auth_admin', 'failed', 'Admin user creation failed', $e->getMessage());
                 }
             }
         } catch (\Exception $e) {
@@ -74,8 +119,16 @@ class TenantProvisionService
             throw $e;
         }
 
-        // Register tenant Firestore database with FoodApp Order Tracking Dispatcher
-        if ($tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id)) {
+        // Register tenant Firestore database with FoodApp Order Tracking Dispatcher (FoodApp Only)
+        $isFoodApp = false;
+        $isParkMeApp = false;
+        if ($tenant->relationLoaded('product') || $tenant->product) {
+            $prodName = strtolower($tenant->product?->slug ?? $tenant->product?->name ?? '');
+            $isFoodApp = str_contains($prodName, 'food') || str_contains($prodName, 'eats');
+            $isParkMeApp = str_contains($prodName, 'park') || str_contains($prodName, 'parkme');
+        }
+
+        if ($isFoodApp && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id)) {
             self::logProgress($tenant, 'order_tracking', 'in_progress', 'Registering order tracking dispatcher');
             try {
                 $dispatcherUrl = config('services.foodapp.dispatcher_url', env('ORDER_DISPATCHER_URL', 'http://127.0.0.1:5005'));
@@ -104,6 +157,18 @@ class TenantProvisionService
                     );
                 } catch (\Throwable $e) {
                     Log::warning("Could not dispatch Cloud Function deploy job for tenant {$tenant->id}: " . $e->getMessage());
+                }
+            }
+        } elseif ($isParkMeApp && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id)) {
+            // Deploy ParkMeApp dedicated Google Cloud Function if enabled in .env
+            if (config('services.parkmeapp.enable_cloudfunction_deploy', env('ENABLE_CLOUDFUNCTION_DEPLOY', false))) {
+                try {
+                    \App\Jobs\DeployParkMeAppFirebaseFunctionJob::dispatch(
+                        $tenant->firebaseProject->firebase_database_id,
+                        $tenant->id
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning("Could not dispatch ParkMeApp Cloud Function deploy job for tenant {$tenant->id}: " . $e->getMessage());
                 }
             }
         }
@@ -150,8 +215,16 @@ class TenantProvisionService
                 $symlinkPath = rtrim($tenantsDirectory, '/') . '/' . $domain->domain;
                 $targetPath = $product->frontend_path;
 
-                if (!file_exists($symlinkPath) && file_exists($targetPath)) {
-                    symlink($targetPath, $symlinkPath);
+                if (file_exists($targetPath)) {
+                    if (is_link($symlinkPath)) {
+                        $current = @readlink($symlinkPath);
+                        if ($current !== $targetPath) {
+                            @unlink($symlinkPath);
+                            @symlink($targetPath, $symlinkPath);
+                        }
+                    } elseif (!file_exists($symlinkPath)) {
+                        @symlink($targetPath, $symlinkPath);
+                    }
                 }
             }
 
