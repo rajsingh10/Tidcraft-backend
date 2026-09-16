@@ -74,6 +74,39 @@ class TenantProvisionService
             throw $e;
         }
 
+        // Register tenant Firestore database with FoodApp Order Tracking Dispatcher
+        if ($tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id)) {
+            self::logProgress($tenant, 'order_tracking', 'in_progress', 'Registering order tracking dispatcher');
+            try {
+                $dispatcherUrl = config('services.foodapp.dispatcher_url', env('ORDER_DISPATCHER_URL', 'http://127.0.0.1:5005'));
+                $response = \Illuminate\Support\Facades\Http::timeout(5)->post(rtrim($dispatcherUrl, '/') . '/api/tenants/register', [
+                    'database_id' => $tenant->firebaseProject->firebase_database_id,
+                    'tenant_id'   => $tenant->id,
+                ]);
+ 
+                if ($response->successful()) {
+                    self::logProgress($tenant, 'order_tracking', 'success', 'Order tracking dispatcher activated for database ' . $tenant->firebaseProject->firebase_database_id);
+                } else {
+                    self::logProgress($tenant, 'order_tracking', 'failed', 'Dispatcher returned non-200 status: ' . $response->status(), $response->body());
+                }
+            } catch (\Throwable $e) {
+                // Non-blocking so provisioning continues even if dispatcher service is not currently running
+                self::logProgress($tenant, 'order_tracking', 'failed', 'Could not contact order dispatcher service', $e->getMessage());
+                Log::warning("Order dispatcher registration notice for tenant {$tenant->id}: " . $e->getMessage());
+            }
+ 
+            // Solution 2 (Optional): Deploy dedicated Google Cloud Function if enabled in .env
+            if (config('services.foodapp.enable_cloudfunction_deploy', env('ENABLE_CLOUDFUNCTION_DEPLOY', false))) {
+                try {
+                    \App\Jobs\DeployTenantFirebaseFunctionJob::dispatch(
+                        $tenant->firebaseProject->firebase_database_id,
+                        $tenant->id
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning("Could not dispatch Cloud Function deploy job for tenant {$tenant->id}: " . $e->getMessage());
+                }
+            }
+        }
         // Migrations disabled for Firebase
         // self::logProgress($tenant, 'migrations', 'in_progress', 'Running tenant migrations');
         // try {
