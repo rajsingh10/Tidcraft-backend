@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
@@ -54,8 +54,16 @@
                 }
             }
         }
+        
+        $appImagePath = public_path('email_images/application.png');
+        $hasAppImage = file_exists($appImagePath);
+        
         $companyName = $settings['company_name'] ?? 'Tidcraft';
         $clientName = $tenant->client->name ?? $tenant->business_name;
+        
+        $productName = $tenant->product ? strtolower($tenant->product->name) : '';
+        $isFoodApp = strpos($productName, 'food') !== false;
+        $isParkApp = strpos($productName, 'park') !== false;
     @endphp
 
     <table width="100%" bgcolor="#f4f7f6" cellpadding="0" cellspacing="0" border="0">
@@ -101,17 +109,30 @@
 
                     <!-- Content -->
                     <div class="content">
-                        <div class="badge">🎉 Good News!</div>
                         
-                        <h1 class="title">Your Application is Ready,<br><span>{{ $clientName }}</span>!</h1>
-                        
-                        <p class="intro-text">We are excited to let you know that your new application has been successfully provisioned and is now live.</p>
-                        
-                        <div class="divider"></div>
+                        <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                                <td valign="top" style="padding-right: 20px;">
+                                    <div class="badge">🎉 Good News!</div>
+                                    
+                                    <h1 class="title">Your Application is Ready,<br><span>{{ $clientName }}</span>!</h1>
+                                    
+                                    <p class="intro-text">We are excited to let you know that your new application has been successfully provisioned and is now live.</p>
+                                    
+                                    <div class="divider"></div>
+                                </td>
+                                @if($hasAppImage && isset($message))
+                                <td valign="middle" width="220" align="right">
+                                    <img src="{{ $message->embed($appImagePath) }}" alt="Application Ready" style="max-width: 220px; height: auto;">
+                                </td>
+                                @endif
+                            </tr>
+                        </table>
 
                         <!-- URL Card -->
                         <div class="card">
                             <table width="100%" cellpadding="0" cellspacing="0">
+                                <!-- Web URL -->
                                 <tr>
                                     <td width="55" valign="middle">
                                         <div class="icon-box">
@@ -119,11 +140,66 @@
                                         </div>
                                     </td>
                                     <td valign="middle">
-                                        <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 4px;">Application URL</div>
+                                        <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 4px;">Web URL</div>
                                         <a href="{{ $domainUrl }}" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ $domainUrl }}</a>
                                     </td>
                                     <td align="right" valign="middle">
-                                        <a href="{{ $domainUrl }}" class="btn-outline" style="color: #2563eb !important;">Open Application &rarr;</a>
+                                        <a href="{{ $domainUrl }}" class="btn-outline" style="color: #2563eb !important;">Open Web &rarr;</a>
+                                    </td>
+                                </tr>
+
+                                @if($isFoodApp)
+                                <!-- Restaurant Panel -->
+                                <tr><td colspan="3" height="15"></td></tr>
+                                <tr>
+                                    <td width="55" valign="middle">
+                                        <div class="icon-box">
+                                            <img src="https://img.icons8.com/ios-filled/50/2563eb/link--v1.png" width="20" height="20" style="vertical-align: middle;">
+                                        </div>
+                                    </td>
+                                    <td valign="middle">
+                                        <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 4px;">Restaurant Panel URL</div>
+                                        <a href="{{ rtrim($domainUrl, '/') }}/restaurant_panel" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ rtrim($domainUrl, '/') }}/restaurant_panel</a>
+                                    </td>
+                                    <td align="right" valign="middle">
+                                        <a href="{{ rtrim($domainUrl, '/') }}/restaurant_panel" class="btn-outline" style="color: #2563eb !important;">Open Restaurant Panel &rarr;</a>
+                                    </td>
+                                </tr>
+                                @endif
+
+                                @if($isParkApp)
+                                <!-- Owner Panel -->
+                                <tr><td colspan="3" height="15"></td></tr>
+                                <tr>
+                                    <td width="55" valign="middle">
+                                        <div class="icon-box">
+                                            <img src="https://img.icons8.com/ios-filled/50/2563eb/link--v1.png" width="20" height="20" style="vertical-align: middle;">
+                                        </div>
+                                    </td>
+                                    <td valign="middle">
+                                        <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 4px;">Owner Panel URL</div>
+                                        <a href="{{ rtrim($domainUrl, '/') }}/owner_panel" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ rtrim($domainUrl, '/') }}/owner_panel</a>
+                                    </td>
+                                    <td align="right" valign="middle">
+                                        <a href="{{ rtrim($domainUrl, '/') }}/owner_panel" class="btn-outline" style="color: #2563eb !important;">Open Owner Panel &rarr;</a>
+                                    </td>
+                                </tr>
+                                @endif
+
+                                <!-- Admin Panel -->
+                                <tr><td colspan="3" height="15"></td></tr>
+                                <tr>
+                                    <td width="55" valign="middle">
+                                        <div class="icon-box">
+                                            <img src="https://img.icons8.com/ios-filled/50/2563eb/link--v1.png" width="20" height="20" style="vertical-align: middle;">
+                                        </div>
+                                    </td>
+                                    <td valign="middle">
+                                        <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 4px;">Admin Panel URL</div>
+                                        <a href="{{ rtrim($domainUrl, '/') }}/admin_panel" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ rtrim($domainUrl, '/') }}/admin_panel</a>
+                                    </td>
+                                    <td align="right" valign="middle">
+                                        <a href="{{ rtrim($domainUrl, '/') }}/admin_panel" class="btn-outline" style="color: #2563eb !important;">Open Admin Panel &rarr;</a>
                                     </td>
                                 </tr>
                             </table>
