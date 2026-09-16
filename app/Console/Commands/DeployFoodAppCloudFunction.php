@@ -67,8 +67,12 @@ class DeployFoodAppCloudFunction extends Command
         $command = ['node', 'deploy_tenant.js', $cleanDb];
         $process = new Process($command, $functionsDir, [
             'TARGET_TENANT_DB' => $cleanDb,
-            'PATH' => getenv('PATH')
+            // 'PATH' => getenv('PATH')
+            'PATH' => (getenv('PATH') ?: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') . ':/usr/local/bin:/usr/bin:/bin'
         ]);
+        if (!empty($_SERVER['HOME']) || getenv('HOME')) {
+            $env['HOME'] = $_SERVER['HOME'] ?? getenv('HOME');
+        }
         $process->setTimeout(600); // 10 minutes timeout for GCP Cloud Build
 
         $this->info("Executing deployment (this may take 2-4 minutes)...");

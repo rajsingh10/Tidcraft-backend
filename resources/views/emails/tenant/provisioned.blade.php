@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
@@ -129,31 +129,33 @@
                             </tr>
                         </table>
 
-                        <!-- URL Card -->
-                        <div class="card">
+                        <!-- Web URL Card -->
+                        <div style="background-color: #f5f9ff; border-radius: 12px; padding: 20px; margin-bottom: 15px;">
                             <table width="100%" cellpadding="0" cellspacing="0">
-                                <!-- Web URL -->
                                 <tr>
                                     <td width="55" valign="middle">
-                                        <div class="icon-box">
+                                        <div class="icon-box" style="background-color: #e5f0ff;">
                                             <img src="https://img.icons8.com/ios-filled/50/2563eb/link--v1.png" width="20" height="20" style="vertical-align: middle;">
                                         </div>
                                     </td>
                                     <td valign="middle">
-                                        <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 4px;">Web URL</div>
+                                        <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 4px;">Application URL</div>
                                         <a href="{{ $domainUrl }}" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ $domainUrl }}</a>
                                     </td>
                                     <td align="right" valign="middle">
-                                        <a href="{{ $domainUrl }}" class="btn-outline" style="color: #2563eb !important;">Open Web &rarr;</a>
+                                        <a href="{{ $domainUrl }}" class="btn-outline" style="color: #2563eb !important; background-color: transparent;">Open Application &rarr;</a>
                                     </td>
                                 </tr>
+                            </table>
+                        </div>
 
-                                @if($isFoodApp)
-                                <!-- Restaurant Panel -->
-                                <tr><td colspan="3" height="15"></td></tr>
+                        @if($isFoodApp)
+                        <!-- Restaurant Panel Card -->
+                        <div style="background-color: #f5f9ff; border-radius: 12px; padding: 20px; margin-bottom: 15px;">
+                            <table width="100%" cellpadding="0" cellspacing="0">
                                 <tr>
                                     <td width="55" valign="middle">
-                                        <div class="icon-box">
+                                        <div class="icon-box" style="background-color: #e5f0ff;">
                                             <img src="https://img.icons8.com/ios-filled/50/2563eb/link--v1.png" width="20" height="20" style="vertical-align: middle;">
                                         </div>
                                     </td>
@@ -162,17 +164,20 @@
                                         <a href="{{ rtrim($domainUrl, '/') }}/restaurant_panel" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ rtrim($domainUrl, '/') }}/restaurant_panel</a>
                                     </td>
                                     <td align="right" valign="middle">
-                                        <a href="{{ rtrim($domainUrl, '/') }}/restaurant_panel" class="btn-outline" style="color: #2563eb !important;">Open Restaurant Panel &rarr;</a>
+                                        <a href="{{ rtrim($domainUrl, '/') }}/restaurant_panel" class="btn-outline" style="color: #2563eb !important; background-color: transparent;">Open Restaurant Panel &rarr;</a>
                                     </td>
                                 </tr>
-                                @endif
+                            </table>
+                        </div>
+                        @endif
 
-                                @if($isParkApp)
-                                <!-- Owner Panel -->
-                                <tr><td colspan="3" height="15"></td></tr>
+                        @if($isParkApp)
+                        <!-- Owner Panel Card -->
+                        <div style="background-color: #f5f9ff; border-radius: 12px; padding: 20px; margin-bottom: 15px;">
+                            <table width="100%" cellpadding="0" cellspacing="0">
                                 <tr>
                                     <td width="55" valign="middle">
-                                        <div class="icon-box">
+                                        <div class="icon-box" style="background-color: #e5f0ff;">
                                             <img src="https://img.icons8.com/ios-filled/50/2563eb/link--v1.png" width="20" height="20" style="vertical-align: middle;">
                                         </div>
                                     </td>
@@ -181,16 +186,19 @@
                                         <a href="{{ rtrim($domainUrl, '/') }}/owner_panel" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ rtrim($domainUrl, '/') }}/owner_panel</a>
                                     </td>
                                     <td align="right" valign="middle">
-                                        <a href="{{ rtrim($domainUrl, '/') }}/owner_panel" class="btn-outline" style="color: #2563eb !important;">Open Owner Panel &rarr;</a>
+                                        <a href="{{ rtrim($domainUrl, '/') }}/owner_panel" class="btn-outline" style="color: #2563eb !important; background-color: transparent;">Open Owner Panel &rarr;</a>
                                     </td>
                                 </tr>
-                                @endif
+                            </table>
+                        </div>
+                        @endif
 
-                                <!-- Admin Panel -->
-                                <tr><td colspan="3" height="15"></td></tr>
+                        <!-- Admin Panel Card -->
+                        <div style="background-color: #f5f9ff; border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+                            <table width="100%" cellpadding="0" cellspacing="0">
                                 <tr>
                                     <td width="55" valign="middle">
-                                        <div class="icon-box">
+                                        <div class="icon-box" style="background-color: #e5f0ff;">
                                             <img src="https://img.icons8.com/ios-filled/50/2563eb/link--v1.png" width="20" height="20" style="vertical-align: middle;">
                                         </div>
                                     </td>
@@ -199,7 +207,7 @@
                                         <a href="{{ rtrim($domainUrl, '/') }}/admin_panel" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ rtrim($domainUrl, '/') }}/admin_panel</a>
                                     </td>
                                     <td align="right" valign="middle">
-                                        <a href="{{ rtrim($domainUrl, '/') }}/admin_panel" class="btn-outline" style="color: #2563eb !important;">Open Admin Panel &rarr;</a>
+                                        <a href="{{ rtrim($domainUrl, '/') }}/admin_panel" class="btn-outline" style="color: #2563eb !important; background-color: transparent;">Open Admin Panel &rarr;</a>
                                     </td>
                                 </tr>
                             </table>

@@ -22,6 +22,8 @@ class Product extends Model
         'description',
         'frontend_path',
         'images',
+        'source_code_zip',
+        'setup_document_pdf',
         'create_by',
         'update_by',
         'delete_by',

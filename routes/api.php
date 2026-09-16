@@ -102,6 +102,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('products/{product}/firebase', [ProductController::class, 'getFirebase']);
     Route::post('products/{product}/firebase', [ProductController::class, 'updateFirebase']);
+    Route::post('products/{product}/attachments', [ProductController::class, 'uploadAttachments']);
     Route::post('products/{product}', [ProductController::class, 'update']);
     Route::apiResource('products', ProductController::class);
 
