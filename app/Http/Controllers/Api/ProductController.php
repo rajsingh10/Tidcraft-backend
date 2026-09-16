@@ -351,4 +351,40 @@ class ProductController extends Controller
             'message' => 'Product deleted successfully.'
         ]);
     }
+
+    /**
+     * Upload app ZIPs and setup document for the product.
+     */
+    public function uploadAttachments(Request $request, Product $product)
+    {
+        $request->validate([
+            'source_code_zip' => 'nullable|file|mimes:zip|max:51200', // max 50MB
+            'setup_document_pdf' => 'nullable|file|mimes:pdf|max:20480', // max 20MB
+        ]);
+
+        $data = [];
+
+        if ($request->hasFile('source_code_zip')) {
+            $data['source_code_zip'] = $request->file('source_code_zip')->store('products/attachments', 'public');
+        }
+
+        if ($request->hasFile('setup_document_pdf')) {
+            $data['setup_document_pdf'] = $request->file('setup_document_pdf')->store('products/attachments', 'public');
+        }
+
+        if (empty($data)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'No valid files provided for upload.'
+            ], 422);
+        }
+
+        $product->update($data);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Product attachments uploaded successfully.',
+            'data' => $product->fresh()
+        ]);
+    }
 }
