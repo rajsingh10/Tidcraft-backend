@@ -23,6 +23,7 @@ Route::post('/login', [AuthController::class, 'login']);
 // Public API Routes
 Route::post('inquiries', [InquiryController::class, 'store']);
 Route::get('products/client', [ProductController::class, 'publicIndex']);
+Route::get('settings/client', [SettingController::class, 'publicGeneral']);
 
 Route::apiResource('plans', PlanController::class)->only(['index', 'show']);
 Route::apiResource('add-ons', AddOnController::class)->only(['index', 'show']);
