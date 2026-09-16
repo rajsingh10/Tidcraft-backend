@@ -399,7 +399,7 @@
             </table>
 
             <!-- Admin Action Button -->
-            <a href="{{ config('app.url') }}/admin" class="btn">Go to Admin Panel &rarr;</a>
+            <a href="{{ config('app.url') }}/admin" class="btn" style="color: #ffffff;">Go to Admin Panel &rarr;</a>
 
             <!-- Help Box -->
             <table class="help-box" border="0" cellspacing="0" cellpadding="0">
@@ -410,7 +410,7 @@
                     <td class="help-content">
                         <p class="help-title">Need Help?</p>
                         <p class="help-text">If you have any questions, feel free to contact our support team.</p>
-                        <a href="{{ config('app.url') }}/support" class="btn-outline">Contact Support &rarr;</a>
+                        <a href="{{ config('app.url') }}/support" class="btn-outline" style="color: #0d6efd;">Contact Support &rarr;</a>
                     </td>
                 </tr>
             </table>

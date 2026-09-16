@@ -309,7 +309,7 @@
                 <table width="100%" border="0" cellspacing="0" cellpadding="0">
                     <tr>
                         <td align="center">
-                            <a href="{{ config('app.url') }}" class="btn">Login to Your Account &rarr;</a>
+                            <a href="{{ config('app.url') }}" class="btn" style="color: #ffffff;">Login to Your Account &rarr;</a>
                         </td>
                     </tr>
                 </table>
@@ -346,7 +346,7 @@
                     <td class="help-content">
                         <p class="help-title">Need Help?</p>
                         <p class="help-text">Our support team is always here to assist you. Feel free to reach out if you have any questions.</p>
-                        <a href="{{ config('app.url') }}/contact-us" class="btn-outline">Contact Support &rarr;</a>
+                        <a href="{{ config('app.url') }}/contact-us" class="btn-outline" style="color: #0d6efd;">Contact Support &rarr;</a>
                     </td>
                 </tr>
             </table>
