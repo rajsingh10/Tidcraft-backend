@@ -357,8 +357,41 @@ class ProductController extends Controller
      */
     public function uploadAttachments(Request $request, Product $product)
     {
+        if ($request->has('source_code_zip') && !$request->hasFile('source_code_zip')) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'The source_code_zip was not sent as a valid file. If using Postman, ensure the field type is set to "File".'
+            ], 422);
+        }
+
+        if ($request->hasFile('source_code_zip')) {
+            $file = $request->file('source_code_zip');
+            if (!$file->isValid()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "Upload failed for source_code_zip. PHP Error Code: " . $file->getError() . ". This usually means the file exceeds upload_max_filesize in php.ini."
+                ], 422);
+            }
+            if (strtolower($file->getClientOriginalExtension()) !== 'zip') {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'The source code zip must be a file of type: zip.'
+                ], 422);
+            }
+        }
+
+        if ($request->hasFile('setup_document_pdf')) {
+            $file = $request->file('setup_document_pdf');
+            if (!$file->isValid()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "Upload failed for setup_document_pdf. PHP Error Code: " . $file->getError()
+                ], 422);
+            }
+        }
+
         $request->validate([
-            'source_code_zip' => 'nullable|file|mimes:zip|max:51200', // max 50MB
+            'source_code_zip' => 'nullable|file|max:1022976', // max 999MB
             'setup_document_pdf' => 'nullable|file|mimes:pdf|max:20480', // max 20MB
         ]);
 
