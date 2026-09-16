@@ -279,9 +279,32 @@
                         </div>
 
                         @php
-                            $sourceCodeZip = $tenant->product->source_code_zip ?? null;
+                            $sourceCodeZips = $tenant->product->source_code_zip ?? [];
+                            if (is_string($sourceCodeZips)) {
+                                $sourceCodeZips = json_decode($sourceCodeZips, true) ?? [];
+                            }
                             $setupDoc = $tenant->product->setup_document_pdf ?? null;
-                            $attachmentCount = ($sourceCodeZip ? 1 : 0) + ($setupDoc ? 1 : 0);
+                            
+                            $attachments = [];
+                            foreach((array)$sourceCodeZips as $index => $zip) {
+                                $attachments[] = [
+                                    'type' => 'ZIP',
+                                    'color' => '#f59e0b',
+                                    'name' => basename($zip),
+                                    'label' => 'Application Source',
+                                    'url' => asset('storage/' . $zip)
+                                ];
+                            }
+                            if ($setupDoc) {
+                                $attachments[] = [
+                                    'type' => 'PDF',
+                                    'color' => '#ef4444',
+                                    'name' => basename($setupDoc),
+                                    'label' => 'Setup Instructions',
+                                    'url' => asset('storage/' . $setupDoc)
+                                ];
+                            }
+                            $attachmentCount = count($attachments);
                         @endphp
 
                         @if($attachmentCount > 0)
@@ -305,61 +328,37 @@
                             </table>
 
                             <table width="100%" cellspacing="0" cellpadding="0">
+                                @foreach(array_chunk($attachments, 2) as $chunk)
                                 <tr>
-                                    @if($sourceCodeZip)
-                                    <!-- Source Code -->
-                                    <td width="48%" valign="top">
+                                    @foreach($chunk as $attachment)
+                                    <td width="48%" valign="top" style="padding-bottom: 15px;">
                                         <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 10px; text-align: left; position: relative; height: 100%;">
                                             <table width="100%" cellpadding="0" cellspacing="0">
                                                 <tr>
                                                     <td width="36" valign="top">
-                                                        <div style="width: 28px; height: 36px; background-color: #f59e0b; border-radius: 4px; display: inline-block; text-align: center; color: #ffffff; font-size: 12px; line-height: 36px; font-weight: bold;">ZIP</div>
+                                                        <div style="width: 28px; height: 36px; background-color: {{ $attachment['color'] }}; border-radius: 4px; display: inline-block; text-align: center; color: #ffffff; font-size: 12px; line-height: 36px; font-weight: bold;">{{ $attachment['type'] }}</div>
                                                     </td>
                                                     <td valign="top" style="padding-left: 8px;">
-                                                        <div style="font-size: 11px; font-weight: 700; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">source-code.zip</div>
-                                                        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Application Source</div>
+                                                        <div style="font-size: 11px; font-weight: 700; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">{{ $attachment['name'] }}</div>
+                                                        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">{{ $attachment['label'] }}</div>
                                                     </td>
                                                 </tr>
                                             </table>
                                             <div style="text-align: right; margin-top: 10px;">
-                                                <a href="{{ asset('storage/' . $sourceCodeZip) }}" style="text-decoration: none;" download><img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/download.png" width="16" height="16"></a>
+                                                <a href="{{ $attachment['url'] }}" style="text-decoration: none;" download><img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/download.png" width="16" height="16"></a>
                                             </div>
                                         </div>
                                     </td>
+                                    @if($loop->first && count($chunk) == 2)
+                                    <td width="4%" style="padding-bottom: 15px;"></td>
                                     @endif
-                                    
-                                    @if($sourceCodeZip && $setupDoc)
-                                    <td width="4%"></td>
+                                    @if($loop->first && count($chunk) == 1)
+                                    <td width="4%" style="padding-bottom: 15px;"></td>
+                                    <td width="48%" style="padding-bottom: 15px;"></td>
                                     @endif
-                                    
-                                    @if($setupDoc)
-                                    <!-- Setup Doc -->
-                                    <td width="48%" valign="top">
-                                        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 10px; text-align: left; position: relative; height: 100%;">
-                                            <table width="100%" cellpadding="0" cellspacing="0">
-                                                <tr>
-                                                    <td width="36" valign="top">
-                                                        <div style="width: 28px; height: 36px; background-color: #ef4444; border-radius: 4px; display: inline-block; text-align: center; color: #ffffff; font-size: 12px; line-height: 36px; font-weight: bold;">PDF</div>
-                                                    </td>
-                                                    <td valign="top" style="padding-left: 8px;">
-                                                        <div style="font-size: 11px; font-weight: 700; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">setup-guide.pdf</div>
-                                                        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Setup Instructions</div>
-                                                    </td>
-                                                </tr>
-                                            </table>
-                                            <div style="text-align: right; margin-top: 10px;">
-                                                <a href="{{ asset('storage/' . $setupDoc) }}" style="text-decoration: none;" download><img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/download.png" width="16" height="16"></a>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    @endif
-                                    
-                                    @if($attachmentCount == 1)
-                                    <!-- Fill empty space if only 1 attachment -->
-                                    <td width="4%"></td>
-                                    <td width="48%"></td>
-                                    @endif
+                                    @endforeach
                                 </tr>
+                                @endforeach
                             </table>
                         </div>
                         @endif
