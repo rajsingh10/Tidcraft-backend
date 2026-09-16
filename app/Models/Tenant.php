@@ -13,6 +13,8 @@ class Tenant extends Model
     const UPDATED_AT = 'update_at';
     const DELETED_AT = 'delete_at';
 
+    protected $appends = ['duration_days', 'remaining_days'];
+
     protected $fillable = [
         'uuid',
         'client_id',
@@ -68,7 +70,7 @@ class Tenant extends Model
 
     public function payments()
     {
-        return $this->hasMany(Payment::class);
+        return $this->hasMany(Payment::class, 'tenant_id');
     }
 
     public function database()
@@ -137,5 +139,30 @@ class Tenant extends Model
         }
 
         return substr('tidcraft-' . $prefix, 0, 63);
+    }
+
+    public function getDurationDaysAttribute()
+    {
+        $subscription = $this->relationLoaded('subscriptions') 
+            ? $this->subscriptions->sortByDesc('id')->first()
+            : $this->subscriptions()->latest('id')->first();
+
+        if ($subscription && $subscription->start_date && $subscription->end_date) {
+            return \Carbon\Carbon::parse($subscription->start_date)->diffInDays(\Carbon\Carbon::parse($subscription->end_date));
+        }
+        return 0;
+    }
+
+    public function getRemainingDaysAttribute()
+    {
+        $subscription = $this->relationLoaded('subscriptions') 
+            ? $this->subscriptions->sortByDesc('id')->first()
+            : $this->subscriptions()->latest('id')->first();
+
+        if ($subscription && $subscription->end_date) {
+            $days = now()->diffInDays(\Carbon\Carbon::parse($subscription->end_date), false);
+            return $days > 0 ? (int) ceil($days) : 0;
+        }
+        return 0;
     }
 }
