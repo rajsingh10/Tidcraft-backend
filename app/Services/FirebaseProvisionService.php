@@ -65,6 +65,10 @@ class FirebaseProvisionService
                 $collectionPath = null;
 
                 $possibleSlugs = [];
+                if (!empty($product->tagline)) {
+                    $possibleSlugs[] = \Illuminate\Support\Str::slug($product->tagline); // Exact match from tagline
+                    $possibleSlugs[] = trim($product->tagline); // Exact match from tagline without slugify just in case
+                }
                 if (!empty($product->frontend_path)) {
                     $possibleSlugs[] = basename(trim($product->frontend_path, '/')); // e.g. parkme-app
                 }
