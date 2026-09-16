@@ -172,7 +172,37 @@ class SettingController extends Controller
         foreach (['company_favicon', 'company_short_logo', 'company_logo'] as $fileField) {
             if (isset($settings[$fileField]) && !empty($settings[$fileField])) {
                 if (!str_starts_with($settings[$fileField], 'http')) {
-                    $settings[$fileField] = asset($settings[$fileField]);
+                    $settings[$fileField] = url(ltrim($settings[$fileField], '/'));
+                }
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $settings
+        ]);
+    }
+
+    public function publicGeneral()
+    {
+        $keys = [
+            'company_name',
+            'company_favicon',
+            'company_short_logo',
+            'company_logo',
+            'company_phone',
+            'company_email',
+            'company_address',
+            'company_gst',
+            'company_tagline'
+        ];
+        
+        $settings = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
+
+        foreach (['company_favicon', 'company_short_logo', 'company_logo'] as $fileField) {
+            if (isset($settings[$fileField]) && !empty($settings[$fileField])) {
+                if (!str_starts_with($settings[$fileField], 'http')) {
+                    $settings[$fileField] = url(ltrim($settings[$fileField], '/'));
                 }
             }
         }
