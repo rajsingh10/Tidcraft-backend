@@ -18,6 +18,7 @@ class TenantProvisionedEmail extends Mailable
     public $adminEmail;
     public $adminPassword;
     public $domainUrl;
+    public $settings;
 
     /**
      * Create a new message instance.
@@ -28,6 +29,16 @@ class TenantProvisionedEmail extends Mailable
         $this->adminEmail = $adminEmail;
         $this->adminPassword = $adminPassword;
         $this->domainUrl = $domainUrl;
+        
+        $keys = [
+            'company_name',
+            'company_favicon',
+            'company_short_logo',
+            'company_logo',
+            'company_tagline',
+        ];
+        
+        $this->settings = \App\Models\Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
     }
 
     /**
@@ -52,6 +63,7 @@ class TenantProvisionedEmail extends Mailable
                 'adminEmail' => $this->adminEmail,
                 'adminPassword' => $this->adminPassword,
                 'domainUrl' => $this->domainUrl,
+                'settings' => $this->settings,
             ],
         );
     }
