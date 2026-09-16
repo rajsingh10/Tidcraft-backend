@@ -59,7 +59,7 @@ class ClientAuthController extends Controller
 
         // Send email to admin
         try {
-            $adminEmail = Setting::first()->admin_email ?? 'admin@example.com';
+            $adminEmail = Setting::where('key', 'company_email')->value('value') ?? 'admin@example.com';
             Mail::to($adminEmail)->send(new AdminNewClientMail($user));
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to send registration email to admin: ' . $e->getMessage());

@@ -249,19 +249,32 @@
                             <tr>
                                 <td width="50" valign="middle">
                                     @php
-                                        $logoUrl = null;
-                                        if (!empty($settings['company_short_logo'])) {
-                                            $logoUrl = $settings['company_short_logo'];
-                                        } elseif (!empty($settings['company_logo'])) {
-                                            $logoUrl = $settings['company_logo'];
-                                        }
-                                        if ($logoUrl && !str_starts_with($logoUrl, 'http')) {
-                                            $logoUrl = asset($logoUrl);
+                                        $companyShortLogo = $settings['company_short_logo'] ?? null;
+                                        $companyLogo = $settings['company_logo'] ?? null;
+                                        $embedLogoPath = null;
+                                        $logoToUse = $companyShortLogo ?: $companyLogo;
+                                        
+                                        if ($logoToUse) {
+                                            $cleanPath = preg_replace('/^\/?storage\//', '', $logoToUse);
+                                            $possiblePaths = [
+                                                public_path(ltrim($logoToUse, '/')),
+                                                storage_path('app/public/' . $cleanPath),
+                                            ];
+                                            foreach ($possiblePaths as $path) {
+                                                if (file_exists($path)) {
+                                                    $embedLogoPath = $path;
+                                                    break;
+                                                }
+                                            }
                                         }
                                     @endphp
-                                    @if($logoUrl)
+                                    @if($embedLogoPath && isset($message))
                                         <div class="logo-box" style="background-color: transparent;">
-                                            <img src="{{ $logoUrl }}" alt="Logo" style="max-width: 100%; max-height: 100%; vertical-align: middle;">
+                                            <img src="{{ $message->embed($embedLogoPath) }}" alt="Logo" style="max-width: 100%; max-height: 100%; vertical-align: middle;">
+                                        </div>
+                                    @elseif($logoToUse)
+                                        <div class="logo-box" style="background-color: transparent;">
+                                            <img src="{{ asset(ltrim($logoToUse, '/')) }}" alt="Logo" style="max-width: 100%; max-height: 100%; vertical-align: middle;">
                                         </div>
                                     @else
                                         <div class="logo-box">{{ strtoupper(substr($settings['company_name'] ?? 'T', 0, 1)) }}</div>
