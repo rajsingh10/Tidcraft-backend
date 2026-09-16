@@ -20,7 +20,7 @@
 
         <p>To avoid service interruptions and keep your application active, please log in to your client portal and renew your subscription as soon as possible.</p>
 
-        <a href="https://tidcraft.com/client-login" class="btn">Login & Renew Now</a>
+        <a href="https://tidcraft.com" class="btn">Login & Renew Now</a>
 
         <p style="margin-top: 30px; font-size: 12px; color: #666;">
             If you have already renewed, please ignore this email or contact support if your application is still blocked.

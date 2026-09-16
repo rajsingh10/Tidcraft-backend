@@ -278,6 +278,13 @@
                             </table>
                         </div>
 
+                        @php
+                            $sourceCodeZip = $tenant->product->source_code_zip ?? null;
+                            $setupDoc = $tenant->product->setup_document_pdf ?? null;
+                            $attachmentCount = ($sourceCodeZip ? 1 : 0) + ($setupDoc ? 1 : 0);
+                        @endphp
+
+                        @if($attachmentCount > 0)
                         <!-- Attachments Card -->
                         <div class="card" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 25px; margin-bottom: 25px;">
                             <table width="100%" style="margin-bottom: 20px;" cellpadding="0" cellspacing="0">
@@ -291,7 +298,7 @@
                                     </td>
                                     <td align="right" valign="top">
                                         <div style="background-color: #eff6ff; color: #2563eb; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; display: inline-block;">
-                                            3 ZIP Files + Document
+                                            {{ $attachmentCount }} {{ $attachmentCount > 1 ? 'Attachments' : 'Attachment' }}
                                         </div>
                                     </td>
                                 </tr>
@@ -299,8 +306,9 @@
 
                             <table width="100%" cellspacing="0" cellpadding="0">
                                 <tr>
+                                    @if($sourceCodeZip)
                                     <!-- Source Code -->
-                                    <td width="23%" valign="top">
+                                    <td width="48%" valign="top">
                                         <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 10px; text-align: left; position: relative; height: 100%;">
                                             <table width="100%" cellpadding="0" cellspacing="0">
                                                 <tr>
@@ -308,62 +316,25 @@
                                                         <div style="width: 28px; height: 36px; background-color: #f59e0b; border-radius: 4px; display: inline-block; text-align: center; color: #ffffff; font-size: 12px; line-height: 36px; font-weight: bold;">ZIP</div>
                                                     </td>
                                                     <td valign="top" style="padding-left: 8px;">
-                                                        <div style="font-size: 11px; font-weight: 700; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px;">source-code.zip</div>
-                                                        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">12.4 MB</div>
+                                                        <div style="font-size: 11px; font-weight: 700; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">source-code.zip</div>
+                                                        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Application Source</div>
                                                     </td>
                                                 </tr>
                                             </table>
                                             <div style="text-align: right; margin-top: 10px;">
-                                                <a href="#" style="text-decoration: none;"><img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/download.png" width="16" height="16"></a>
+                                                <a href="{{ asset('storage/' . $sourceCodeZip) }}" style="text-decoration: none;" download><img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/download.png" width="16" height="16"></a>
                                             </div>
                                         </div>
                                     </td>
-                                    <td width="2%"></td>
+                                    @endif
                                     
-                                    <!-- Database -->
-                                    <td width="23%" valign="top">
-                                        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 10px; text-align: left; position: relative; height: 100%;">
-                                            <table width="100%" cellpadding="0" cellspacing="0">
-                                                <tr>
-                                                    <td width="36" valign="top">
-                                                        <div style="width: 28px; height: 36px; background-color: #a855f7; border-radius: 4px; display: inline-block; text-align: center; color: #ffffff; font-size: 12px; line-height: 36px; font-weight: bold;">ZIP</div>
-                                                    </td>
-                                                    <td valign="top" style="padding-left: 8px;">
-                                                        <div style="font-size: 11px; font-weight: 700; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px;">database.zip</div>
-                                                        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">8.7 MB</div>
-                                                    </td>
-                                                </tr>
-                                            </table>
-                                            <div style="text-align: right; margin-top: 10px;">
-                                                <a href="#" style="text-decoration: none;"><img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/download.png" width="16" height="16"></a>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td width="2%"></td>
+                                    @if($sourceCodeZip && $setupDoc)
+                                    <td width="4%"></td>
+                                    @endif
                                     
-                                    <!-- Assets -->
-                                    <td width="23%" valign="top">
-                                        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 10px; text-align: left; position: relative; height: 100%;">
-                                            <table width="100%" cellpadding="0" cellspacing="0">
-                                                <tr>
-                                                    <td width="36" valign="top">
-                                                        <div style="width: 28px; height: 36px; background-color: #10b981; border-radius: 4px; display: inline-block; text-align: center; color: #ffffff; font-size: 12px; line-height: 36px; font-weight: bold;">ZIP</div>
-                                                    </td>
-                                                    <td valign="top" style="padding-left: 8px;">
-                                                        <div style="font-size: 11px; font-weight: 700; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px;">assets.zip</div>
-                                                        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">15.2 MB</div>
-                                                    </td>
-                                                </tr>
-                                            </table>
-                                            <div style="text-align: right; margin-top: 10px;">
-                                                <a href="#" style="text-decoration: none;"><img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/download.png" width="16" height="16"></a>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td width="2%"></td>
-                                    
+                                    @if($setupDoc)
                                     <!-- Setup Doc -->
-                                    <td width="23%" valign="top">
+                                    <td width="48%" valign="top">
                                         <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 10px; text-align: left; position: relative; height: 100%;">
                                             <table width="100%" cellpadding="0" cellspacing="0">
                                                 <tr>
@@ -371,19 +342,27 @@
                                                         <div style="width: 28px; height: 36px; background-color: #ef4444; border-radius: 4px; display: inline-block; text-align: center; color: #ffffff; font-size: 12px; line-height: 36px; font-weight: bold;">PDF</div>
                                                     </td>
                                                     <td valign="top" style="padding-left: 8px;">
-                                                        <div style="font-size: 11px; font-weight: 700; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px;">setup.pdf</div>
-                                                        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">1.6 MB</div>
+                                                        <div style="font-size: 11px; font-weight: 700; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">setup-guide.pdf</div>
+                                                        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Setup Instructions</div>
                                                     </td>
                                                 </tr>
                                             </table>
                                             <div style="text-align: right; margin-top: 10px;">
-                                                <a href="#" style="text-decoration: none;"><img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/download.png" width="16" height="16"></a>
+                                                <a href="{{ asset('storage/' . $setupDoc) }}" style="text-decoration: none;" download><img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/download.png" width="16" height="16"></a>
                                             </div>
                                         </div>
                                     </td>
+                                    @endif
+                                    
+                                    @if($attachmentCount == 1)
+                                    <!-- Fill empty space if only 1 attachment -->
+                                    <td width="4%"></td>
+                                    <td width="48%"></td>
+                                    @endif
                                 </tr>
                             </table>
                         </div>
+                        @endif
 
                         <!-- CTA -->
                         <div style="text-align: center; margin-top: 35px; margin-bottom: 20px;">
