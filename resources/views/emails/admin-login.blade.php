@@ -494,7 +494,7 @@
                     <div class="loc-details">
                         <div class="loc-title">Login Location</div>
                         <div class="loc-coords">Latitude: {{ $loginDetails['latitude'] }} | Longitude: {{ $loginDetails['longitude'] }}</div>
-                        <a href="https://www.google.com/maps/search/?api=1&query={{ $loginDetails['latitude'] }},{{ $loginDetails['longitude'] }}" target="_blank" class="btn">View Location on Map &rarr;</a>
+                        <a href="https://www.google.com/maps/search/?api=1&query={{ $loginDetails['latitude'] }},{{ $loginDetails['longitude'] }}" target="_blank" class="btn" style="color: #ffffff;">View Location on Map &rarr;</a>
                     </div>
                     <!-- Right side map marker illustration like in the design -->
                     <div style="display: table-cell; vertical-align: middle; text-align: right; padding-right: 30px;">
