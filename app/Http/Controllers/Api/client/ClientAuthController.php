@@ -13,7 +13,10 @@ use App\Models\User;
 use Spatie\Permission\Models\Role;
 use Illuminate\Support\Str;
 use App\Mail\ForgotPasswordOtpMail;
-
+use App\Mail\ClientRegisteredMail;
+use App\Mail\AdminNewClientMail;
+use App\Models\AdminNotification;
+use App\Models\Setting;
 class ClientAuthController extends Controller
 {
     /**
@@ -46,6 +49,35 @@ class ClientAuthController extends Controller
         // Ensure Client role exists and assign it
         $role = Role::firstOrCreate(['name' => 'Client']);
         $user->assignRole($role);
+
+        // Send email to client
+        try {
+            Mail::to($user->email)->send(new ClientRegisteredMail($user));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send registration email to client: ' . $e->getMessage());
+        }
+
+        // Send email to admin
+        try {
+            $adminEmail = Setting::first()->admin_email ?? 'admin@example.com';
+            Mail::to($adminEmail)->send(new AdminNewClientMail($user));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send registration email to admin: ' . $e->getMessage());
+        }
+
+        // Create Admin Notification
+        try {
+            AdminNotification::create([
+                'type' => 'new_client',
+                'title' => 'New Client Registered',
+                'message' => 'A new client has registered: ' . $user->name . ' (' . $user->email . ')',
+                'related_id' => $user->id,
+                'client_name' => $user->name,
+                'is_read' => false,
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to create admin notification: ' . $e->getMessage());
+        }
 
         $token = $user->createToken('client-token')->plainTextToken;
 

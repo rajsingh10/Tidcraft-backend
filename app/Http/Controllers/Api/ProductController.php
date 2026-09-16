@@ -247,7 +247,7 @@ class ProductController extends Controller
             'firebase_storage_bucket' => 'nullable|string|max:255',
             'firebase_messaging_sender_id' => 'nullable|string|max:255',
             'firebase_location_id' => 'nullable|string|max:64',
-            'firebase_db_collection' => 'nullable|file',
+            'firebase_db_collection' => 'nullable',
             'service_account_json' => 'nullable',
         ]);
 
@@ -267,6 +267,19 @@ class ProductController extends Controller
             $extension = $file->getClientOriginalExtension() ?: 'json';
             $filename = \Illuminate\Support\Str::random(40) . '.' . $extension;
             $data['firebase_db_collection'] = $file->storeAs('products/db_collections', $filename, 'public');
+        } elseif ($request->has('firebase_db_collection') && !empty($request->input('firebase_db_collection'))) {
+            $input = $request->input('firebase_db_collection');
+            // If it's already an existing path, just keep it.
+            if (is_string($input) && str_starts_with($input, 'products/db_collections/')) {
+                $data['firebase_db_collection'] = $input;
+            } 
+            // If it's raw JSON (string or array), save it as a new file.
+            elseif (is_array($input) || (is_string($input) && (str_starts_with(trim($input), '{') || str_starts_with(trim($input), '[')))) {
+                $content = is_array($input) ? json_encode($input) : $input;
+                $filename = \Illuminate\Support\Str::random(40) . '.json';
+                \Illuminate\Support\Facades\Storage::disk('public')->put('products/db_collections/' . $filename, $content);
+                $data['firebase_db_collection'] = 'products/db_collections/' . $filename;
+            }
         }
 
         $serviceAccountJson = $this->extractServiceAccountJson($request);
