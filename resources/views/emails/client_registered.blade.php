@@ -38,12 +38,14 @@
             width: 36px;
             height: 36px;
             border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: inline-block;
+            text-align: center;
+            line-height: 36px;
             font-weight: bold;
             font-size: 20px;
             margin-right: 12px;
+            vertical-align: middle;
+            overflow: hidden;
         }
         .brand-info {
             display: flex;
@@ -245,16 +247,27 @@
                     <td style="padding: 20px;">
                         <table width="100%" border="0" cellspacing="0" cellpadding="0">
                             <tr>
-                                <td width="50">
-                                    @if(isset($settings['company_short_logo']) && !empty($settings['company_short_logo']))
+                                <td width="50" valign="middle">
+                                    @php
+                                        $logoUrl = null;
+                                        if (!empty($settings['company_short_logo'])) {
+                                            $logoUrl = $settings['company_short_logo'];
+                                        } elseif (!empty($settings['company_logo'])) {
+                                            $logoUrl = $settings['company_logo'];
+                                        }
+                                        if ($logoUrl && !str_starts_with($logoUrl, 'http')) {
+                                            $logoUrl = asset($logoUrl);
+                                        }
+                                    @endphp
+                                    @if($logoUrl)
                                         <div class="logo-box" style="background-color: transparent;">
-                                            <img src="{{ !str_starts_with($settings['company_short_logo'], 'http') ? asset($settings['company_short_logo']) : $settings['company_short_logo'] }}" alt="Logo" style="max-width: 100%; max-height: 100%;">
+                                            <img src="{{ $logoUrl }}" alt="Logo" style="max-width: 100%; max-height: 100%; vertical-align: middle;">
                                         </div>
                                     @else
-                                        <div class="logo-box">{{ substr($settings['company_name'] ?? 'Tidcraft', 0, 1) }}</div>
+                                        <div class="logo-box">{{ strtoupper(substr($settings['company_name'] ?? 'T', 0, 1)) }}</div>
                                     @endif
                                 </td>
-                                <td>
+                                <td valign="middle">
                                     <p class="brand-name" style="color:#ffffff;">{{ $settings['company_name'] ?? 'Tidcraft' }}</p>
                                     <p class="brand-subtitle">{{ $settings['company_tagline'] ?? 'Manage &bull; Monitor &bull; Grow' }}</p>
                                 </td>
@@ -320,7 +333,7 @@
                     <td class="help-content">
                         <p class="help-title">Need Help?</p>
                         <p class="help-text">Our support team is always here to assist you. Feel free to reach out if you have any questions.</p>
-                        <a href="{{ config('app.url') }}/contact" class="btn-outline">Contact Support &rarr;</a>
+                        <a href="{{ config('app.url') }}/contact-us" class="btn-outline">Contact Support &rarr;</a>
                     </td>
                 </tr>
             </table>
