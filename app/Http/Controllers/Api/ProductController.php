@@ -353,6 +353,40 @@ class ProductController extends Controller
     }
 
     /**
+     * Get attachments for the product.
+     */
+    public function getAttachments(Product $product)
+    {
+        $sourceCodeZips = $product->source_code_zip ?? [];
+        if (is_string($sourceCodeZips)) {
+            $sourceCodeZips = json_decode($sourceCodeZips, true) ?? [];
+        }
+
+        $sourceCodeUrls = array_map(function($path) {
+            return [
+                'name' => basename($path),
+                'url' => asset('storage/' . ltrim($path, '/'))
+            ];
+        }, (array)$sourceCodeZips);
+
+        $setupDocUrl = null;
+        if ($product->setup_document_pdf) {
+            $setupDocUrl = [
+                'name' => basename($product->setup_document_pdf),
+                'url' => asset('storage/' . ltrim($product->setup_document_pdf, '/'))
+            ];
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'source_code_zip' => $sourceCodeUrls,
+                'setup_document_pdf' => $setupDocUrl
+            ]
+        ]);
+    }
+
+    /**
      * Upload app ZIPs and setup document for the product.
      */
     public function uploadAttachments(Request $request, Product $product)
