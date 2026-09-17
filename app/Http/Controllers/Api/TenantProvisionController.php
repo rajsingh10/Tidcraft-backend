@@ -1024,7 +1024,7 @@ class TenantProvisionController extends Controller
             // Update subscription to new plan and reset dates
             $subscription->plan_id = $newPlan->id;
             $subscription->start_date = now();
-            $subscription->end_date = now()->addMonth();
+            $subscription->end_date = $newPlan->duration_days ? now()->addDays($newPlan->duration_days) : now()->addMonth();
             $subscription->save();
 
             $tenant->plan_id = $newPlan->id;
