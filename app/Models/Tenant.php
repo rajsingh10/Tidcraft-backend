@@ -165,4 +165,84 @@ class Tenant extends Model
         }
         return 0;
     }
+
+    /**
+     * Quota Checkers (Combines Plan limits + AddOn limits based on AddOn name and limit field)
+     */
+    public function getMaxUsers(): int
+    {
+        $planLimit = $this->plan ? (int) $this->plan->max_users : 0;
+        if ($planLimit === -1) return -1; // Unlimited
+
+        $addOnsLimit = 0;
+        if ($this->relationLoaded('addOns') || $this->exists) {
+            foreach ($this->addOns as $addon) {
+                if (stripos($addon->name, 'user') !== false) {
+                    $addOnsLimit += (int) $addon->limit;
+                }
+            }
+        }
+        
+        return $planLimit + $addOnsLimit;
+    }
+
+    public function getMaxOrders(): int
+    {
+        $planLimit = $this->plan ? (int) $this->plan->max_orders : 0;
+        if ($planLimit === -1) return -1; // Unlimited
+
+        $addOnsLimit = 0;
+        if ($this->relationLoaded('addOns') || $this->exists) {
+            foreach ($this->addOns as $addon) {
+                if (stripos($addon->name, 'order') !== false || stripos($addon->name, 'request') !== false) {
+                    $addOnsLimit += (int) $addon->limit;
+                }
+            }
+        }
+
+        return $planLimit + $addOnsLimit;
+    }
+
+    public function getStorageLimitGb(): int
+    {
+        $planLimit = $this->plan ? (int) $this->plan->storage_gb : 0;
+        if ($planLimit === -1) return -1; // Unlimited
+
+        $addOnsLimit = 0;
+        if ($this->relationLoaded('addOns') || $this->exists) {
+            foreach ($this->addOns as $addon) {
+                if (stripos($addon->name, 'storage') !== false || stripos($addon->name, 'gb') !== false) {
+                    $addOnsLimit += (int) $addon->limit;
+                }
+            }
+        }
+
+        return $planLimit + $addOnsLimit;
+    }
+
+    /**
+     * Expiration Checker
+     */
+    public function hasActiveSubscription(): bool
+    {
+        // Check if tenant is explicitly suspended/blocked
+        if (in_array(strtolower($this->status), ['suspended', 'past due', 'past_due', 'expired'])) {
+            return false;
+        }
+
+        $subscription = $this->relationLoaded('subscriptions') 
+            ? $this->subscriptions->sortByDesc('id')->first()
+            : $this->subscriptions()->latest('id')->first();
+
+        if (!$subscription) {
+            return false;
+        }
+
+        // If no end_date, assume lifetime or not yet started properly
+        if (!$subscription->end_date) {
+            return true;
+        }
+
+        return \Carbon\Carbon::parse($subscription->end_date)->isFuture();
+    }
 }

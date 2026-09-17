@@ -105,6 +105,33 @@ class FirebaseAdminClient
         }
     }
 
+    public function toggleIdentityTenant(array $serviceAccount, string $tenantId, bool $isEnabled): void
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) return;
+
+        $accessToken = $this->accessToken($serviceAccount, [
+            'https://www.googleapis.com/auth/cloud-platform',
+        ]);
+
+        // Strip "projects/{project}/tenants/" if tenantId already contains it to avoid double-encoding issues
+        $cleanTenantId = str_replace("projects/{$projectId}/tenants/", "", $tenantId);
+        $url = 'https://identitytoolkit.googleapis.com/v2/projects/' . rawurlencode($projectId) . '/tenants/' . rawurlencode($cleanTenantId);
+        
+        // We use updateMask to tell GCP which fields to update
+        $url .= '?updateMask=disableAuth';
+
+        $response = Http::withToken($accessToken)
+            ->timeout(30)
+            ->patch($url, [
+                'disableAuth' => !$isEnabled,
+            ]);
+
+        if (!$response->successful()) {
+            \Illuminate\Support\Facades\Log::warning("Failed to toggle Identity Platform Tenant '{$tenantId}': " . $response->body());
+        }
+    }
+
     public function deleteFirestoreDatabase(array $serviceAccount, string $databaseId): void
     {
         $projectId = $serviceAccount['project_id'] ?? null;

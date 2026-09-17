@@ -233,6 +233,8 @@ class TenantProvisionService
             unlink($symlinkPath);
         }
         symlink($expiredPath, $symlinkPath);
+
+        self::toggleFirebaseTenant($tenant, false);
     }
 
     /**
@@ -256,6 +258,22 @@ class TenantProvisionService
         
         if (file_exists($targetPath)) {
             symlink($targetPath, $symlinkPath);
+        }
+
+        self::toggleFirebaseTenant($tenant, true);
+    }
+
+    private static function toggleFirebaseTenant(Tenant $tenant, bool $isEnabled)
+    {
+        if ($tenant->firebaseProject && $tenant->firebaseProject->firebase_tenant_id) {
+            $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+            if ($productFirebase && !empty($productFirebase->service_account_json)) {
+                $serviceAccount = json_decode($productFirebase->service_account_json, true) ?? [];
+                if (!empty($serviceAccount)) {
+                    $adminClient = new \App\Services\FirebaseAdminClient();
+                    $adminClient->toggleIdentityTenant($serviceAccount, $tenant->firebaseProject->firebase_tenant_id, $isEnabled);
+                }
+            }
         }
     }
 }

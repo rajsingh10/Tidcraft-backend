@@ -110,8 +110,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('products/{product}', [ProductController::class, 'update']);
     Route::apiResource('products', ProductController::class);
 
-    Route::post('cms-pages/{cms_page}', [CmsPageController::class, 'update']);
-    Route::apiResource('cms-pages', CmsPageController::class);
+    Route::post('cms-pages/save', [CmsPageController::class, 'save']);
+    Route::get('cms-pages', [CmsPageController::class, 'index']);
+    Route::get('cms-pages/{slug}', [CmsPageController::class, 'showAdmin']);
+    Route::delete('cms-pages/{slug}', [CmsPageController::class, 'destroyAdmin']);
 
     Route::post('add-ons/{add_on}', [AddOnController::class, 'update']);
     Route::apiResource('add-ons', AddOnController::class)->except(['index', 'show']);
