@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\client\ClientAuthController;
 use App\Http\Controllers\Api\client\ClientPurchaseController;
 use App\Http\Controllers\Admin\ClientController;
+use App\Http\Controllers\CmsPageController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -24,6 +25,7 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('inquiries', [InquiryController::class, 'store']);
 Route::get('products/client', [ProductController::class, 'publicIndex']);
 Route::get('settings/client', [SettingController::class, 'publicGeneral']);
+Route::get('cms-pages/slug/{slug}', [CmsPageController::class, 'showBySlug']);
 
 Route::apiResource('plans', PlanController::class)->only(['index', 'show']);
 Route::apiResource('add-ons', AddOnController::class)->only(['index', 'show']);
@@ -107,6 +109,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('products/{product}/attachments', [ProductController::class, 'uploadAttachments']);
     Route::post('products/{product}', [ProductController::class, 'update']);
     Route::apiResource('products', ProductController::class);
+
+    Route::post('cms-pages/{cms_page}', [CmsPageController::class, 'update']);
+    Route::apiResource('cms-pages', CmsPageController::class);
 
     Route::post('add-ons/{add_on}', [AddOnController::class, 'update']);
     Route::apiResource('add-ons', AddOnController::class)->except(['index', 'show']);
