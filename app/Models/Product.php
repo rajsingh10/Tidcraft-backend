@@ -32,6 +32,8 @@ class Product extends Model
     protected $casts = [
         'images' => 'array',
         'source_code_zip' => 'array',
+        'setup_document_pdf' => 'array',
+        'is_active' => 'boolean',
     ];
 
     public function category()

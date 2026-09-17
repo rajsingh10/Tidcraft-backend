@@ -422,27 +422,31 @@ class ProductController extends Controller
         }
 
         if ($request->hasFile('setup_document_pdf')) {
-            $file = $request->file('setup_document_pdf');
-            if (is_array($file)) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'The setup_document_pdf must be a single file, not an array of files.'
-                ], 422);
+            $files = $request->file('setup_document_pdf');
+            if (!is_array($files)) {
+                $files = [$files];
             }
-            if (!$file->isValid()) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => "Upload failed for setup_document_pdf. PHP Error Code: " . $file->getError()
-                ], 422);
+            
+            $paths = [];
+            foreach ($files as $index => $file) {
+                if (!$file->isValid()) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Upload failed for setup_document_pdf file " . ($index + 1) . ". PHP Error Code: " . $file->getError()
+                    ], 422);
+                }
+                
+                $originalName = $file->getClientOriginalName();
+                $paths[] = $file->storeAs('products/attachments', $originalName, 'public');
             }
-            $originalName = $file->getClientOriginalName();
-            $data['setup_document_pdf'] = $file->storeAs('products/attachments', $originalName, 'public');
+            $data['setup_document_pdf'] = $paths;
         }
 
         $request->validate([
             'source_code_zip' => 'nullable|array',
             'source_code_zip.*' => 'file|max:1022976', // max 999MB per file
-            'setup_document_pdf' => 'nullable|file|mimes:pdf|max:20480', // max 20MB
+            'setup_document_pdf' => 'nullable|array',
+            'setup_document_pdf.*' => 'file|max:20480', // max 20MB per file
         ]);
 
         if (empty($data)) {
