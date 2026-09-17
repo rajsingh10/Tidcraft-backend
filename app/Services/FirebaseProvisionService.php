@@ -130,20 +130,24 @@ class FirebaseProvisionService
             $adminClient->setDefaultSecurityRules($serviceAccount, $databaseId);
             
             // 2. Create GCIP Authentication Tenant
-            // display_name must start with a letter, only contain letters/digits/hyphens, and be 4-20 chars.
-            $tenantDisplayName = preg_replace('/[^a-zA-Z0-9-]/', '-', $tenant->business_name ?? $databaseId);
-            $tenantDisplayName = trim(preg_replace('/-+/', '-', $tenantDisplayName), '-');
-            if (!preg_match('/^[a-zA-Z]/', $tenantDisplayName)) {
-                $tenantDisplayName = 't-' . $tenantDisplayName;
-            }
-            $tenantDisplayName = substr($tenantDisplayName, 0, 20);
-            $tenantDisplayName = str_pad($tenantDisplayName, 4, '0');
-
-            $gcipTenantPath = $adminClient->createIdentityTenant($serviceAccount, $tenantDisplayName);
+            $gcipTenantId = $firebaseConfig->firebase_tenant_id;
             
-            // The API returns the resource name e.g., "projects/12345/tenants/tenant-abcd"
-            $parts = explode('/', $gcipTenantPath);
-            $gcipTenantId = end($parts);
+            if (empty($gcipTenantId)) {
+                // display_name must start with a letter, only contain letters/digits/hyphens, and be 4-20 chars.
+                $tenantDisplayName = preg_replace('/[^a-zA-Z0-9-]/', '-', $tenant->business_name ?? $databaseId);
+                $tenantDisplayName = trim(preg_replace('/-+/', '-', $tenantDisplayName), '-');
+                if (!preg_match('/^[a-zA-Z]/', $tenantDisplayName)) {
+                    $tenantDisplayName = 't-' . $tenantDisplayName;
+                }
+                $tenantDisplayName = substr($tenantDisplayName, 0, 20);
+                $tenantDisplayName = str_pad($tenantDisplayName, 4, '0');
+
+                $gcipTenantPath = $adminClient->createIdentityTenant($serviceAccount, $tenantDisplayName);
+                
+                // The API returns the resource name e.g., "projects/12345/tenants/tenant-abcd"
+                $parts = explode('/', $gcipTenantPath);
+                $gcipTenantId = end($parts);
+            }
 
             $firebaseConfig->update([
                 'firebase_project_id' => $projectId,
