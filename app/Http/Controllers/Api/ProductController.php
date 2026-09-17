@@ -361,25 +361,31 @@ class ProductController extends Controller
         if (is_string($sourceCodeZips)) {
             $sourceCodeZips = json_decode($sourceCodeZips, true) ?? [];
         }
+        // Remove any empty strings or nulls
+        $sourceCodeZips = array_filter((array)$sourceCodeZips);
 
         $sourceCodeUrls = array_map(function($path) {
             return [
                 'name' => basename($path),
                 'url' => asset('storage/' . ltrim($path, '/'))
             ];
-        }, (array)$sourceCodeZips);
+        }, $sourceCodeZips);
+        $sourceCodeUrls = array_values($sourceCodeUrls);
 
         $setupDocs = $product->setup_document_pdf ?? [];
         if (is_string($setupDocs)) {
             $setupDocs = json_decode($setupDocs, true) ?? [];
         }
+        // Remove any empty strings or nulls
+        $setupDocs = array_filter((array)$setupDocs);
 
         $setupDocUrls = array_map(function($path) {
             return [
                 'name' => basename($path),
                 'url' => asset('storage/' . ltrim($path, '/'))
             ];
-        }, (array)$setupDocs);
+        }, $setupDocs);
+        $setupDocUrls = array_values($setupDocUrls);
 
         return response()->json([
             'status' => 'success',
