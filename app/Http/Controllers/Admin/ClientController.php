@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use Spatie\Permission\Models\Role;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -17,7 +18,11 @@ class ClientController extends Controller
      */
     public function index()
     {
-        $clients = User::all();
+        // Only get users that are actually Clients (exclude SuperAdmins)
+        $clients = User::whereDoesntHave('roles', function ($q) {
+            $q->where('name', 'SuperAdmin');
+        })->get();
+
         $clients->transform(function($client) {
             if ($client->profile_image && !str_starts_with($client->profile_image, 'http')) {
                 $client->profile_image = asset($client->profile_image);
@@ -74,6 +79,10 @@ class ClientController extends Controller
         if ($client->profile_image && !str_starts_with($client->profile_image, 'http')) {
             $client->profile_image = asset($client->profile_image);
         }
+
+        // Ensure Client role exists and assign it
+        $role = Role::firstOrCreate(['name' => 'Client']);
+        $client->assignRole($role);
 
         AuditLogger::log('Client Created', 'Insert', "A new client ({$client->name}) was created.");
 
