@@ -150,6 +150,12 @@ class Tenant extends Model
         if ($subscription && $subscription->start_date && $subscription->end_date) {
             return \Carbon\Carbon::parse($subscription->start_date)->diffInDays(\Carbon\Carbon::parse($subscription->end_date));
         }
+
+        // Fallback for legacy tenants with null end_date
+        if ($this->plan && $this->plan->duration_days) {
+            return (int) $this->plan->duration_days;
+        }
+
         return 0;
     }
 
@@ -159,9 +165,20 @@ class Tenant extends Model
             ? $this->subscriptions->sortByDesc('id')->first()
             : $this->subscriptions()->latest('id')->first();
 
-        if ($subscription && $subscription->end_date) {
-            $days = now()->diffInDays(\Carbon\Carbon::parse($subscription->end_date), false);
-            return $days > 0 ? (int) ceil($days) : 0;
+        if ($subscription) {
+            $endDate = $subscription->end_date;
+            
+            // Dynamically calculate end_date if it's missing but we know the plan duration
+            if (!$endDate && $this->plan && $this->plan->duration_days) {
+                $startDate = $subscription->start_date ? \Carbon\Carbon::parse($subscription->start_date) : $subscription->created_at;
+                $endDate = clone $startDate;
+                $endDate->addDays($this->plan->duration_days);
+            }
+
+            if ($endDate) {
+                $days = now()->diffInDays(\Carbon\Carbon::parse($endDate), false);
+                return $days > 0 ? (int) ceil($days) : 0;
+            }
         }
         return 0;
     }

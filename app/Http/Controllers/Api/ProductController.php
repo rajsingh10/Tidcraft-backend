@@ -401,11 +401,17 @@ class ProductController extends Controller
      */
     public function uploadAttachments(Request $request, Product $product)
     {
+        $request->validate([
+            'source_code_zip' => 'nullable|array',
+            'source_code_zip.*' => 'file|max:1022976', // max 999MB per file
+            'setup_document_pdf' => 'nullable|array',
+            'setup_document_pdf.*' => 'file|max:20480', // max 20MB per file
+        ]);
+
         $data = [];
 
         if ($request->hasFile('source_code_zip')) {
             $files = $request->file('source_code_zip');
-            // If they accidentally sent a single file, make it an array so we can loop over it
             if (!is_array($files)) {
                 $files = [$files];
             }
@@ -426,7 +432,18 @@ class ProductController extends Controller
                 }
                 
                 $originalName = $file->getClientOriginalName();
-                $paths[] = $file->storeAs('products/attachments', $originalName, 'public');
+                $safeName = \Illuminate\Support\Str::slug(pathinfo($originalName, PATHINFO_FILENAME)) . '.' . $file->getClientOriginalExtension();
+                
+                try {
+                    $destinationPath = \Illuminate\Support\Facades\Storage::disk('public')->path('products/attachments');
+                    $file->move($destinationPath, $safeName);
+                    $paths[] = 'products/attachments/' . $safeName;
+                } catch (\Exception $e) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Failed to save {$originalName} to disk: " . $e->getMessage()
+                    ], 500);
+                }
             }
             $data['source_code_zip'] = $paths;
         }
@@ -447,17 +464,21 @@ class ProductController extends Controller
                 }
                 
                 $originalName = $file->getClientOriginalName();
-                $paths[] = $file->storeAs('products/attachments', $originalName, 'public');
+                $safeName = \Illuminate\Support\Str::slug(pathinfo($originalName, PATHINFO_FILENAME)) . '.' . $file->getClientOriginalExtension();
+                
+                try {
+                    $destinationPath = \Illuminate\Support\Facades\Storage::disk('public')->path('products/attachments');
+                    $file->move($destinationPath, $safeName);
+                    $paths[] = 'products/attachments/' . $safeName;
+                } catch (\Exception $e) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Failed to save {$originalName} to disk: " . $e->getMessage()
+                    ], 500);
+                }
             }
             $data['setup_document_pdf'] = $paths;
         }
-
-        $request->validate([
-            'source_code_zip' => 'nullable|array',
-            'source_code_zip.*' => 'file|max:1022976', // max 999MB per file
-            'setup_document_pdf' => 'nullable|array',
-            'setup_document_pdf.*' => 'file|max:20480', // max 20MB per file
-        ]);
 
         if (empty($data)) {
             return response()->json([
