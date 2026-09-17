@@ -331,6 +331,7 @@ class ClientPurchaseController extends Controller
                 'plan_id' => $request->plan_id,
                 'status' => 'active',
                 'start_date' => now(),
+                'end_date' => $plan && $plan->duration_days ? now()->addDays($plan->duration_days) : now()->addMonth(),
             ]);
 
             // Create Payment

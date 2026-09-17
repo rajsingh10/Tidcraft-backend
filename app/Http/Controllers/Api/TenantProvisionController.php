@@ -98,14 +98,15 @@ class TenantProvisionController extends Controller
             }
 
                 // Create Subscription
+            $plan = \App\Models\Plan::find($request->plan_id);
             $tenant->subscriptions()->create([
                 'plan_id' => $request->plan_id,
                 'status' => 'active',
                 'start_date' => now(),
+                'end_date' => $plan && $plan->duration_days ? now()->addDays($plan->duration_days) : now()->addMonth(),
             ]);
 
             // Create Default Successful Payment
-            $plan = \App\Models\Plan::find($request->plan_id);
             $tenant->payments()->create([
                 'transaction_id' => 'txn_' . Str::random(12),
                 'amount' => $plan ? $plan->monthly_price : 0,
