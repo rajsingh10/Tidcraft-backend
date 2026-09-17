@@ -39,4 +39,13 @@ return [
         'location_id' => env('FIRESTORE_LOCATION_ID', 'nam5'),
     ],
 
+    'foodapp' => [
+        'dispatcher_url' => env('ORDER_DISPATCHER_URL', 'http://127.0.0.1:5005'),
+        'enable_cloudfunction_deploy' => env('ENABLE_CLOUDFUNCTION_DEPLOY', false),
+    ],
+
+    'parkmeapp' => [
+        'enable_cloudfunction_deploy' => env('ENABLE_CLOUDFUNCTION_DEPLOY', false),
+    ],
+
 ];

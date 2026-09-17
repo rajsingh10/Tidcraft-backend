@@ -54,7 +54,7 @@ class FirestoreImporter
         $this->batchWrites[] = [
             'update' => [
                 'name' => "{$parentPath}/{$collectionId}/{$docId}",
-                'fields' => empty($fields) ? new \stdClass() : $fields
+                'fields' => empty($fields) ? new \stdClass() : (object) $fields
             ]
         ];
 
@@ -88,6 +88,10 @@ class FirestoreImporter
     {
         $fields = [];
         foreach ($data as $key => $value) {
+            // Exclude Firestore-reserved fields starting and ending with double underscores
+            if ($key === '__datatype__' || $key === '__collections__' || (str_starts_with((string)$key, '__') && str_ends_with((string)$key, '__'))) {
+                continue;
+            }
             $fields[$key] = $this->parseValue($value);
         }
         return $fields;
@@ -137,6 +141,9 @@ class FirestoreImporter
                 if ($value['__datatype__'] === 'reference') {
                     return ['referenceValue' => $value['value']];
                 }
+                if (isset($value['value'])) {
+                    return $this->parseValue($value['value']);
+                }
             }
 
             // Check if associative or indexed array
@@ -148,7 +155,7 @@ class FirestoreImporter
                 return ['arrayValue' => empty($arrayValues) ? new \stdClass() : ['values' => $arrayValues]];
             } else {
                 $mapFields = $this->parseFields($value);
-                return ['mapValue' => ['fields' => empty($mapFields) ? new \stdClass() : $mapFields]];
+                return ['mapValue' => ['fields' => empty($mapFields) ? new \stdClass() : (object) $mapFields]];
             }
         }
 

@@ -13,7 +13,8 @@ class QueueRunner
     {
         $artisan = base_path('artisan');
         // --stop-when-empty ensures the worker exits after processing current jobs
-        $command = "php \"{$artisan}\" queue:work --stop-when-empty";
+        // --timeout=600 gives Cloud Functions deployment enough time to finish GCP builds (2-4 mins)
+        $command = "php \"{$artisan}\" queue:work --stop-when-empty --timeout=600 --tries=2";
         
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
             // Windows background execution

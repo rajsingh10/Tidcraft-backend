@@ -5,21 +5,21 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use Symfony\Component\Process\Process;
 
-class DeployFoodAppCloudFunction extends Command
+class DeployParkMeAppCloudFunction extends Command
 {
     /**
      * The name and signature of the console command.
      *
      * @var string
      */
-    protected $signature = 'foodapp:deploy-cloud-function {database_id : The Firestore database ID (e.g. tidcraft-hareshfood)}';
+    protected $signature = 'parkmeapp:deploy-cloud-function {database_id : The Firestore database ID (e.g. tidcraft-parkxyz)}';
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Deploy a dedicated Cloud Function v2 trigger for a specific FoodApp tenant Firestore database (Solution 2).';
+    protected $description = 'Deploy a dedicated Cloud Function v2 trigger for a specific ParkMeApp tenant Firestore database.';
 
     /**
      * Execute the console command.
@@ -33,20 +33,18 @@ class DeployFoodAppCloudFunction extends Command
         }
 
         $cleanDb = $databaseId;
-        $fnName = 'delivery_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $cleanDb));
+        $fnName = 'parkme_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $cleanDb));
 
         $this->info("=================================================");
-        $this->info(" Deploying FoodApp Cloud Function (Solution 2)  ");
+        $this->info(" Deploying ParkMeApp Cloud Function             ");
         $this->info(" Database: $cleanDb");
         $this->info(" Function: $fnName");
         $this->info("=================================================");
 
         // Locate functions directory
         $candidates = [
-            base_path('products/FoodApp/firebase_functions'),
-            base_path('products/FoodApp/backup/Order Tracking Firebase Function'),
-            '/home/devtidcraftcomusr/food-app/firebase_functions',
-            '/home/devtidcraftcomusr/food-app/backup/Order Tracking Firebase Function'
+            base_path('products/ParkMeApp/firebase_functions'),
+            '/home/devtidcraftcomusr/parkme-app/firebase_functions'
         ];
 
         $functionsDir = null;

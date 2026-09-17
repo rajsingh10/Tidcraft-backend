@@ -10,7 +10,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 
-class DeployTenantFirebaseFunctionJob implements ShouldQueue
+class DeployParkMeAppFirebaseFunctionJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -30,15 +30,15 @@ class DeployTenantFirebaseFunctionJob implements ShouldQueue
     {
         // Only run if explicitly enabled via config/.env
         $enabled = filter_var(
-            config('services.foodapp.enable_cloudfunction_deploy', env('ENABLE_CLOUDFUNCTION_DEPLOY', true)),
+            config('services.parkmeapp.enable_cloudfunction_deploy', env('ENABLE_CLOUDFUNCTION_DEPLOY', true)),
             FILTER_VALIDATE_BOOLEAN
         );
         if (!$enabled) {
-            Log::info("DeployTenantFirebaseFunctionJob skipped for {$this->databaseId} (ENABLE_CLOUDFUNCTION_DEPLOY is false).");
+            Log::info("DeployParkMeAppFirebaseFunctionJob skipped for {$this->databaseId} (ENABLE_CLOUDFUNCTION_DEPLOY is false).");
             return;
         }
 
-        Log::info("Starting DeployTenantFirebaseFunctionJob for database: {$this->databaseId}");
+        Log::info("Starting DeployParkMeAppFirebaseFunctionJob for database: {$this->databaseId}");
 
         $tenant = $this->tenantId ? \App\Models\Tenant::find($this->tenantId) : null;
         if ($tenant) {
@@ -46,37 +46,37 @@ class DeployTenantFirebaseFunctionJob implements ShouldQueue
                 'tenant_id' => $tenant->id,
                 'step' => 'cloud_function',
                 'status' => 'in_progress',
-                'message' => "Deploying dedicated Firebase Cloud Function for database {$this->databaseId} to GCP...",
+                'message' => "Deploying dedicated ParkMeApp Cloud Function for database {$this->databaseId} to GCP...",
                 'started_at' => now(),
             ]);
         }
 
         try {
-            $exitCode = Artisan::call('foodapp:deploy-cloud-function', [
+            $exitCode = Artisan::call('parkmeapp:deploy-cloud-function', [
                 'database_id' => $this->databaseId
             ]);
             $output = Artisan::output();
 
             if ($exitCode === 0) {
-                Log::info("Cloud Function successfully deployed for database {$this->databaseId}");
+                Log::info("ParkMeApp Cloud Function successfully deployed for database {$this->databaseId}");
                 if ($tenant) {
                     \App\Models\ProvisioningLog::create([
                         'tenant_id' => $tenant->id,
                         'step' => 'cloud_function',
                         'status' => 'success',
-                        'message' => "Dedicated Firebase Cloud Function successfully deployed for database {$this->databaseId}",
+                        'message' => "Dedicated ParkMeApp Cloud Function successfully deployed for database {$this->databaseId}",
                         'started_at' => now(),
                         'completed_at' => now(),
                     ]);
                 }
             } else {
-                Log::error("Cloud Function deploy returned exit code {$exitCode} for database {$this->databaseId}: {$output}");
+                Log::error("ParkMeApp Cloud Function deploy returned exit code {$exitCode} for database {$this->databaseId}: {$output}");
                 if ($tenant) {
                     \App\Models\ProvisioningLog::create([
                         'tenant_id' => $tenant->id,
                         'step' => 'cloud_function',
                         'status' => 'failed',
-                        'message' => "Cloud Function deployment failed (exit code {$exitCode})",
+                        'message' => "ParkMeApp Cloud Function deployment failed (exit code {$exitCode})",
                         'error' => $output,
                         'started_at' => now(),
                         'completed_at' => now(),
@@ -84,13 +84,13 @@ class DeployTenantFirebaseFunctionJob implements ShouldQueue
                 }
             }
         } catch (\Throwable $e) {
-            Log::error("Failed to deploy Cloud Function for database {$this->databaseId}: " . $e->getMessage());
+            Log::error("Failed to deploy ParkMeApp Cloud Function for database {$this->databaseId}: " . $e->getMessage());
             if ($tenant) {
                 \App\Models\ProvisioningLog::create([
                     'tenant_id' => $tenant->id,
                     'step' => 'cloud_function',
                     'status' => 'failed',
-                    'message' => "Cloud Function deployment encountered an exception: " . $e->getMessage(),
+                    'message' => "ParkMeApp Cloud Function deployment encountered an exception: " . $e->getMessage(),
                     'error' => $e->getMessage(),
                     'started_at' => now(),
                     'completed_at' => now(),
