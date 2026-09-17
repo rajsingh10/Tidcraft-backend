@@ -29,6 +29,8 @@ Route::get('cms-pages/slug/{slug}', [CmsPageController::class, 'showBySlug']);
 
 Route::apiResource('plans', PlanController::class)->only(['index', 'show']);
 Route::apiResource('add-ons', AddOnController::class)->only(['index', 'show']);
+Route::get('tenant/plan-status', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'show']);
+Route::get('tenant/check-quota', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'checkQuota']);
 
 // Client Public Routes
 Route::prefix('client')->group(function () {
