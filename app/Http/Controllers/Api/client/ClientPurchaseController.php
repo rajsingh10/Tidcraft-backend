@@ -295,6 +295,23 @@ class ClientPurchaseController extends Controller
         try {
             DB::beginTransaction();
 
+            // Clean up any previously abandoned checkouts for this same product to prevent duplicate pending entries
+            $abandonedTenants = Tenant::where('client_id', $user->id)
+                ->where('product_id', $request->product_id)
+                ->where('status', 'provisioning')
+                ->whereDoesntHave('payments', function ($query) {
+                    $query->where('status', 'success');
+                })
+                ->get();
+                
+            foreach ($abandonedTenants as $abandoned) {
+                // Delete related records to prevent orphan data before force deleting the abandoned tenant
+                $abandoned->subscriptions()->delete();
+                $abandoned->payments()->delete();
+                Domain::where('tenant_id', $abandoned->id)->delete();
+                $abandoned->forceDelete();
+            }
+
             $tenantKey = Str::slug($request->business_name) . '-p' . $request->product_id;
 
             // 1. Create Tenant
