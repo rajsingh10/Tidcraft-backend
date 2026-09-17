@@ -96,7 +96,9 @@ class FirebaseAdminClient
             'https://www.googleapis.com/auth/cloud-platform',
         ]);
 
-        $url = 'https://identitytoolkit.googleapis.com/v2/projects/' . rawurlencode($projectId) . '/tenants/' . rawurlencode($tenantId);
+        // Strip "projects/{project}/tenants/" if tenantId already contains it to avoid double-encoding issues
+        $cleanTenantId = str_replace("projects/{$projectId}/tenants/", "", $tenantId);
+        $url = 'https://identitytoolkit.googleapis.com/v2/projects/' . rawurlencode($projectId) . '/tenants/' . rawurlencode($cleanTenantId);
 
         $response = Http::withToken($accessToken)->timeout(30)->delete($url);
         
