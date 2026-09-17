@@ -325,6 +325,22 @@ class SettingController extends Controller
             'data' => $settings
         ]);
     }
+
+    public function getClientPaymentMethods()
+    {
+        $keys = [
+            'razorpay_key_id',
+            'razorpay_key_secret',
+            'razorpay_active',
+        ];
+        
+        $settings = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $settings
+        ]);
+    }
     public function storePaymentMethods(Request $request)
     {
         $data = $request->validate([
