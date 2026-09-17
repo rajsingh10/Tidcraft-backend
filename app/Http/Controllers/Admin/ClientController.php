@@ -46,6 +46,7 @@ class ClientController extends Controller
             'owner_name' => 'required|string|max:255',
             'email_address' => 'required|string|email|max:255|unique:users,email',
             'phone_number' => 'nullable|string|max:20',
+            'address' => 'nullable|string',
             'password' => 'required|string|min:8',
             'status' => 'nullable|in:active,inactive'
         ]);
@@ -71,6 +72,7 @@ class ClientController extends Controller
             'name' => $request->owner_name,
             'email' => $request->email_address,
             'phone_number' => $request->phone_number,
+            'address' => $request->address,
             'profile_image' => $businessImage,
             'password' => Hash::make($request->password),
             'status' => $request->status ?? 'active',
@@ -136,6 +138,7 @@ class ClientController extends Controller
             'owner_name' => 'nullable|string|max:255',
             'email_address' => ['nullable', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($client->id)],
             'phone_number' => 'nullable|string|max:20',
+            'address' => 'nullable|string',
             'password' => 'nullable|string|min:8',
             'status' => 'nullable|in:active,inactive'
         ]);
@@ -151,6 +154,7 @@ class ClientController extends Controller
         if ($request->has('owner_name')) $client->name = $request->owner_name;
         if ($request->has('email_address')) $client->email = $request->email_address;
         if ($request->has('phone_number')) $client->phone_number = $request->phone_number;
+        if ($request->has('address')) $client->address = $request->address;
         
         if ($request->hasFile('business_image')) {
             $path = $request->file('business_image')->store('profiles', 'public');

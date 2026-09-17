@@ -27,6 +27,7 @@ class User extends Authenticatable
         'company_name',
         'profile_image',
         'phone_number',
+        'address',
         'status',
         'otp',
         'otp_expires_at',
