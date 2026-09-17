@@ -174,6 +174,7 @@ class ClientAuthController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'contact' => $user->contact ?? null,
+                'company_name' => $user->company_name ?? null,
                 'profile_image' => $user->profile_image ?? null,
                 'purchases' => $purchases->isEmpty() ? null : $purchases,
             ]
@@ -191,6 +192,7 @@ class ClientAuthController extends Controller
             'name' => 'nullable|string|max:255',
             'email' => 'nullable|email|unique:users,email,' . $user->id,
             'contact' => 'nullable|string|max:20',
+            'company_name' => 'nullable|string|max:255',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
         ]);
 
@@ -213,6 +215,7 @@ class ClientAuthController extends Controller
         if (isset($data['name'])) $user->name = $data['name'];
         if (isset($data['email'])) $user->email = $data['email'];
         if (isset($data['contact'])) $user->contact = $data['contact'];
+        if (isset($data['company_name'])) $user->company_name = $data['company_name'];
         if (isset($data['profile_image'])) $user->profile_image = $data['profile_image'];
 
         $user->save();
@@ -229,6 +232,7 @@ class ClientAuthController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'contact' => $user->contact ?? null,
+                'company_name' => $user->company_name ?? null,
                 'profile_image' => $user->profile_image ?? null,
             ]
         ]);
