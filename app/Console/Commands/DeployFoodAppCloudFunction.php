@@ -64,15 +64,28 @@ class DeployFoodAppCloudFunction extends Command
 
         $this->info("Using Functions Directory: $functionsDir");
 
-        $command = ['node', 'deploy_tenant.js', $cleanDb];
-        $process = new Process($command, $functionsDir, [
+        $tempDir = sys_get_temp_dir() ?: '/tmp';
+        $writableHome = (isset($_SERVER['HOME']) && $_SERVER['HOME'] !== '/var/www' && is_dir($_SERVER['HOME']) && is_writable($_SERVER['HOME']))
+            ? $_SERVER['HOME']
+            : $tempDir;
+
+        $env = [
             'TARGET_TENANT_DB' => $cleanDb,
-            // 'PATH' => getenv('PATH')
-            'PATH' => (getenv('PATH') ?: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') . ':/usr/local/bin:/usr/bin:/bin'
-        ]);
-        if (!empty($_SERVER['HOME']) || getenv('HOME')) {
-            $env['HOME'] = $_SERVER['HOME'] ?? getenv('HOME');
+            'PATH' => (getenv('PATH') ?: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') . ':/usr/local/bin:/usr/bin:/bin',
+            'HOME' => $writableHome,
+            'XDG_CONFIG_HOME' => rtrim($writableHome, '/\\') . '/.config',
+            'XDG_CACHE_HOME' => rtrim($writableHome, '/\\') . '/.cache',
+            'CI' => 'true',
+        ];
+        if (getenv('USERPROFILE')) {
+            $env['USERPROFILE'] = getenv('USERPROFILE');
         }
+        if (getenv('GOOGLE_APPLICATION_CREDENTIALS')) {
+            $env['GOOGLE_APPLICATION_CREDENTIALS'] = getenv('GOOGLE_APPLICATION_CREDENTIALS');
+        }
+
+        $command = ['node', 'deploy_tenant.js', $cleanDb];
+        $process = new Process($command, $functionsDir, $env);
         $process->setTimeout(600); // 10 minutes timeout for GCP Cloud Build
 
         $this->info("Executing deployment (this may take 2-4 minutes)...");
@@ -82,7 +95,8 @@ class DeployFoodAppCloudFunction extends Command
         });
 
         if (!$process->isSuccessful()) {
-            $this->error("Deployment failed: " . $process->getErrorOutput());
+            $errorOutput = trim($process->getErrorOutput() ?: $process->getOutput());
+            $this->error("Deployment failed: " . $errorOutput);
             return 1;
         }
 

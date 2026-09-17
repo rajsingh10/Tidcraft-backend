@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\ProvisioningLog;
 use App\Models\Tenant;
+use App\Jobs\DeployTenantFirebaseFunctionJob;
+use App\Jobs\DeployParkMeAppFirebaseFunctionJob;
 use Illuminate\Support\Facades\Log;
 
 class TenantProvisionService
@@ -148,26 +150,44 @@ class TenantProvisionService
                 Log::warning("Order dispatcher registration notice for tenant {$tenant->id}: " . $e->getMessage());
             }
  
-            // Solution 2 (Optional): Deploy dedicated Google Cloud Function if enabled in .env
-            if (config('services.foodapp.enable_cloudfunction_deploy', env('ENABLE_CLOUDFUNCTION_DEPLOY', false))) {
+            // Solution 2: Deploy dedicated Google Cloud Function if enabled in .env
+            $deployCloudFunction = filter_var(
+                config('services.foodapp.enable_cloudfunction_deploy', env('ENABLE_CLOUDFUNCTION_DEPLOY', true)),
+                FILTER_VALIDATE_BOOLEAN
+            );
+
+            if ($deployCloudFunction) {
+                self::logProgress($tenant, 'cloud_function', 'in_progress', 'Dispatching Firebase Cloud Function deployment for ' . $tenant->firebaseProject->firebase_database_id);
                 try {
-                    \App\Jobs\DeployTenantFirebaseFunctionJob::dispatch(
+                    Log::info("Dispatching Cloud Function deploy job for tenant {$tenant->id}");
+                    DeployTenantFirebaseFunctionJob::dispatch(
                         $tenant->firebaseProject->firebase_database_id,
                         $tenant->id
                     );
+                    \App\Helpers\QueueRunner::runBackground();
                 } catch (\Throwable $e) {
+                    self::logProgress($tenant, 'cloud_function', 'failed', 'Could not dispatch Cloud Function deploy job', $e->getMessage());
                     Log::warning("Could not dispatch Cloud Function deploy job for tenant {$tenant->id}: " . $e->getMessage());
                 }
             }
         } elseif ($isParkMeApp && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id)) {
             // Deploy ParkMeApp dedicated Google Cloud Function if enabled in .env
-            if (config('services.parkmeapp.enable_cloudfunction_deploy', env('ENABLE_CLOUDFUNCTION_DEPLOY', false))) {
+            $deployCloudFunction = filter_var(
+                config('services.parkmeapp.enable_cloudfunction_deploy', env('ENABLE_CLOUDFUNCTION_DEPLOY', true)),
+                FILTER_VALIDATE_BOOLEAN
+            );
+
+            if ($deployCloudFunction) {
+                self::logProgress($tenant, 'cloud_function', 'in_progress', 'Dispatching ParkMeApp Firebase Cloud Function deployment for ' . $tenant->firebaseProject->firebase_database_id);
                 try {
-                    \App\Jobs\DeployParkMeAppFirebaseFunctionJob::dispatch(
+                    Log::info("Dispatching ParkMeApp Cloud Function deploy job for tenant {$tenant->id}");
+                    DeployParkMeAppFirebaseFunctionJob::dispatch(
                         $tenant->firebaseProject->firebase_database_id,
                         $tenant->id
                     );
+                    \App\Helpers\QueueRunner::runBackground();
                 } catch (\Throwable $e) {
+                    self::logProgress($tenant, 'cloud_function', 'failed', 'Could not dispatch ParkMeApp Cloud Function deploy job', $e->getMessage());
                     Log::warning("Could not dispatch ParkMeApp Cloud Function deploy job for tenant {$tenant->id}: " . $e->getMessage());
                 }
             }
