@@ -369,19 +369,23 @@ class ProductController extends Controller
             ];
         }, (array)$sourceCodeZips);
 
-        $setupDocUrl = null;
-        if ($product->setup_document_pdf) {
-            $setupDocUrl = [
-                'name' => basename($product->setup_document_pdf),
-                'url' => asset('storage/' . ltrim($product->setup_document_pdf, '/'))
-            ];
+        $setupDocs = $product->setup_document_pdf ?? [];
+        if (is_string($setupDocs)) {
+            $setupDocs = json_decode($setupDocs, true) ?? [];
         }
+
+        $setupDocUrls = array_map(function($path) {
+            return [
+                'name' => basename($path),
+                'url' => asset('storage/' . ltrim($path, '/'))
+            ];
+        }, (array)$setupDocs);
 
         return response()->json([
             'status' => 'success',
             'data' => [
                 'source_code_zip' => $sourceCodeUrls,
-                'setup_document_pdf' => $setupDocUrl
+                'setup_document_pdf' => $setupDocUrls
             ]
         ]);
     }
