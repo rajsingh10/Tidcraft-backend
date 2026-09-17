@@ -17,40 +17,11 @@ class CmsPageController extends Controller
     }
 
     /**
-     * Store a newly created resource in storage.
+     * Display the specified resource for admin.
      */
-    public function store(Request $request)
+    public function showAdmin($slug)
     {
-        $validated = $request->validate([
-            'title' => 'required|string|max:255',
-            'slug' => 'required|string|max:255|unique:cms_pages,slug',
-            'short_description' => 'nullable|string',
-            'content' => 'required|string',
-            'featured_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
-            'meta_title' => 'nullable|string|max:255',
-            'meta_description' => 'nullable|string',
-            'meta_keywords' => 'nullable|string',
-            'status' => 'required|in:draft,published',
-            'sort_order' => 'nullable|integer',
-            'is_active' => 'required|boolean',
-            'published_at' => 'nullable|date',
-        ]);
-
-        if ($request->hasFile('featured_image')) {
-            $path = $request->file('featured_image')->store('cms_images', 'public');
-            $validated['featured_image'] = $path;
-        }
-
-        $cmsPage = CmsPage::create($validated);
-
-        return response()->json($cmsPage, 201);
-    }
-
-    /**
-     * Display the specified resource.
-     */
-    public function show(CmsPage $cmsPage)
-    {
+        $cmsPage = CmsPage::where('slug', $slug)->firstOrFail();
         return response()->json($cmsPage);
     }
     
@@ -68,43 +39,44 @@ class CmsPageController extends Controller
     }
 
     /**
-     * Update the specified resource in storage.
+     * Insert or update the CMS page by its slug.
      */
-    public function update(Request $request, CmsPage $cmsPage)
+    public function save(Request $request)
     {
         $validated = $request->validate([
-            'title' => 'sometimes|required|string|max:255',
-            'slug' => 'sometimes|required|string|max:255|unique:cms_pages,slug,' . $cmsPage->id,
+            'title' => 'required|string|max:255',
+            'slug' => 'required|string|max:255',
             'short_description' => 'nullable|string',
-            'content' => 'sometimes|required|string',
+            'content' => 'required|string',
             'featured_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
             'meta_title' => 'nullable|string|max:255',
             'meta_description' => 'nullable|string',
             'meta_keywords' => 'nullable|string',
-            'status' => 'sometimes|required|in:draft,published',
+            'status' => 'required|in:draft,published',
             'sort_order' => 'nullable|integer',
-            'is_active' => 'sometimes|required|boolean',
+            'is_active' => 'required|boolean',
             'published_at' => 'nullable|date',
         ]);
 
         if ($request->hasFile('featured_image')) {
             $path = $request->file('featured_image')->store('cms_images', 'public');
             $validated['featured_image'] = $path;
-        } else {
-            // Keep the old image if a new one isn't uploaded, but allow nullification if desired
-            unset($validated['featured_image']); 
         }
 
-        $cmsPage->update($validated);
+        $cmsPage = CmsPage::updateOrCreate(
+            ['slug' => $validated['slug']],
+            $validated
+        );
 
-        return response()->json($cmsPage);
+        return response()->json($cmsPage, 200);
     }
 
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(CmsPage $cmsPage)
+    public function destroyAdmin($slug)
     {
+        $cmsPage = CmsPage::where('slug', $slug)->firstOrFail();
         $cmsPage->delete();
 
         return response()->json(['message' => 'CMS Page deleted successfully']);
