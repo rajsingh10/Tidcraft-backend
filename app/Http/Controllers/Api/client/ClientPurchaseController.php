@@ -251,6 +251,7 @@ class ClientPurchaseController extends Controller
             // Step 2 & 3: Product and Plan
             'product_id' => 'required|exists:products,id',
             'plan_id' => 'required|exists:plans,id',
+            'billing_cycle' => 'nullable|in:monthly,yearly',
 
             // Step 4: Domain Setup
             'domain_type' => 'nullable|in:subdomain,shared,custom',
@@ -336,11 +337,24 @@ class ClientPurchaseController extends Controller
                 $tenant->addOns()->attach($request->add_ons);
             }
 
-            // Calculate actual total amount
+            // Calculate actual total amount based on billing cycle
             $plan = \App\Models\Plan::find($request->plan_id);
-            $paymentAmount = $plan ? (float) $plan->monthly_price : 0;
+            $billingCycle = $request->billing_cycle ?? 'monthly';
+            
+            $paymentAmount = 0;
+            if ($plan) {
+                $paymentAmount = $billingCycle === 'yearly' ? (float) $plan->annual_price : (float) $plan->monthly_price;
+            }
             if ($request->has('add_ons') && is_array($request->add_ons)) {
                 $paymentAmount += (float) \App\Models\AddOn::whereIn('id', $request->add_ons)->sum('price');
+            }
+
+            // Determine End Date
+            $endDate = now()->addMonth();
+            if ($billingCycle === 'yearly') {
+                $endDate = now()->addYear();
+            } else if ($plan && $plan->duration_days) {
+                $endDate = now()->addDays($plan->duration_days);
             }
 
             // Create Subscription
@@ -348,7 +362,7 @@ class ClientPurchaseController extends Controller
                 'plan_id' => $request->plan_id,
                 'status' => 'active',
                 'start_date' => now(),
-                'end_date' => $plan && $plan->duration_days ? now()->addDays($plan->duration_days) : now()->addMonth(),
+                'end_date' => $endDate,
             ]);
 
             // Create Payment

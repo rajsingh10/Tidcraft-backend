@@ -36,6 +36,7 @@ class TenantProvisionController extends Controller
             // Step 2 & 3: Product and Plan
             'product_id' => 'required|exists:products,id',
             'plan_id' => 'required|exists:plans,id',
+            'billing_cycle' => 'nullable|in:monthly,yearly',
 
             // Step 4: Domain Setup
             'domain_type' => 'nullable|in:subdomain,shared,custom',
@@ -99,17 +100,35 @@ class TenantProvisionController extends Controller
 
                 // Create Subscription
             $plan = \App\Models\Plan::find($request->plan_id);
+            $billingCycle = $request->billing_cycle ?? 'monthly';
+
+            $endDate = now()->addMonth();
+            if ($billingCycle === 'yearly') {
+                $endDate = now()->addYear();
+            } else if ($plan && $plan->duration_days) {
+                $endDate = now()->addDays($plan->duration_days);
+            }
+
             $tenant->subscriptions()->create([
                 'plan_id' => $request->plan_id,
                 'status' => 'active',
                 'start_date' => now(),
-                'end_date' => $plan && $plan->duration_days ? now()->addDays($plan->duration_days) : now()->addMonth(),
+                'end_date' => $endDate,
             ]);
+
+            // Calculate Amount
+            $paymentAmount = 0;
+            if ($plan) {
+                $paymentAmount = $billingCycle === 'yearly' ? (float) $plan->annual_price : (float) $plan->monthly_price;
+            }
+            if ($request->has('add_ons') && is_array($request->add_ons)) {
+                $paymentAmount += (float) \App\Models\AddOn::whereIn('id', $request->add_ons)->sum('price');
+            }
 
             // Create Default Successful Payment
             $tenant->payments()->create([
                 'transaction_id' => 'txn_' . Str::random(12),
-                'amount' => $plan ? $plan->monthly_price : 0,
+                'amount' => $paymentAmount,
                 'currency' => 'INR',
                 'payment_method' => 'manual',
                 'status' => 'success',
