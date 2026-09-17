@@ -260,9 +260,7 @@
                                                         <div style="font-weight: 700; color: #1a1a1a; font-size: 13px; margin-bottom: 2px;">Password</div>
                                                         <div style="color: #1a1a1a; font-weight: 600;">{{ $adminPassword }}</div>
                                                     </td>
-                                                    <td align="right" valign="middle">
-                                                        <img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/copy.png" width="18" height="18" style="opacity: 0.6;">
-                                                    </td>
+                
                                                 </tr>
                                             </table>
                                         </div>

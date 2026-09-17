@@ -15,9 +15,18 @@ class TenantProvisionService
      */
     public static function provision(Tenant $tenant)
     {
-        $tenant->loadMissing(['database', 'firebaseProject', 'domains', 'subscriptions']);
+        $lock = \Illuminate\Support\Facades\Cache::lock('provisioning_tenant_' . $tenant->id, 3600);
+        
+        // Prevent duplicate concurrent executions
+        if (!$lock->get()) {
+            Log::info("Tenant {$tenant->id} is already being provisioned. Skipping duplicate job.");
+            return;
+        }
 
-        // Database creation is disabled because we are using Firebase only
+        try {
+            $tenant->loadMissing(['database', 'firebaseProject', 'domains', 'subscriptions']);
+
+            // Database creation is disabled because we are using Firebase only
         // self::logProgress($tenant, 'database', 'in_progress', 'Creating database ' . $tenant->provisionedDatabaseName());
         // try {
         //     TenantDatabaseManager::createDatabase($tenant);
@@ -282,6 +291,10 @@ class TenantProvisionService
         } catch (\Exception $e) {
             self::logProgress($tenant, 'activation', 'failed', 'Tenant activation failed', $e->getMessage());
             throw $e;
+        }
+
+        } finally {
+            $lock->release();
         }
     }
 

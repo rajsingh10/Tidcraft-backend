@@ -68,6 +68,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/purchases/{uuid}/upgrade', [ClientPurchaseController::class, 'upgrade']);
         Route::post('/purchases/{uuid}/domain', [ClientPurchaseController::class, 'setupDomain']);
         Route::get('/payments', [ClientPurchaseController::class, 'payments']);
+        Route::get('/payment-methods', [SettingController::class, 'getClientPaymentMethods']);
     });
 
     // Custom POST route for update to bypass PHP's PUT/multipart limitation
