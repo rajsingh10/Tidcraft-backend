@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\client\ClientAuthController;
 use App\Http\Controllers\Api\client\ClientPurchaseController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\CmsPageController;
+use App\Http\Controllers\Api\EmailTemplateController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -118,6 +119,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('cms-pages', [CmsPageController::class, 'index']);
     Route::get('cms-pages/{slug}', [CmsPageController::class, 'showAdmin']);
     Route::delete('cms-pages/{slug}', [CmsPageController::class, 'destroyAdmin']);
+
+    Route::post('email-templates/{email_template}', [EmailTemplateController::class, 'update']);
+    Route::apiResource('email-templates', EmailTemplateController::class);
 
     Route::post('add-ons/{add_on}', [AddOnController::class, 'update']);
     Route::apiResource('add-ons', AddOnController::class)->except(['index', 'show']);
