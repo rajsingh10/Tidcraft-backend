@@ -243,6 +243,8 @@ class ClientPurchaseController extends Controller
         $validator = Validator::make($request->all(), [
             // Step 1: Client Info
             'business_name' => 'required|string|max:255',
+            'client_name' => 'nullable|string|max:255',
+            'company_logo' => 'nullable',
             'primary_contact_email' => 'nullable|email|max:255',
             'phone_number' => 'nullable|string|max:20',
             'industry' => 'nullable|string|max:255',
@@ -295,6 +297,18 @@ class ClientPurchaseController extends Controller
 
         try {
             DB::beginTransaction();
+
+            // Update user profile with client name and logo if provided
+            if ($request->filled('client_name')) {
+                $user->name = $request->client_name;
+            }
+            if ($request->hasFile('company_logo')) {
+                $path = $request->file('company_logo')->store('profiles', 'public');
+                $user->profile_image = '/storage/' . $path;
+            } elseif ($request->filled('company_logo') && is_string($request->company_logo)) {
+                $user->profile_image = $request->company_logo;
+            }
+            $user->save();
 
             // Clean up any previously abandoned checkouts for this same product to prevent duplicate pending entries
             $abandonedTenants = Tenant::where('client_id', $user->id)
@@ -735,6 +749,43 @@ class ClientPurchaseController extends Controller
 
             DB::commit();
 
+            if ($paymentStatus === 'success' && isset($payment)) {
+                try {
+                    $client = $tenant->client; // Assuming client relationship exists on Tenant model
+                    $clientEmail = $client ? $client->email : $tenant->primary_contact_email;
+                    if ($clientEmail) {
+                        \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\ClientPaymentReceivedMail($tenant, $payment));
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to send payment received email to client: ' . $e->getMessage());
+                }
+
+                // Send Email to Admin
+                try {
+                    $admin = \App\Models\User::role('Super Admin')->first();
+                    if ($admin && $admin->email) {
+                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminPaymentReceivedMail($tenant, $payment));
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to send admin payment notification email: ' . $e->getMessage());
+                }
+
+                // Create Admin Notification for Payment
+                try {
+                    $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
+                    \App\Models\AdminNotification::create([
+                        'type' => 'payment_received',
+                        'title' => 'Payment Received',
+                        'message' => 'Payment of ' . $payment->currency . ' ' . $payment->amount . ' received from ' . $clientName . '.',
+                        'related_id' => $tenant->id,
+                        'client_name' => $clientName,
+                        'is_read' => false
+                    ]);
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to create payment received notification: ' . $e->getMessage());
+                }
+            }
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Payment verified successfully.',
@@ -816,6 +867,211 @@ class ClientPurchaseController extends Controller
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to configure domain.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function checkoutproduct(Request $request)
+    {
+        $user = $request->user();
+
+        // Auto-fill from user profile if not provided
+        if (!$request->has('business_name') && $user->company_name) {
+            $request->merge(['business_name' => $user->company_name]);
+        }
+        
+        // Auto-construct full domain from subdomain_prefix
+        if ($request->domain_type === 'subdomain' && $request->has('subdomain_prefix')) {
+            $prefix = trim($request->subdomain_prefix, " .");
+            $request->merge(['domain' => $prefix . '.tidcraft.com']);
+        }
+        
+        $validator = Validator::make($request->all(), [
+            // Step 1: Client Info
+            'business_name' => 'required|string|max:255',
+            'client_name' => 'nullable|string|max:255',
+            'company_logo' => 'nullable',
+            'primary_contact_email' => 'nullable|email|max:255',
+            'phone_number' => 'nullable|string|max:20',
+            'industry' => 'nullable|string|max:255',
+            'address' => 'nullable|string|max:500',
+            
+            // Step 2 & 3: Product and Plan
+            'product_id' => 'required|exists:products,id',
+            'plan_id' => 'required|exists:plans,id',
+            'billing_cycle' => 'nullable|in:monthly,yearly',
+
+            // Step 4: Domain Setup
+            'domain_type' => 'nullable|in:subdomain,shared,custom',
+            'domain' => 'nullable|string|unique:domains,domain',
+
+            // Add-ons
+            'add_ons' => 'nullable|array',
+            'add_ons.*' => 'exists:add_ons,id',
+
+            // Payment Details
+            'transaction_id' => 'nullable|string',
+            'amount' => 'nullable|numeric',
+            'currency' => 'nullable|string',
+            'payment_method' => 'nullable|string',
+            'payment_status' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation Error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Update user profile with client name and logo if provided
+            if ($request->filled('client_name')) {
+                $user->name = $request->client_name;
+            }
+            if ($request->hasFile('company_logo')) {
+                $path = $request->file('company_logo')->store('profiles', 'public');
+                $user->profile_image = '/storage/' . $path;
+            } elseif ($request->filled('company_logo') && is_string($request->company_logo)) {
+                $user->profile_image = $request->company_logo;
+            }
+            $user->save();
+
+            // Clean up any previously abandoned checkouts for this same product to prevent duplicate pending entries
+            $abandonedTenants = Tenant::where('client_id', $user->id)
+                ->where('product_id', $request->product_id)
+                ->where('status', 'provisioning')
+                ->whereDoesntHave('payments', function ($query) {
+                    $query->where('status', 'success');
+                })
+                ->get();
+                
+            foreach ($abandonedTenants as $abandoned) {
+                // Delete related records to prevent orphan data before force deleting the abandoned tenant
+                $abandoned->subscriptions()->delete();
+                $abandoned->payments()->delete();
+                Domain::where('tenant_id', $abandoned->id)->delete();
+                $abandoned->forceDelete();
+            }
+
+            $tenantKey = Str::slug($request->business_name) . '-p' . $request->product_id;
+
+            // 1. Create Tenant
+            $tenant = Tenant::create([
+                'client_id' => $user->id,
+                'create_by' => $user->id,
+                'uuid' => Str::uuid()->toString(),
+                'name' => $request->business_name,
+                'tenant_key' => $tenantKey,
+                'business_name' => $request->business_name,
+                'primary_contact_email' => $user->email,
+                'phone_number' => $request->phone_number,
+                'address' => $request->address,
+                'industry' => $request->industry,
+                'product_id' => $request->product_id,
+                'plan_id' => $request->plan_id,
+                'status' => 'provisioning',
+            ]);
+
+            // Attach Add-ons if any
+            if ($request->has('add_ons') && is_array($request->add_ons)) {
+                $tenant->addOns()->attach($request->add_ons);
+            }
+
+            // Calculate actual total amount based on billing cycle
+            $plan = \App\Models\Plan::find($request->plan_id);
+            $billingCycle = $request->billing_cycle ?? 'monthly';
+            
+            $paymentAmount = 0;
+            if ($plan) {
+                $paymentAmount = $billingCycle === 'yearly' ? (float) $plan->annual_price : (float) $plan->monthly_price;
+            }
+            if ($request->has('add_ons') && is_array($request->add_ons)) {
+                $paymentAmount += (float) \App\Models\AddOn::whereIn('id', $request->add_ons)->sum('price');
+            }
+
+            // Determine End Date
+            $endDate = now()->addMonth();
+            if ($billingCycle === 'yearly') {
+                $endDate = now()->addYear();
+            } else if ($plan && $plan->duration_days) {
+                $endDate = now()->addDays($plan->duration_days);
+            }
+
+            // Create Subscription
+            $tenant->subscriptions()->create([
+                'plan_id' => $request->plan_id,
+                'status' => 'active',
+                'start_date' => now(),
+                'end_date' => $endDate,
+            ]);
+
+            // Create Payment (Status defaults to pending, frontend handles actual payment)
+            $payment = null;
+            if ($paymentAmount > 0) {
+                $payment = $tenant->payments()->create([
+                    'transaction_id' => $request->transaction_id ?? null,
+                    'amount' => $paymentAmount,
+                    'currency' => $request->currency ?? 'INR',
+                    'payment_method' => $request->payment_method ?? 'razorpay',
+                    'status' => $request->payment_status ?? 'pending',
+                ]);
+            }
+
+            // 2. Create Domain Configuration
+            if ($request->has('domain_type') && $request->has('domain')) {
+                Domain::create([
+                    'tenant_id' => $tenant->id,
+                    'client_id' => $user->id,
+                    'product_id' => $tenant->product_id,
+                    'type' => $request->domain_type,
+                    'domain' => $request->domain,
+                    'status' => 'pending',
+                ]);
+            }
+
+            // Create Admin Notification
+            \App\Models\AdminNotification::create([
+                'type' => 'new_purchase',
+                'title' => 'New Checkout Initiated',
+                'message' => 'Client ' . $user->name . ' has initiated a checkout for product ID ' . $request->product_id . '.',
+                'related_id' => $tenant->id,
+                'client_name' => $user->name,
+                'is_read' => false
+            ]);
+
+            DB::commit();
+
+            // Send Email to Admin for Checkout Initiation
+            try {
+                $admin = \App\Models\User::role('Super Admin')->first();
+                if ($admin && $admin->email) {
+                    \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminNewPurchaseMail($tenant, $user));
+                }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to send admin notification email: ' . $e->getMessage());
+            }
+
+
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Product checkout initiated successfully.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'amount' => $paymentAmount
+                ]
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to process checkout.',
                 'error' => $e->getMessage()
             ], 500);
         }

@@ -57,7 +57,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Client Purchases & Payments 
         Route::get('/purchases', [ClientPurchaseController::class, 'index']);
-        Route::post('/purchases', [ClientPurchaseController::class, 'store']);
+        // Route::post('/purchases', [ClientPurchaseController::class, 'store']);
+        Route::post('/purchases', [ClientPurchaseController::class, 'checkoutproduct']);
         Route::get('/purchases/{uuid}', [ClientPurchaseController::class, 'show']);
         Route::get('/purchases/{uuid}/provisioning-status', [ClientPurchaseController::class, 'provisioningStatus']);
         Route::get('/purchases/{uuid}/backups', [ClientPurchaseController::class, 'listBackups']);
