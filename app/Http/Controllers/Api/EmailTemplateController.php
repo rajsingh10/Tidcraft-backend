@@ -33,6 +33,7 @@ class EmailTemplateController extends Controller
             'subject' => 'nullable|string|max:255',
             'content' => 'nullable|string',
             'images' => 'nullable|array', // Assuming it's an array of image paths/URLs
+            'status' => 'nullable|in:active,inactive',
         ]);
 
         $data = $request->except('images');
@@ -54,6 +55,8 @@ class EmailTemplateController extends Controller
         if (empty($data['slug'])) {
             $data['slug'] = Str::slug($data['title']);
         }
+
+        $data['created_by'] = auth()->id();
 
         $template = EmailTemplate::create($data);
 
@@ -114,6 +117,7 @@ class EmailTemplateController extends Controller
             'subject' => 'nullable|string|max:255',
             'content' => 'nullable|string',
             'images' => 'nullable|array',
+            'status' => 'nullable|in:active,inactive',
         ]);
 
         $oldValues = $template->toArray();
@@ -137,6 +141,8 @@ class EmailTemplateController extends Controller
         if (isset($data['title']) && empty($data['slug']) && !isset($request->slug)) {
             $data['slug'] = Str::slug($data['title']);
         }
+
+        $data['updated_by'] = auth()->id();
 
         $template->update($data);
 
@@ -172,6 +178,9 @@ class EmailTemplateController extends Controller
 
         $oldValues = $template->toArray();
         $title = $template->title;
+        
+        $template->deleted_by = auth()->id();
+        $template->save();
         $template->delete();
 
         // Audit Log
