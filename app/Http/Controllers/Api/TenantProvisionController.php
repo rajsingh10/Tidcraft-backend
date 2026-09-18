@@ -211,11 +211,36 @@ class TenantProvisionController extends Controller
     }
 
     /**
+     * Check if tenant is 5 days or less from expiring and mark past_due.
+     */
+    private function checkAndMarkPastDue($tenant)
+    {
+        if ($tenant->status === 'active') {
+            $subscription = $tenant->subscriptions()->whereIn('status', ['active'])->first();
+            if ($subscription && $subscription->end_date) {
+                $endDate = \Carbon\Carbon::parse($subscription->end_date)->startOfDay();
+                $daysRemaining = now()->startOfDay()->diffInDays($endDate, false);
+                
+                if ($daysRemaining <= 5) {
+                    $tenant->status = 'past_due';
+                    $tenant->save();
+                    \App\Services\TenantProvisionService::blockTenant($tenant);
+                }
+            }
+        }
+    }
+
+    /**
      * Display a listing of tenants.
      */
     public function index()
     {
         $tenants = Tenant::with(['client', 'product', 'plan', 'domains', 'firebaseProject', 'database', 'addOns', 'subscriptions', 'payments'])->get();
+        
+        foreach ($tenants as $tenant) {
+            $this->checkAndMarkPastDue($tenant);
+        }
+
         return response()->json([
             'status' => 'success',
             'data' => $tenants
@@ -232,6 +257,8 @@ class TenantProvisionController extends Controller
         if (!$tenant) {
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
         }
+
+        $this->checkAndMarkPastDue($tenant);
 
         return response()->json([
             'status' => 'success',
