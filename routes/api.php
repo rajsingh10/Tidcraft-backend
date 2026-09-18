@@ -70,6 +70,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/purchases/{uuid}/upgrade', [ClientPurchaseController::class, 'upgrade']);
         Route::post('/purchases/{uuid}/domain', [ClientPurchaseController::class, 'setupDomain']);
         Route::get('/payments', [ClientPurchaseController::class, 'payments']);
+        Route::get('/invoices', [\App\Http\Controllers\Api\InvoiceController::class, 'index']);
+        Route::get('/invoices/{id}', [\App\Http\Controllers\Api\InvoiceController::class, 'show']);
         Route::get('/payment-methods', [SettingController::class, 'getClientPaymentMethods']);
     });
 
@@ -163,6 +165,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tenants/{uuid}/renew-manual', [TenantProvisionController::class, 'renewManual']);
     Route::post('/tenants/{uuid}/upgrade-manual', [TenantProvisionController::class, 'upgradeManual']);
     Route::post('/tenants/{uuid}/send-setup-email', [TenantProvisionController::class, 'sendSetupEmail']);
+    Route::post('/tenants/{uuid}/provision', [TenantProvisionController::class, 'manualProvision']);
 
     // Support Tickets API
     Route::get('/support-tickets', [\App\Http\Controllers\Api\SupportTicketController::class, 'index']);

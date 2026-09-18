@@ -22,9 +22,12 @@ class ClientPurchaseController extends Controller
     {
         $user = $request->user();
 
-        // Fetch tenants linked to this user's email
-        $tenants = Tenant::with(['product', 'plan', 'domains', 'subscriptions'])
-            ->where('create_by', $user->id)
+        // Fetch tenants linked to this user
+        $tenants = Tenant::with(['product', 'plan', 'domains', 'subscriptions', 'payments'])
+            ->where(function ($q) use ($user) {
+                $q->where('create_by', $user->id)
+                  ->orWhere('client_id', $user->id);
+            })
             ->get();
 
         return response()->json([
@@ -41,9 +44,12 @@ class ClientPurchaseController extends Controller
         $user = $request->user();
 
         // Fetch the specific tenant ensuring it belongs to this client
-        $tenant = Tenant::with(['product', 'plan', 'domains', 'firebaseProject', 'addOns', 'subscriptions', 'provisioningLogs'])
+        $tenant = Tenant::with(['product', 'plan', 'domains', 'firebaseProject', 'addOns', 'subscriptions', 'provisioningLogs', 'payments'])
             ->where('uuid', $uuid)
-            ->where('create_by', $user->id)
+            ->where(function ($q) use ($user) {
+                $q->where('create_by', $user->id)
+                  ->orWhere('client_id', $user->id);
+            })
             ->first();
 
         if (!$tenant) {
@@ -212,10 +218,13 @@ class ClientPurchaseController extends Controller
         $user = $request->user();
 
         // First find all tenant IDs owned by the user
-        $tenantIds = Tenant::where('create_by', $user->id)->pluck('id');
+        $tenantIds = Tenant::where('create_by', $user->id)
+            ->orWhere('client_id', $user->id)
+            ->pluck('id');
 
-        // Fetch all payments associated with those tenants
+        // Fetch all payments associated with those tenants, along with product & plan info
         $payments = Payment::whereIn('tenant_id', $tenantIds)
+            ->with(['tenant.product', 'tenant.plan'])
             ->orderBy('create_at', 'desc')
             ->get();
 
@@ -343,7 +352,7 @@ class ClientPurchaseController extends Controller
                 'industry' => $request->industry,
                 'product_id' => $request->product_id,
                 'plan_id' => $request->plan_id,
-                'status' => 'provisioning',
+                'status' => 'pending',
             ]);
 
             // Attach Add-ons if any
@@ -371,24 +380,27 @@ class ClientPurchaseController extends Controller
                 $endDate = now()->addDays($plan->duration_days);
             }
 
+            // Determine initial payment status and subscription status
+            $initialPaymentStatus = $paymentAmount > 0 ? ($request->payment_status ?? 'pending') : 'success';
+            $subscriptionStatus = $initialPaymentStatus === 'success' ? 'active' : 'pending';
+
             // Create Subscription
             $tenant->subscriptions()->create([
                 'plan_id' => $request->plan_id,
-                'status' => 'active',
+                'status' => $subscriptionStatus,
                 'start_date' => now(),
                 'end_date' => $endDate,
             ]);
 
             // Create Payment
-            if ($paymentAmount > 0) {
-                $tenant->payments()->create([
-                    'transaction_id' => $request->transaction_id ?? null,
-                    'amount' => $paymentAmount,
-                    'currency' => $request->currency ?? 'INR',
-                    'payment_method' => $request->payment_method ?? 'razorpay',
-                    'status' => $request->payment_status ?? 'pending',
-                ]);
-            }
+            $payment = $tenant->payments()->create([
+                'transaction_id' => $request->transaction_id ?? ($paymentAmount > 0 ? null : ('FREE-' . strtoupper(Str::random(10)))),
+                'amount' => $paymentAmount,
+                'currency' => $request->currency ?? 'INR',
+                'payment_method' => $paymentAmount > 0 ? ($request->payment_method ?? 'razorpay') : 'free',
+                'status' => $initialPaymentStatus,
+                'type' => 'purchase',
+            ]);
 
             // 2. Create Domain Configuration
             if ($request->has('domain_type') && $request->has('domain')) {
@@ -405,14 +417,6 @@ class ClientPurchaseController extends Controller
 
 
             DB::commit();
-
-            if (($paymentAmount == 0 || $request->payment_status === 'success') && $request->has('domain_type') && $request->has('domain')) {
-                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
-                \App\Helpers\QueueRunner::runBackground();
-            }
-            
-            // Optionally log the provisioning action
-            AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned.");
 
             // Generate Razorpay Payment Link
             $paymentLinkStr = null;
@@ -468,9 +472,12 @@ class ClientPurchaseController extends Controller
                 'message' => 'Tenant provisioned successfully.',
                 'data' => [
                     'tenant_id' => $tenant->uuid,
+                    'tenant_status' => $tenant->status,
+                    'payment_status' => $payment->status,
                     'payment_link' => $paymentLinkStr,
                     'payment_link_error' => $paymentErrorStr,
-                    'amount' => $paymentAmount
+                    'amount' => $paymentAmount,
+                    'invoice_number' => $payment->invoice_number,
                 ]
             ], 201);
 
@@ -605,11 +612,11 @@ class ClientPurchaseController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'razorpay_payment_id' => 'required|string',
+            'razorpay_payment_id' => 'nullable|string',
             'razorpay_payment_link_id' => 'nullable|string',
             'razorpay_payment_link_status' => 'nullable|string',
             'razorpay_signature' => 'nullable|string', // frontend might not send signature if it's a simple flow
-            'status' => 'nullable|string', // fallback for custom status
+            'status' => 'nullable|string', // fallback for custom status ('success', 'failed', 'pending', 'canceled')
         ]);
 
         if ($validator->fails()) {
@@ -636,9 +643,31 @@ class ClientPurchaseController extends Controller
         try {
             DB::beginTransaction();
 
-            $paymentStatus = $request->razorpay_payment_link_status === 'paid' ? 'success' : ($request->status ?? 'success');
+            // Determine initial payment status from request params
+            $paymentStatus = 'pending';
 
-            // Fetch detailed info from Razorpay API
+            if ($request->filled('razorpay_payment_link_status')) {
+                $linkStatus = strtolower($request->razorpay_payment_link_status);
+                $paymentStatus = match ($linkStatus) {
+                    'paid' => 'success',
+                    'failed', 'expired' => 'failed',
+                    'cancelled', 'canceled' => 'canceled',
+                    default => $linkStatus
+                };
+            } elseif ($request->filled('status')) {
+                $incomingStatus = strtolower($request->status);
+                $paymentStatus = match ($incomingStatus) {
+                    'success', 'paid' => 'success',
+                    'failed' => 'failed',
+                    'cancelled', 'canceled' => 'canceled',
+                    'pending' => 'pending',
+                    default => $incomingStatus
+                };
+            } elseif ($request->filled('razorpay_payment_id')) {
+                $paymentStatus = 'success';
+            }
+
+            // Fetch detailed info from Razorpay API if payment ID is available
             $bankRrn = null;
             $orderId = null;
             $customerDetails = null;
@@ -648,12 +677,20 @@ class ClientPurchaseController extends Controller
             $keyId = $razorpaySettingsForFetch['razorpay_key_id'] ?? null;
             $keySecretFetch = $razorpaySettingsForFetch['razorpay_key_secret'] ?? null;
 
-            if ($keyId && $keySecretFetch && $request->has('razorpay_payment_id')) {
+            if ($keyId && $keySecretFetch && $request->filled('razorpay_payment_id')) {
                 try {
                     $api = new \Razorpay\Api\Api($keyId, $keySecretFetch);
                     $rzpPayment = $api->payment->fetch($request->razorpay_payment_id);
                     
                     if ($rzpPayment) {
+                        if (isset($rzpPayment->status)) {
+                            if (in_array($rzpPayment->status, ['captured', 'authorized', 'paid'])) {
+                                $paymentStatus = 'success';
+                            } elseif ($rzpPayment->status === 'failed') {
+                                $paymentStatus = 'failed';
+                            }
+                        }
+
                         // Extract bank_rrn or generic RRN
                         $bankRrn = $rzpPayment->acquirer_data['bank_transaction_id'] ?? $rzpPayment->acquirer_data['rrn'] ?? null;
                         $orderId = $rzpPayment->order_id ?? null;
@@ -678,9 +715,13 @@ class ClientPurchaseController extends Controller
 
             // Update the pending payment record for this tenant
             $payment = $tenant->payments()->where('status', 'pending')->first();
+            if (!$payment) {
+                $payment = $tenant->payments()->latest('id')->first();
+            }
+
             if ($payment) {
                 $payment->update([
-                    'transaction_id' => $request->razorpay_payment_id,
+                    'transaction_id' => $request->razorpay_payment_id ?? $payment->transaction_id,
                     'status' => $paymentStatus,
                     'payment_method' => $paymentMethodStr,
                     'bank_rrn' => $bankRrn,
@@ -688,8 +729,8 @@ class ClientPurchaseController extends Controller
                     'customer_details' => $customerDetails,
                 ]);
             } else {
-                // fallback if no pending payment was found
-                $tenant->payments()->create([
+                // Fallback if no payment was found
+                $payment = $tenant->payments()->create([
                     'transaction_id' => $request->razorpay_payment_id,
                     'amount' => 0,
                     'currency' => 'INR',
@@ -698,17 +739,18 @@ class ClientPurchaseController extends Controller
                     'bank_rrn' => $bankRrn,
                     'order_id' => $orderId,
                     'customer_details' => $customerDetails,
+                    'type' => 'purchase'
                 ]);
             }
 
-            // Handle post-payment logic based on payment type
+            // Handle subscription and tenant status logic
+            $subscription = $tenant->subscriptions()->latest('id')->first();
+
             if ($paymentStatus === 'success') {
-                $paymentType = $payment ? $payment->type : 'provisioning';
+                $paymentType = $payment ? ($payment->type ?? 'purchase') : 'purchase';
 
                 if ($paymentType === 'renewal') {
-                    $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired'])->first();
                     if ($subscription) {
-                        // Extend by 1 month by default (could be adjusted based on plan duration)
                         $currentEndDate = $subscription->end_date ? \Carbon\Carbon::parse($subscription->end_date) : now();
                         if ($currentEndDate->isPast()) {
                             $currentEndDate = now();
@@ -723,7 +765,6 @@ class ClientPurchaseController extends Controller
                         \App\Services\TenantProvisionService::unblockTenant($tenant);
                     }
                 } elseif ($paymentType === 'upgrade') {
-                    $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired'])->first();
                     $metadata = $payment->metadata ?? [];
                     if ($subscription && isset($metadata['new_plan_id'])) {
                         $subscription->plan_id = $metadata['new_plan_id'];
@@ -738,20 +779,29 @@ class ClientPurchaseController extends Controller
                         \App\Services\TenantProvisionService::unblockTenant($tenant);
                     }
                 } else {
-                    // Provisioning type
-                    $domainExists = Domain::where('tenant_id', $tenant->id)->exists();
-                    if ($domainExists && $tenant->status === 'provisioning') {
-                        \App\Jobs\ProvisionTenantJob::dispatch($tenant);
-                \App\Helpers\QueueRunner::runBackground();
+                    // Initial Client Purchase: Activate subscription, keep tenant status 'pending'
+                    if ($subscription) {
+                        $subscription->status = 'active';
+                        $subscription->save();
                     }
+                    $tenant->status = 'pending';
+                    $tenant->save();
                 }
+            } elseif (in_array($paymentStatus, ['failed', 'canceled', 'cancelled'])) {
+                if ($subscription) {
+                    $subscription->status = $paymentStatus;
+                    $subscription->save();
+                }
+                // Tenant remains pending
+                $tenant->status = 'pending';
+                $tenant->save();
             }
 
             DB::commit();
 
             if ($paymentStatus === 'success' && isset($payment)) {
                 try {
-                    $client = $tenant->client; // Assuming client relationship exists on Tenant model
+                    $client = $tenant->client;
                     $clientEmail = $client ? $client->email : $tenant->primary_contact_email;
                     if ($clientEmail) {
                         \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\ClientPaymentReceivedMail($tenant, $payment));
@@ -760,31 +810,29 @@ class ClientPurchaseController extends Controller
                     \Illuminate\Support\Facades\Log::error('Failed to send payment received email to client: ' . $e->getMessage());
                 }
 
-                if ($paymentType !== 'provisioning') {
-                    // Send Email to Admin
-                    try {
-                        $admin = \App\Models\User::role('SuperAdmin')->first();
-                        if ($admin && $admin->email) {
-                            \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminPaymentReceivedMail($tenant, $payment));
-                        }
-                    } catch (\Exception $e) {
-                        \Illuminate\Support\Facades\Log::error('Failed to send admin payment notification email: ' . $e->getMessage());
+                // Send Email to Admin
+                try {
+                    $admin = \App\Models\User::role('SuperAdmin')->first();
+                    if ($admin && $admin->email) {
+                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminPaymentReceivedMail($tenant, $payment));
                     }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to send admin payment notification email: ' . $e->getMessage());
+                }
 
-                    // Create Admin Notification for Payment
-                    try {
-                        $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
-                        \App\Models\AdminNotification::create([
-                            'type' => 'payment_received',
-                            'title' => 'Payment Received',
-                            'message' => 'Payment of ' . $payment->currency . ' ' . $payment->amount . ' received from ' . $clientName . '.',
-                            'related_id' => $tenant->id,
-                            'client_name' => $clientName,
-                            'is_read' => false
-                        ]);
-                    } catch (\Exception $e) {
-                        \Illuminate\Support\Facades\Log::error('Failed to create payment received notification: ' . $e->getMessage());
-                    }
+                // Create Admin Notification for Payment
+                try {
+                    $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
+                    \App\Models\AdminNotification::create([
+                        'type' => 'payment_received',
+                        'title' => 'Payment Received',
+                        'message' => 'Payment of ' . $payment->currency . ' ' . $payment->amount . ' received from ' . $clientName . '.',
+                        'related_id' => $tenant->id,
+                        'client_name' => $clientName,
+                        'is_read' => false
+                    ]);
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to create payment received notification: ' . $e->getMessage());
                 }
             } elseif ($paymentStatus === 'failed' && isset($payment)) {
                 try {
@@ -797,39 +845,38 @@ class ClientPurchaseController extends Controller
                     \Illuminate\Support\Facades\Log::error('Failed to send payment failed email to client: ' . $e->getMessage());
                 }
 
-                if ($paymentType !== 'provisioning') {
-                    try {
-                        $admin = \App\Models\User::role('SuperAdmin')->first();
-                        if ($admin && $admin->email) {
-                            \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminPaymentFailedMail($tenant, $payment));
-                        }
-                    } catch (\Exception $e) {
-                        \Illuminate\Support\Facades\Log::error('Failed to send admin payment failed notification email: ' . $e->getMessage());
+                try {
+                    $admin = \App\Models\User::role('SuperAdmin')->first();
+                    if ($admin && $admin->email) {
+                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminPaymentFailedMail($tenant, $payment));
                     }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to send admin payment failed notification email: ' . $e->getMessage());
+                }
 
-                    try {
-                        $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
-                        \App\Models\AdminNotification::create([
-                            'type' => 'payment_failed',
-                            'title' => 'Payment Failed',
-                            'message' => 'Payment attempt of ' . $payment->currency . ' ' . $payment->amount . ' failed from ' . $clientName . '.',
-                            'related_id' => $tenant->id,
-                            'client_name' => $clientName,
-                            'is_read' => false
-                        ]);
-                    } catch (\Exception $e) {
-                        \Illuminate\Support\Facades\Log::error('Failed to create payment failed notification: ' . $e->getMessage());
-                    }
+                try {
+                    $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
+                    \App\Models\AdminNotification::create([
+                        'type' => 'payment_failed',
+                        'title' => 'Payment Failed',
+                        'message' => 'Payment attempt of ' . $payment->currency . ' ' . $payment->amount . ' failed from ' . $clientName . '.',
+                        'related_id' => $tenant->id,
+                        'client_name' => $clientName,
+                        'is_read' => false
+                    ]);
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to create payment failed notification: ' . $e->getMessage());
                 }
             }
 
             return response()->json([
-                'status' => 'success',
-                'message' => 'Payment verified successfully.',
+                'status' => $paymentStatus === 'success' ? 'success' : 'error',
+                'message' => $paymentStatus === 'success' ? 'Payment verified successfully.' : ('Payment ' . $paymentStatus . '.'),
                 'data' => [
                     'tenant_id' => $tenant->uuid,
                     'tenant_status' => $tenant->status,
-                    'payment_status' => $paymentStatus
+                    'payment_status' => $paymentStatus,
+                    'invoice_number' => $payment ? $payment->invoice_number : null,
                 ]
             ]);
             
@@ -882,13 +929,6 @@ class ClientPurchaseController extends Controller
             ]);
 
             DB::commit();
-
-            // Check if payment is successful, if so dispatch provisioning
-            $payment = $tenant->payments()->latest('create_at')->first();
-            if ($payment && $payment->status === 'success') {
-                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
-                \App\Helpers\QueueRunner::runBackground();
-            }
 
             return response()->json([
                 'status' => 'success',
@@ -981,7 +1021,7 @@ class ClientPurchaseController extends Controller
             // Clean up any previously abandoned checkouts for this same product to prevent duplicate pending entries
             $abandonedTenants = Tenant::where('client_id', $user->id)
                 ->where('product_id', $request->product_id)
-                ->where('status', 'provisioning')
+                ->whereIn('status', ['provisioning', 'pending'])
                 ->whereDoesntHave('payments', function ($query) {
                     $query->where('status', 'success');
                 })
@@ -993,30 +1033,6 @@ class ClientPurchaseController extends Controller
                 $abandoned->payments()->delete();
                 Domain::where('tenant_id', $abandoned->id)->delete();
                 $abandoned->forceDelete();
-            }
-
-            $tenantKey = Str::slug($request->business_name) . '-p' . $request->product_id;
-
-            // 1. Create Tenant
-            $tenant = Tenant::create([
-                'client_id' => $user->id,
-                'create_by' => $user->id,
-                'uuid' => Str::uuid()->toString(),
-                'name' => $request->business_name,
-                'tenant_key' => $tenantKey,
-                'business_name' => $request->business_name,
-                'primary_contact_email' => $user->email,
-                'phone_number' => $request->phone_number,
-                'address' => $request->address,
-                'industry' => $request->industry,
-                'product_id' => $request->product_id,
-                'plan_id' => $request->plan_id,
-                'status' => 'provisioning',
-            ]);
-
-            // Attach Add-ons if any
-            if ($request->has('add_ons') && is_array($request->add_ons)) {
-                $tenant->addOns()->attach($request->add_ons);
             }
 
             // Calculate actual total amount based on billing cycle
@@ -1039,25 +1055,53 @@ class ClientPurchaseController extends Controller
                 $endDate = now()->addDays($plan->duration_days);
             }
 
+            $initialStatus = 'pending';
+
+            $tenantKey = Str::slug($request->business_name) . '-p' . $request->product_id;
+
+            // 1. Create Tenant (stores the product plan purchase record)
+            $tenant = Tenant::create([
+                'client_id' => $user->id,
+                'create_by' => $user->id,
+                'uuid' => Str::uuid()->toString(),
+                'name' => $request->business_name,
+                'tenant_key' => $tenantKey,
+                'business_name' => $request->business_name,
+                'primary_contact_email' => $user->email,
+                'phone_number' => $request->phone_number,
+                'address' => $request->address,
+                'industry' => $request->industry,
+                'product_id' => $request->product_id,
+                'plan_id' => $request->plan_id,
+                'status' => $initialStatus,
+            ]);
+
+            // Attach Add-ons if any
+            if ($request->has('add_ons') && is_array($request->add_ons)) {
+                $tenant->addOns()->attach($request->add_ons);
+            }
+
+            // Determine initial payment status and subscription status
+            $initialPaymentStatus = $paymentAmount > 0 ? ($request->payment_status ?? 'pending') : 'success';
+            $subscriptionStatus = $initialPaymentStatus === 'success' ? 'active' : 'pending';
+
             // Create Subscription
             $tenant->subscriptions()->create([
                 'plan_id' => $request->plan_id,
-                'status' => 'active',
+                'status' => $subscriptionStatus,
                 'start_date' => now(),
                 'end_date' => $endDate,
             ]);
 
-            // Create Payment (Status defaults to pending, frontend handles actual payment)
-            $payment = null;
-            if ($paymentAmount > 0) {
-                $payment = $tenant->payments()->create([
-                    'transaction_id' => $request->transaction_id ?? null,
-                    'amount' => $paymentAmount,
-                    'currency' => $request->currency ?? 'INR',
-                    'payment_method' => $request->payment_method ?? 'razorpay',
-                    'status' => $request->payment_status ?? 'pending',
-                ]);
-            }
+            // Create Payment (Status defaults to pending, frontend handles actual payment; free plans are auto success)
+            $payment = $tenant->payments()->create([
+                'transaction_id' => $request->transaction_id ?? ($paymentAmount > 0 ? null : ('FREE-' . strtoupper(Str::random(10)))),
+                'amount' => $paymentAmount,
+                'currency' => $request->currency ?? 'INR',
+                'payment_method' => $paymentAmount > 0 ? ($request->payment_method ?? 'razorpay') : 'free',
+                'status' => $initialPaymentStatus,
+                'type' => 'purchase',
+            ]);
 
             // 2. Create Domain Configuration
             if ($request->has('domain_type') && $request->has('domain')) {
@@ -1093,14 +1137,15 @@ class ClientPurchaseController extends Controller
                 \Illuminate\Support\Facades\Log::error('Failed to send admin notification email: ' . $e->getMessage());
             }
 
-
-
             return response()->json([
                 'status' => 'success',
                 'message' => 'Product checkout initiated successfully.',
                 'data' => [
                     'tenant_id' => $tenant->uuid,
-                    'amount' => $paymentAmount
+                    'tenant_status' => $tenant->status,
+                    'payment_status' => $payment->status,
+                    'amount' => $paymentAmount,
+                    'invoice_number' => $payment->invoice_number,
                 ]
             ], 201);
 
