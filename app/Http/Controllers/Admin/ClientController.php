@@ -171,6 +171,12 @@ class ClientController extends Controller
             $client->profile_image = asset($client->profile_image);
         }
 
+        // Ensure Client role exists and assign it
+        $role = Role::firstOrCreate(['name' => 'Client']);
+        if (!$client->hasRole('Client')) {
+            $client->assignRole($role);
+        }
+
         AuditLogger::log('Client Updated', 'Update', "Client ({$client->name}) was updated.");
 
         return response()->json([
