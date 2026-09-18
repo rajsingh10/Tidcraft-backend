@@ -6,6 +6,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
 use App\Models\EmailTemplate;
+use App\Models\Setting;
 
 class DynamicEmail extends Mailable
 {
@@ -30,6 +31,22 @@ class DynamicEmail extends Mailable
         
         // Replace variables in content
         $content = $template->content;
+
+        // Automatically fetch and merge global settings for easy replacements
+        $keys = [
+            'company_name',
+            'company_favicon',
+            'company_short_logo',
+            'company_logo',
+            'company_tagline',
+        ];
+        $settingsData = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
+        
+        foreach ($settingsData as $k => $v) {
+            $replacements['{' . $k . '}'] = $v;
+        }
+
+        // Apply all replacements
 
         foreach ($replacements as $key => $value) {
             $subject = str_replace($key, $value, $subject);
