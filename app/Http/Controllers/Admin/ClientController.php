@@ -210,4 +210,27 @@ class ClientController extends Controller
             'message' => 'Client deleted successfully'
         ]);
     }
+    /**
+     * Get the specified client's tenants.
+     */
+    public function getTenants($id)
+    {
+        $client = User::find($id);
+
+        if (!$client) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Client not found'
+            ], 404);
+        }
+
+        $tenants = \App\Models\Tenant::with(['product', 'subscriptions', 'domains', 'database', 'firebaseProject'])
+            ->where('client_id', $client->id)
+            ->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $tenants
+        ]);
+    }
 }
