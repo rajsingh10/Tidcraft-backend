@@ -78,6 +78,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('product-categories', ProductCategoryController::class);
 
     // Clients API (Admin Side)
+    Route::get('clients/{client}/tenants', [ClientController::class, 'getTenants']);
     Route::post('clients/{client}', [ClientController::class, 'update']);
     Route::apiResource('clients', ClientController::class);
     // Settings API
