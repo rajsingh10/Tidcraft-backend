@@ -760,29 +760,31 @@ class ClientPurchaseController extends Controller
                     \Illuminate\Support\Facades\Log::error('Failed to send payment received email to client: ' . $e->getMessage());
                 }
 
-                // Send Email to Admin
-                try {
-                    $admin = \App\Models\User::role('Super Admin')->first();
-                    if ($admin && $admin->email) {
-                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminPaymentReceivedMail($tenant, $payment));
+                if ($paymentType !== 'provisioning') {
+                    // Send Email to Admin
+                    try {
+                        $admin = \App\Models\User::role('SuperAdmin')->first();
+                        if ($admin && $admin->email) {
+                            \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminPaymentReceivedMail($tenant, $payment));
+                        }
+                    } catch (\Exception $e) {
+                        \Illuminate\Support\Facades\Log::error('Failed to send admin payment notification email: ' . $e->getMessage());
                     }
-                } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::error('Failed to send admin payment notification email: ' . $e->getMessage());
-                }
 
-                // Create Admin Notification for Payment
-                try {
-                    $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
-                    \App\Models\AdminNotification::create([
-                        'type' => 'payment_received',
-                        'title' => 'Payment Received',
-                        'message' => 'Payment of ' . $payment->currency . ' ' . $payment->amount . ' received from ' . $clientName . '.',
-                        'related_id' => $tenant->id,
-                        'client_name' => $clientName,
-                        'is_read' => false
-                    ]);
-                } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::error('Failed to create payment received notification: ' . $e->getMessage());
+                    // Create Admin Notification for Payment
+                    try {
+                        $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
+                        \App\Models\AdminNotification::create([
+                            'type' => 'payment_received',
+                            'title' => 'Payment Received',
+                            'message' => 'Payment of ' . $payment->currency . ' ' . $payment->amount . ' received from ' . $clientName . '.',
+                            'related_id' => $tenant->id,
+                            'client_name' => $clientName,
+                            'is_read' => false
+                        ]);
+                    } catch (\Exception $e) {
+                        \Illuminate\Support\Facades\Log::error('Failed to create payment received notification: ' . $e->getMessage());
+                    }
                 }
             } elseif ($paymentStatus === 'failed' && isset($payment)) {
                 try {
@@ -795,27 +797,29 @@ class ClientPurchaseController extends Controller
                     \Illuminate\Support\Facades\Log::error('Failed to send payment failed email to client: ' . $e->getMessage());
                 }
 
-                try {
-                    $admin = \App\Models\User::role('Super Admin')->first();
-                    if ($admin && $admin->email) {
-                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminPaymentFailedMail($tenant, $payment));
+                if ($paymentType !== 'provisioning') {
+                    try {
+                        $admin = \App\Models\User::role('SuperAdmin')->first();
+                        if ($admin && $admin->email) {
+                            \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminPaymentFailedMail($tenant, $payment));
+                        }
+                    } catch (\Exception $e) {
+                        \Illuminate\Support\Facades\Log::error('Failed to send admin payment failed notification email: ' . $e->getMessage());
                     }
-                } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::error('Failed to send admin payment failed notification email: ' . $e->getMessage());
-                }
 
-                try {
-                    $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
-                    \App\Models\AdminNotification::create([
-                        'type' => 'payment_failed',
-                        'title' => 'Payment Failed',
-                        'message' => 'Payment attempt of ' . $payment->currency . ' ' . $payment->amount . ' failed from ' . $clientName . '.',
-                        'related_id' => $tenant->id,
-                        'client_name' => $clientName,
-                        'is_read' => false
-                    ]);
-                } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::error('Failed to create payment failed notification: ' . $e->getMessage());
+                    try {
+                        $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
+                        \App\Models\AdminNotification::create([
+                            'type' => 'payment_failed',
+                            'title' => 'Payment Failed',
+                            'message' => 'Payment attempt of ' . $payment->currency . ' ' . $payment->amount . ' failed from ' . $clientName . '.',
+                            'related_id' => $tenant->id,
+                            'client_name' => $clientName,
+                            'is_read' => false
+                        ]);
+                    } catch (\Exception $e) {
+                        \Illuminate\Support\Facades\Log::error('Failed to create payment failed notification: ' . $e->getMessage());
+                    }
                 }
             }
 
@@ -1081,7 +1085,7 @@ class ClientPurchaseController extends Controller
 
             // Send Email to Admin for Checkout Initiation
             try {
-                $admin = \App\Models\User::role('Super Admin')->first();
+                $admin = \App\Models\User::role('SuperAdmin')->first();
                 if ($admin && $admin->email) {
                     \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminNewPurchaseMail($tenant, $user));
                 }
