@@ -1140,4 +1140,46 @@ class TenantProvisionController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Explicitly trigger background provisioning for a tenant (Super Admin only).
+     */
+    public function manualProvision(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)
+            ->orWhere('id', $uuid)
+            ->first();
+
+        if (!$tenant) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Tenant not found.'
+            ], 404);
+        }
+
+        // Check if product Firebase configuration is available
+        $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+        if (!$productFirebase || empty($productFirebase->firebase_project_id)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Product has no Firebase project configured. Please configure product Firebase first.',
+            ], 422);
+        }
+
+        $tenant->update(['status' => 'provisioning']);
+
+        \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+        \App\Helpers\QueueRunner::runBackground();
+
+        AuditLogger::log('Tenant Provisioned', 'Manual Provisioning Triggered', "Tenant {$tenant->business_name} was queued for manual provisioning by admin.");
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Tenant has been queued for background provisioning.',
+            'data' => [
+                'tenant_id' => $tenant->uuid,
+                'tenant_status' => $tenant->status,
+            ]
+        ]);
+    }
 }

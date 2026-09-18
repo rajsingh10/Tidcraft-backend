@@ -14,7 +14,16 @@ class InvoiceController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Payment::with(['tenant.client']);
+        $user = $request->user();
+        $query = Payment::with(['tenant.client', 'tenant.product', 'tenant.plan']);
+
+        // Scope to client's own invoices if logged in as Client
+        if ($user && $user->hasRole('Client')) {
+            $query->whereHas('tenant', function($tq) use ($user) {
+                $tq->where('client_id', $user->id)
+                   ->orWhere('create_by', $user->id);
+            });
+        }
 
         // Search Filter
         if ($request->has('search') && !empty($request->search)) {
@@ -37,7 +46,9 @@ class InvoiceController extends Controller
             if ($status === 'paid') {
                 $query->where('status', 'success');
             } elseif ($status === 'pending') {
-                $query->where('status', '!=', 'success');
+                $query->where('status', 'pending');
+            } elseif ($status === 'failed') {
+                $query->where('status', 'failed');
             } else {
                 $query->where('status', $request->status);
             }
@@ -51,21 +62,31 @@ class InvoiceController extends Controller
         // Map to invoice structure
         $invoices = $payments->getCollection()->map(function ($payment) {
             $issueDate = $payment->create_at ?? $payment->created_at ?? now();
-            // Assuming due date is same as issue date for immediate payments, or +14 days for pending
+            // Due date: same day if paid, +14 days for pending/failed
             $dueDate = $payment->status === 'success' ? $issueDate : Carbon::parse($issueDate)->addDays(14);
+
+            $statusLabel = match($payment->status) {
+                'success' => 'Paid',
+                'failed' => 'Failed',
+                'canceled', 'cancelled' => 'Cancelled',
+                default => 'Pending',
+            };
 
             return [
                 'id' => $payment->id,
-                'invoice_number' => 'INV-' . Carbon::parse($issueDate)->format('Y') . '-' . str_pad($payment->id, 3, '0', STR_PAD_LEFT),
+                'invoice_number' => $payment->invoice_number,
                 'client_tenant' => [
                     'business_name' => $payment->tenant->business_name ?? 'Unknown',
                     'client_name' => $payment->tenant->client->name ?? 'Unknown',
                 ],
+                'product_name' => $payment->tenant->product->name ?? 'N/A',
+                'plan_name' => $payment->tenant->plan->name ?? 'N/A',
                 'issue_date' => Carbon::parse($issueDate)->format('M d, Y'),
                 'due_date' => Carbon::parse($dueDate)->format('M d, Y'),
                 'amount' => $payment->amount,
+                'currency' => $payment->currency ?? 'INR',
                 'payment_method' => $payment->payment_method ?? 'Unknown',
-                'status' => $payment->status === 'success' ? 'Paid' : 'Pending',
+                'status' => $statusLabel,
                 'payment_status' => $payment->status,
                 'pdf_url' => url("/api/invoices/{$payment->id}/pdf")
             ];
@@ -74,15 +95,24 @@ class InvoiceController extends Controller
         $payments->setCollection($invoices);
 
         // Calculate counts for filters
-        $totalPaid = Payment::where('status', 'success')->count();
-        $totalPending = Payment::where('status', '!=', 'success')->count();
+        $countsQuery = Payment::query();
+        if ($user && $user->hasRole('Client')) {
+            $countsQuery->whereHas('tenant', function($tq) use ($user) {
+                $tq->where('client_id', $user->id)
+                   ->orWhere('create_by', $user->id);
+            });
+        }
+        $totalPaid = (clone $countsQuery)->where('status', 'success')->count();
+        $totalPending = (clone $countsQuery)->where('status', 'pending')->count();
+        $totalFailed = (clone $countsQuery)->where('status', 'failed')->count();
 
         return response()->json([
             'status' => 'success',
             'summary' => [
-                'total' => $totalPaid + $totalPending,
+                'total' => $totalPaid + $totalPending + $totalFailed,
                 'paid' => $totalPaid,
-                'pending' => $totalPending
+                'pending' => $totalPending,
+                'failed' => $totalFailed,
             ],
             'data' => $payments
         ]);
@@ -91,9 +121,19 @@ class InvoiceController extends Controller
     /**
      * Get single invoice details by ID
      */
-    public function show($id)
+    public function show(Request $request, $id)
     {
-        $payment = Payment::with(['tenant.client'])->find($id);
+        $user = $request->user();
+        $query = Payment::with(['tenant.client', 'tenant.product', 'tenant.plan']);
+
+        if ($user && $user->hasRole('Client')) {
+            $query->whereHas('tenant', function($tq) use ($user) {
+                $tq->where('client_id', $user->id)
+                   ->orWhere('create_by', $user->id);
+            });
+        }
+
+        $payment = $query->find($id);
 
         if (!$payment) {
             return response()->json([
@@ -105,18 +145,34 @@ class InvoiceController extends Controller
         $issueDate = $payment->create_at ?? $payment->created_at ?? now();
         $dueDate = $payment->status === 'success' ? $issueDate : Carbon::parse($issueDate)->addDays(14);
 
+        $statusLabel = match($payment->status) {
+            'success' => 'Paid',
+            'failed' => 'Failed',
+            'canceled', 'cancelled' => 'Cancelled',
+            default => 'Pending',
+        };
+
         $invoice = [
             'id' => $payment->id,
-            'invoice_number' => 'INV-' . Carbon::parse($issueDate)->format('Y') . '-' . str_pad($payment->id, 3, '0', STR_PAD_LEFT),
+            'invoice_number' => $payment->invoice_number,
             'client_tenant' => [
                 'business_name' => $payment->tenant->business_name ?? 'Unknown',
                 'client_name' => $payment->tenant->client->name ?? 'Unknown',
             ],
+            'product' => [
+                'id' => $payment->tenant->product_id ?? null,
+                'name' => $payment->tenant->product->name ?? 'N/A',
+            ],
+            'plan' => [
+                'id' => $payment->tenant->plan_id ?? null,
+                'name' => $payment->tenant->plan->name ?? 'N/A',
+            ],
             'issue_date' => Carbon::parse($issueDate)->format('M d, Y'),
             'due_date' => Carbon::parse($dueDate)->format('M d, Y'),
             'amount' => $payment->amount,
+            'currency' => $payment->currency ?? 'INR',
             'payment_method' => $payment->payment_method ?? 'Unknown',
-            'status' => $payment->status === 'success' ? 'Paid' : 'Pending',
+            'status' => $statusLabel,
             'payment_status' => $payment->status,
             'transaction_id' => $payment->transaction_id,
             'customer_details' => $payment->customer_details,
@@ -132,15 +188,26 @@ class InvoiceController extends Controller
     /**
      * Generate / Download Invoice PDF
      */
-    public function downloadPdf($id)
+    public function downloadPdf(Request $request, $id)
     {
-        $payment = Payment::with(['tenant.client'])->findOrFail($id);
+        $user = $request->user();
+        $query = Payment::with(['tenant.client', 'tenant.product', 'tenant.plan']);
+
+        if ($user && $user->hasRole('Client')) {
+            $query->whereHas('tenant', function($tq) use ($user) {
+                $tq->where('client_id', $user->id)
+                   ->orWhere('create_by', $user->id);
+            });
+        }
+
+        $payment = $query->findOrFail($id);
         
         // Return a JSON response for now until a PDF library (like dompdf) is integrated
         return response()->json([
             'status' => 'success',
             'message' => 'PDF generation will be supported here.',
-            'invoice_id' => $id
+            'invoice_id' => $id,
+            'invoice_number' => $payment->invoice_number,
         ]);
     }
 }

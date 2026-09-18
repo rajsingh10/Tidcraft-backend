@@ -35,6 +35,14 @@ class Payment extends Model
         'metadata' => 'array',
     ];
 
+    protected $appends = ['invoice_number'];
+
+    public function getInvoiceNumberAttribute()
+    {
+        $issueDate = $this->create_at ?? $this->created_at ?? now();
+        return 'INV-' . \Carbon\Carbon::parse($issueDate)->format('Y') . '-' . str_pad($this->id, 3, '0', STR_PAD_LEFT);
+    }
+
     public function tenant()
     {
         return $this->belongsTo(Tenant::class);
