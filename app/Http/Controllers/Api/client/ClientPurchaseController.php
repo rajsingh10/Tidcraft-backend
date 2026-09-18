@@ -784,6 +784,39 @@ class ClientPurchaseController extends Controller
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Failed to create payment received notification: ' . $e->getMessage());
                 }
+            } elseif ($paymentStatus === 'failed' && isset($payment)) {
+                try {
+                    $client = $tenant->client;
+                    $clientEmail = $client ? $client->email : $tenant->primary_contact_email;
+                    if ($clientEmail) {
+                        \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\ClientPaymentFailedMail($tenant, $payment));
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to send payment failed email to client: ' . $e->getMessage());
+                }
+
+                try {
+                    $admin = \App\Models\User::role('Super Admin')->first();
+                    if ($admin && $admin->email) {
+                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminPaymentFailedMail($tenant, $payment));
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to send admin payment failed notification email: ' . $e->getMessage());
+                }
+
+                try {
+                    $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
+                    \App\Models\AdminNotification::create([
+                        'type' => 'payment_failed',
+                        'title' => 'Payment Failed',
+                        'message' => 'Payment attempt of ' . $payment->currency . ' ' . $payment->amount . ' failed from ' . $clientName . '.',
+                        'related_id' => $tenant->id,
+                        'client_name' => $clientName,
+                        'is_read' => false
+                    ]);
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to create payment failed notification: ' . $e->getMessage());
+                }
             }
 
             return response()->json([
