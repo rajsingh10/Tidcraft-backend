@@ -1109,4 +1109,35 @@ class TenantProvisionController extends Controller
             ], 500);
         }
     }
+
+    public function sendSetupEmail($uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        try {
+            $clientEmail = $tenant->client ? $tenant->client->email : $tenant->primary_contact_email;
+            if ($clientEmail) {
+                \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\TenantSetupReadyMail($tenant));
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Setup ready email sent successfully.'
+                ]);
+            } else {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Client email not found.'
+                ], 400);
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send setup ready email: ' . $e->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to send setup ready email.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }
