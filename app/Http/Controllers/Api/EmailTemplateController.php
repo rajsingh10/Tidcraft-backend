@@ -35,7 +35,21 @@ class EmailTemplateController extends Controller
             'images' => 'nullable|array', // Assuming it's an array of image paths/URLs
         ]);
 
-        $data = $request->all();
+        $data = $request->except('images');
+
+        // Handle File Uploads for images
+        if ($request->hasFile('images')) {
+            $imagePaths = [];
+            foreach ($request->file('images') as $image) {
+                $path = $image->store('email_templates', 'public');
+                $imagePaths[] = '/storage/' . $path;
+            }
+            $data['images'] = $imagePaths;
+        } elseif ($request->has('images') && is_array($request->images)) {
+            // Keep as strings if URLs were provided directly
+            $data['images'] = $request->images;
+        }
+
         // Generate slug from title if not provided
         if (empty($data['slug'])) {
             $data['slug'] = Str::slug($data['title']);
@@ -104,7 +118,22 @@ class EmailTemplateController extends Controller
 
         $oldValues = $template->toArray();
 
-        $data = $request->all();
+        $data = $request->except('images');
+
+        // Handle File Uploads for images
+        if ($request->hasFile('images')) {
+            $imagePaths = [];
+            foreach ($request->file('images') as $image) {
+                $path = $image->store('email_templates', 'public');
+                $imagePaths[] = '/storage/' . $path;
+            }
+            // Optional: If you want to append to existing, you can merge arrays here. 
+            // For now, uploading new files replaces the array.
+            $data['images'] = $imagePaths;
+        } elseif ($request->has('images') && is_array($request->images)) {
+            $data['images'] = $request->images;
+        }
+
         if (isset($data['title']) && empty($data['slug']) && !isset($request->slug)) {
             $data['slug'] = Str::slug($data['title']);
         }
