@@ -52,7 +52,20 @@ class ClientAuthController extends Controller
 
         // Send email to client
         try {
-            Mail::to($user->email)->send(new ClientRegisteredMail($user));
+            $template = \App\Models\EmailTemplate::where('slug', 'register')->first();
+            if ($template) {
+                if ($template->status === 'active') {
+                    $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
+                    Mail::to($user->email)->send(new \App\Mail\DynamicEmail($template, [
+                        '{name}' => $user->name,
+                        '{email}' => $user->email,
+                        '{company_name}' => $user->company_name ?? '',
+                        '{image}' => $imageUrl,
+                    ]));
+                }
+            } else {
+                Mail::to($user->email)->send(new ClientRegisteredMail($user));
+            }
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to send registration email to client: ' . $e->getMessage());
         }
@@ -305,7 +318,24 @@ class ClientAuthController extends Controller
         $user->save();
 
         // Send OTP via Email
-        Mail::to($user->email)->send(new ForgotPasswordOtpMail($otp));
+        try {
+            $template = \App\Models\EmailTemplate::where('slug', 'forgot_password')->orWhere('slug', 'forgot-password')->first();
+            if ($template) {
+                if ($template->status === 'active') {
+                    $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
+                    Mail::to($user->email)->send(new \App\Mail\DynamicEmail($template, [
+                        '{name}' => $user->name,
+                        '{email}' => $user->email,
+                        '{otp}' => $otp,
+                        '{image}' => $imageUrl,
+                    ]));
+                }
+            } else {
+                Mail::to($user->email)->send(new ForgotPasswordOtpMail($otp));
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send forgot password email: ' . $e->getMessage());
+        }
 
         return response()->json([
             'status' => 'success', 

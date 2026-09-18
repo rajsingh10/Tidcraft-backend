@@ -185,6 +185,7 @@ class TenantProvisionController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'subdomain_prefix' => 'required|string|max:255',
+            'tenant_id' => 'nullable|integer',
         ]);
 
         if ($validator->fails()) {
@@ -198,7 +199,13 @@ class TenantProvisionController extends Controller
         $prefix = trim($request->subdomain_prefix, " .");
         $fullDomain = $prefix . '.tidcraft.com';
 
-        $existsInDomains = \App\Models\Domain::where('domain', $fullDomain)->exists();
+        $query = \App\Models\Domain::where('domain', $fullDomain);
+        
+        if ($request->filled('tenant_id')) {
+            $query->where('tenant_id', '!=', $request->tenant_id);
+        }
+
+        $existsInDomains = $query->exists();
 
         $available = !$existsInDomains;
 
