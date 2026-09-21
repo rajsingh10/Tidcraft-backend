@@ -1258,6 +1258,8 @@ class TenantProvisionController extends Controller
             $productName = strtolower($tenant->product->name ?? '');
             if (str_contains($productName, 'food')) {
                 $slug = 'foodapp-whitelabel-setup';
+            } elseif (str_contains($productName, 'parkme')) {
+                $slug = 'parkmeapp-whitelabel-setup';
             } else {
                 $slug = 'whitelabel-setup';
             }
@@ -1277,11 +1279,17 @@ class TenantProvisionController extends Controller
             
             $replacements = [
                 '{name}' => $client->name,
+                '{{name}}' => $client->name,
                 '{email}' => $client->email,
+                '{{email}}' => $client->email,
                 '{business_name}' => $tenant->business_name,
+                '{{business_name}}' => $tenant->business_name,
                 '{tenant_name}' => $tenant->name,
+                '{{tenant_name}}' => $tenant->name,
                 '{product_name}' => $tenant->product->name ?? '',
+                '{{product_name}}' => $tenant->product->name ?? '',
                 '{image}' => $imageUrl,
+                '{{image}}' => $imageUrl,
             ];
 
             \Illuminate\Support\Facades\Mail::to($client->email)->send(new \App\Mail\DynamicEmail($template, $replacements));
@@ -1297,6 +1305,76 @@ class TenantProvisionController extends Controller
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to send setup email.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Send "Your Application is Ready" email manually.
+     */
+    public function sendProvisionedEmail(Request $request, $uuid)
+    {
+        $tenant = Tenant::with(['client', 'product', 'domains'])->where('uuid', $uuid)->orWhere('id', $uuid)->first();
+        
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $client = $tenant->client;
+        $adminEmail = $tenant->primary_contact_email ?? ($client ? $client->email : 'admin@' . ($tenant->domains()->first()?->domain ?? 'tidcraft.com'));
+        $clientName = $client ? $client->name : $tenant->business_name;
+        
+        $baseName = trim($tenant->name ?: $tenant->business_name);
+        $adminPassword = empty($baseName) ? 'tidcraft' : str_replace(' ', '', strtolower($baseName)) . '-tidcraft';
+        $domainObj = $tenant->domains()->first();
+        $domainUrl = 'https://' . ($domainObj ? $domainObj->domain : 'tidcraft.com');
+
+        $slug = $request->input('slug', 'Your_Application_is_Ready');
+        $template = \App\Models\EmailTemplate::where('slug', $slug)->first();
+
+        try {
+            if ($template && $template->status === 'active') {
+                $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
+                
+                $replacements = [
+                    '{name}' => $clientName,
+                    '{{name}}' => $clientName,
+                    '{email}' => $adminEmail, // Re-use email for login display
+                    '{{email}}' => $adminEmail,
+                    '{admin_email}' => $adminEmail, // Admin email
+                    '{{admin_email}}' => $adminEmail,
+                    '{admin_password}' => $adminPassword,
+                    '{{admin_password}}' => $adminPassword,
+                    '{domain_url}' => $domainUrl,
+                    '{{domain_url}}' => $domainUrl,
+                    '{business_name}' => $tenant->business_name,
+                    '{{business_name}}' => $tenant->business_name,
+                    '{tenant_name}' => $tenant->name,
+                    '{{tenant_name}}' => $tenant->name,
+                    '{product_name}' => $tenant->product->name ?? '',
+                    '{{product_name}}' => $tenant->product->name ?? '',
+                    '{image}' => $imageUrl,
+                    '{{image}}' => $imageUrl,
+                ];
+
+                \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\DynamicEmail($template, $replacements));
+            } else {
+                // Fallback to hardcoded email if CMS template isn't setup
+                \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\TenantProvisionedEmail($tenant, $adminEmail, $adminPassword, $domainUrl));
+            }
+
+            AuditLogger::log('Provisioned Email Sent', 'Tenant App Ready Email', "Sent application ready email to {$adminEmail} for tenant {$tenant->business_name}.");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Application Ready email sent successfully.'
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send provisioned email: ' . $e->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to send Application Ready email.',
                 'error' => $e->getMessage()
             ], 500);
         }

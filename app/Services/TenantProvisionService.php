@@ -281,7 +281,40 @@ class TenantProvisionService
             $domainUrl = 'https://' . ($domainObj ? $domainObj->domain : 'tidcraft.com');
 
             try {
-                \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\TenantProvisionedEmail($tenant, $adminEmail, $adminPassword, $domainUrl));
+                $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
+                $slug = 'Your_Application_is_Ready';
+                $template = \App\Models\EmailTemplate::where('slug', $slug)->first();
+
+                if ($template && $template->status === 'active') {
+                    $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
+                    
+                    $replacements = [
+                        '{name}' => $clientName,
+                        '{{name}}' => $clientName,
+                        '{email}' => $adminEmail, // Login email
+                        '{{email}}' => $adminEmail,
+                        '{admin_email}' => $adminEmail, // Admin email
+                        '{{admin_email}}' => $adminEmail,
+                        '{admin_password}' => $adminPassword,
+                        '{{admin_password}}' => $adminPassword,
+                        '{domain_url}' => $domainUrl,
+                        '{{domain_url}}' => $domainUrl,
+                        '{business_name}' => $tenant->business_name,
+                        '{{business_name}}' => $tenant->business_name,
+                        '{tenant_name}' => $tenant->name,
+                        '{{tenant_name}}' => $tenant->name,
+                        '{product_name}' => $tenant->product->name ?? '',
+                        '{{product_name}}' => $tenant->product->name ?? '',
+                        '{image}' => $imageUrl,
+                        '{{image}}' => $imageUrl,
+                    ];
+
+                    \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\DynamicEmail($template, $replacements));
+                } else {
+                    // Fallback to hardcoded email if CMS template isn't setup
+                    \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\TenantProvisionedEmail($tenant, $adminEmail, $adminPassword, $domainUrl));
+                }
+
                 self::logProgress($tenant, 'email', 'success', 'Provisioned email sent to ' . $adminEmail);
             } catch (\Exception $e) {
                 Log::error('Failed to send provisioned email: ' . $e->getMessage());
