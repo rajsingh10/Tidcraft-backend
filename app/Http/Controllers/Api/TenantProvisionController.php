@@ -1253,12 +1253,12 @@ class TenantProvisionController extends Controller
         // Determine the email template slug
         $slug = $request->input('slug');
         
-        // Auto-detect based on product if slug not provided
+        // Auto-detect based on product ID if slug not provided
         if (!$slug) {
-            $productName = strtolower($tenant->product->name ?? '');
-            if (str_contains($productName, 'food')) {
+            $productId = $tenant->product_id;
+            if ($productId == 1) { // food-app
                 $slug = 'foodapp-whitelabel-setup';
-            } elseif (str_contains($productName, 'parkme')) {
+            } elseif ($productId == 2) { // park-me-app
                 $slug = 'parkmeapp-whitelabel-setup';
             } else {
                 $slug = 'whitelabel-setup';
