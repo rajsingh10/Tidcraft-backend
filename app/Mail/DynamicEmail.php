@@ -7,6 +7,7 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
 use App\Models\EmailTemplate;
 use App\Models\Setting;
+use Illuminate\Support\Facades\Blade;
 
 class DynamicEmail extends Mailable
 {
@@ -15,6 +16,7 @@ class DynamicEmail extends Mailable
     public $template;
     public $dynamicContent;
     public $dynamicSubject;
+    public $settingsData;
 
     /**
      * Create a new message instance.
@@ -30,7 +32,10 @@ class DynamicEmail extends Mailable
         $subject = $template->subject;
         
         // Replace variables in content
-        $content = $template->content;
+        $content = html_entity_decode($template->content); // Decode in case WYSIWYG encoded tags
+        
+        // Ensure any random zero-width spaces or non-breaking spaces before blade tags are removed
+        $content = str_replace(['&nbsp;', '<p>', '</p>'], [' ', '', '<br>'], $content); // Strip basic wrapping P tags that break block blade directives
 
         // Automatically fetch and merge global settings for easy replacements
         $keys = [
@@ -46,15 +51,35 @@ class DynamicEmail extends Mailable
             $replacements['{' . $k . '}'] = $v;
         }
 
-        // Apply all replacements
-
+        // We also want to support raw Blade syntax since the user pasted Blade code.
+        // We will pass the replacements as array data to Blade::render.
+        // Convert placeholders like '{name}' to just 'name' for the data array
+        $bladeData = [
+            'settings' => $settingsData
+        ];
+        
         foreach ($replacements as $key => $value) {
             $subject = str_replace($key, $value, $subject);
-            $content = str_replace($key, $value, $content);
+            // We also add the variables to blade data so they can use {{ $name }}
+            $cleanKey = trim($key, '{}');
+            $bladeData[$cleanKey] = $value;
+        }
+
+        try {
+            // First run standard string replacements in case they used {name}
+            $content = str_replace(array_keys($replacements), array_values($replacements), $content);
+            
+            // Then run Blade compilation
+            $compiledContent = Blade::render($content, $bladeData);
+        } catch (\Exception $e) {
+            // Fallback if Blade compilation fails due to bad syntax in WYSIWYG
+            $compiledContent = $content;
+            \Illuminate\Support\Facades\Log::error('Blade render failed in DynamicEmail: ' . $e->getMessage());
         }
 
         $this->dynamicSubject = $subject;
-        $this->dynamicContent = $content;
+        $this->dynamicContent = $compiledContent;
+        $this->settingsData = $settingsData;
     }
 
     /**
@@ -63,6 +88,9 @@ class DynamicEmail extends Mailable
     public function build()
     {
         return $this->subject($this->dynamicSubject)
-                    ->html($this->dynamicContent);
+                    ->view('emails.layouts.dynamic', [
+                        'dynamicContent' => $this->dynamicContent,
+                        'settings' => $this->settingsData,
+                    ]);
     }
 }
