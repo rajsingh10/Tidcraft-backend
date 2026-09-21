@@ -53,6 +53,22 @@ class Tenant extends Model
         return $this->hasMany(Domain::class);
     }
 
+    public function domain()
+    {
+        return $this->hasOne(Domain::class)->oldestOfMany();
+    }
+
+    public function getDomainAttribute()
+    {
+        if ($this->relationLoaded('domains') && $this->domains && $this->domains->isNotEmpty()) {
+            return $this->domains->first();
+        }
+        if ($this->relationLoaded('domain') && $this->getRelation('domain')) {
+            return $this->getRelation('domain');
+        }
+        return $this->domains()->first();
+    }
+
     public function firebaseProject()
     {
         return $this->hasOne(FirebaseProject::class);

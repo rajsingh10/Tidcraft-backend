@@ -193,7 +193,7 @@ class InvoiceController extends Controller
     public function downloadPdf(Request $request, $id)
     {
         $user = $request->user();
-        $query = Payment::with(['tenant.client', 'tenant.product', 'tenant.plan']);
+        $query = Payment::with(['tenant.client', 'tenant.product', 'tenant.plan', 'tenant.domains']);
 
         if ($user && $user->hasRole('Client')) {
             $query->whereHas('tenant', function($tq) use ($user) {
@@ -204,12 +204,13 @@ class InvoiceController extends Controller
 
         $payment = $query->findOrFail($id);
         
-        // Return a JSON response for now until a PDF library (like dompdf) is integrated
-        return response()->json([
-            'status' => 'success',
-            'message' => 'PDF generation will be supported here.',
-            'invoice_id' => $id,
-            'invoice_number' => $payment->invoice_number,
+        $pdfService = new \App\Services\InvoicePdfService();
+        $pdfContent = $pdfService->generate($payment);
+        $fileName = 'Invoice-' . ($payment->invoice_number ?: $payment->id) . '.pdf';
+
+        return response($pdfContent, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $fileName . '"',
         ]);
     }
 }

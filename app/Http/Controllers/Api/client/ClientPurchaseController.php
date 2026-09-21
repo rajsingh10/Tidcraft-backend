@@ -827,12 +827,28 @@ class ClientPurchaseController extends Controller
                     $client = $tenant->client;
                     $clientEmail = $client ? $client->email : $tenant->primary_contact_email;
                     if ($clientEmail) {
+                        $clientName = $client ? $client->name : $tenant->business_name;
+
+                        // Generate Invoice PDF attachment
+                        $emailAttachments = [];
+                        try {
+                            $invoicePdfService = new \App\Services\InvoicePdfService();
+                            $pdfBytes = $invoicePdfService->generate($payment);
+                            $invoiceFileName = 'Invoice-' . ($payment->invoice_number ?: $payment->id) . '.pdf';
+                            $emailAttachments[] = [
+                                'data' => $pdfBytes,
+                                'name' => $invoiceFileName,
+                                'mime' => 'application/pdf',
+                            ];
+                        } catch (\Exception $pdfEx) {
+                            \Illuminate\Support\Facades\Log::error('Failed to generate invoice PDF for email: ' . $pdfEx->getMessage());
+                        }
+
                         // Use Dynamic Template if available
                         $paymentTemplate = \App\Models\EmailTemplate::where('slug', 'Payment_Received')->first();
                         
                         if ($paymentTemplate && $paymentTemplate->status === 'active') {
                             $imageUrl = (!empty($paymentTemplate->images) && isset($paymentTemplate->images[0])) ? url($paymentTemplate->images[0]) : '';
-                            $clientName = $client ? $client->name : $tenant->business_name;
                             
                             $replacements = [
                                 '{name}' => $clientName,
@@ -857,10 +873,42 @@ class ClientPurchaseController extends Controller
                                 'payment' => $payment,
                             ];
 
-                            \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\DynamicEmail($paymentTemplate, $replacements));
+                            \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\DynamicEmail($paymentTemplate, $replacements, $emailAttachments));
                         } else {
                             // Fallback
-                            \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\ClientPaymentReceivedMail($tenant, $payment));
+                            \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\ClientPaymentReceivedMail($tenant, $payment, $emailAttachments));
+                        }
+
+                        // Send App Setup / White-Label Requirements Email Automatically
+                        try {
+                            $isParkApp = ($tenant->product_id == 2 || str_contains(strtolower($tenant->product->name ?? ''), 'park'));
+                            $setupSlug = $isParkApp ? 'parkmeapp-whitelabel-setup' : 'foodapp-whitelabel-setup';
+
+                            $setupTemplate = \App\Models\EmailTemplate::where('slug', $setupSlug)->first();
+                            if ($setupTemplate && $setupTemplate->status === 'active') {
+                                $setupImageUrl = (!empty($setupTemplate->images) && isset($setupTemplate->images[0])) ? url($setupTemplate->images[0]) : '';
+                                
+                                $setupReplacements = [
+                                    '{name}' => $clientName,
+                                    '{{name}}' => $clientName,
+                                    '{email}' => $clientEmail,
+                                    '{{email}}' => $clientEmail,
+                                    '{clientName}' => $clientName,
+                                    '{business_name}' => $tenant->business_name,
+                                    '{{business_name}}' => $tenant->business_name,
+                                    '{tenant_name}' => $tenant->name,
+                                    '{{tenant_name}}' => $tenant->name,
+                                    '{product_name}' => $tenant->product->name ?? '',
+                                    '{{product_name}}' => $tenant->product->name ?? '',
+                                    '{image}' => $setupImageUrl,
+                                    '{{image}}' => $setupImageUrl,
+                                    'tenant' => $tenant,
+                                ];
+
+                                \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\DynamicEmail($setupTemplate, $setupReplacements));
+                            }
+                        } catch (\Exception $setupEx) {
+                            \Illuminate\Support\Facades\Log::error('Failed to send automated app setup email: ' . $setupEx->getMessage());
                         }
                     }
                 } catch (\Exception $e) {
