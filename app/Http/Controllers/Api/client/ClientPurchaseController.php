@@ -495,32 +495,50 @@ class ClientPurchaseController extends Controller
 
     public function renew(Request $request, $uuid)
     {
-        $tenant = Tenant::where('uuid', $uuid)->where('client_id', auth()->id())->first();
+        $tenant = Tenant::where('uuid', $uuid)->where(function($q) {
+            $q->where('client_id', auth()->id())->orWhere('create_by', auth()->id());
+        })->first();
         if (!$tenant) {
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
         }
 
-        $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired'])->first();
+        $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired', 'past_due'])->first();
         if (!$subscription) {
-            return response()->json(['status' => 'error', 'message' => 'No active subscription found to renew.'], 400);
+            return response()->json(['status' => 'error', 'message' => 'No active or expired subscription found to renew.'], 400);
         }
 
-        $plan = $subscription->plan;
+        $plan = $subscription->plan ?? $tenant->plan;
         if (!$plan) {
             return response()->json(['status' => 'error', 'message' => 'Subscription plan not found.'], 400);
         }
 
         $billingCycle = $subscription->billing_cycle ?? 'monthly';
-        $paymentAmount = $billingCycle === 'yearly' ? (float) $plan->annual_price : (float) $plan->monthly_price;
+        $paymentAmount = ($billingCycle === 'yearly' || $billingCycle === 'annual') ? (float) $plan->annual_price : (float) $plan->monthly_price;
         
-        $payment = $tenant->payments()->create([
-            'amount' => $paymentAmount,
-            'currency' => 'INR',
-            'billing_cycle' => $billingCycle,
-            'payment_method' => 'razorpay',
-            'status' => 'pending',
-            'type' => 'renewal',
-        ]);
+        // Smart Pending Reuse: If a pending renewal payment already exists for this tenant, update it instead of creating duplicates
+        $payment = $tenant->payments()
+            ->where('status', 'pending')
+            ->where('type', 'renewal')
+            ->latest('id')
+            ->first();
+
+        if ($payment) {
+            $payment->update([
+                'amount' => $paymentAmount,
+                'currency' => 'INR',
+                'billing_cycle' => $billingCycle,
+                'payment_method' => 'razorpay',
+            ]);
+        } else {
+            $payment = $tenant->payments()->create([
+                'amount' => $paymentAmount,
+                'currency' => 'INR',
+                'billing_cycle' => $billingCycle,
+                'payment_method' => 'razorpay',
+                'status' => 'pending',
+                'type' => 'renewal',
+            ]);
+        }
 
         $paymentLinkStr = $this->generateRazorpayLink($tenant, $paymentAmount, 'Payment for Subscription Renewal');
 
@@ -529,6 +547,8 @@ class ClientPurchaseController extends Controller
             'message' => 'Renewal payment initiated.',
             'data' => [
                 'tenant_id' => $tenant->uuid,
+                'payment_id' => $payment->id,
+                'invoice_number' => $payment->invoice_number,
                 'payment_link' => $paymentLinkStr,
                 'amount' => $paymentAmount
             ]
@@ -537,14 +557,16 @@ class ClientPurchaseController extends Controller
 
     public function upgrade(Request $request, $uuid)
     {
-        $tenant = Tenant::where('uuid', $uuid)->where('client_id', auth()->id())->first();
+        $tenant = Tenant::where('uuid', $uuid)->where(function($q) {
+            $q->where('client_id', auth()->id())->orWhere('create_by', auth()->id());
+        })->first();
         if (!$tenant) {
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
         }
 
         $validator = Validator::make($request->all(), [
             'new_plan_id' => 'required|exists:plans,id',
-            'billing_cycle' => 'nullable|in:monthly,yearly',
+            'billing_cycle' => 'nullable|in:monthly,yearly,annual',
         ]);
 
         if ($validator->fails()) {
@@ -553,19 +575,36 @@ class ClientPurchaseController extends Controller
 
         $newPlan = \App\Models\Plan::find($request->new_plan_id);
         
-        $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired'])->first();
+        $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired', 'past_due'])->first();
         $billingCycle = $request->billing_cycle ?? ($subscription->billing_cycle ?? 'monthly');
-        $paymentAmount = $billingCycle === 'yearly' ? (float) $newPlan->annual_price : (float) $newPlan->monthly_price;
+        $paymentAmount = ($billingCycle === 'yearly' || $billingCycle === 'annual') ? (float) $newPlan->annual_price : (float) $newPlan->monthly_price;
 
-        $payment = $tenant->payments()->create([
-            'amount' => $paymentAmount,
-            'currency' => 'INR',
-            'billing_cycle' => $billingCycle,
-            'payment_method' => 'razorpay',
-            'status' => 'pending',
-            'type' => 'upgrade',
-            'metadata' => ['new_plan_id' => $newPlan->id, 'billing_cycle' => $billingCycle]
-        ]);
+        // Smart Pending Reuse: If a pending upgrade payment already exists for this tenant, update it instead of creating duplicates
+        $payment = $tenant->payments()
+            ->where('status', 'pending')
+            ->where('type', 'upgrade')
+            ->latest('id')
+            ->first();
+
+        if ($payment) {
+            $payment->update([
+                'amount' => $paymentAmount,
+                'currency' => 'INR',
+                'billing_cycle' => $billingCycle,
+                'payment_method' => 'razorpay',
+                'metadata' => ['new_plan_id' => $newPlan->id, 'billing_cycle' => $billingCycle]
+            ]);
+        } else {
+            $payment = $tenant->payments()->create([
+                'amount' => $paymentAmount,
+                'currency' => 'INR',
+                'billing_cycle' => $billingCycle,
+                'payment_method' => 'razorpay',
+                'status' => 'pending',
+                'type' => 'upgrade',
+                'metadata' => ['new_plan_id' => $newPlan->id, 'billing_cycle' => $billingCycle]
+            ]);
+        }
 
         $paymentLinkStr = $this->generateRazorpayLink($tenant, $paymentAmount, 'Payment for Plan Upgrade to ' . $newPlan->name);
 
@@ -574,6 +613,8 @@ class ClientPurchaseController extends Controller
             'message' => 'Upgrade payment initiated.',
             'data' => [
                 'tenant_id' => $tenant->uuid,
+                'payment_id' => $payment->id,
+                'invoice_number' => $payment->invoice_number,
                 'payment_link' => $paymentLinkStr,
                 'amount' => $paymentAmount
             ]
@@ -722,8 +763,34 @@ class ClientPurchaseController extends Controller
                 }
             }
 
-            // Update the pending payment record for this tenant
-            $payment = $tenant->payments()->where('status', 'pending')->first();
+            // Find the specific payment being verified:
+            // 1. By explicit payment_id, invoice_number, or razorpay_order_id
+            $payment = null;
+            if ($request->filled('payment_id')) {
+                $payment = $tenant->payments()->where('id', $request->payment_id)->first();
+            } elseif ($request->filled('invoice_number')) {
+                $inv = $request->invoice_number;
+                $invId = null;
+                if (preg_match('/INV-\d{4}-(\d+)/', $inv, $matches)) {
+                    $invId = (int)$matches[1];
+                } elseif (preg_match('/INV-(\d+)/', $inv, $matches)) {
+                    $invId = (int)$matches[1];
+                } elseif (is_numeric($inv)) {
+                    $invId = (int)$inv;
+                }
+                if ($invId) {
+                    $payment = $tenant->payments()->where('id', $invId)->first();
+                }
+            } elseif ($request->filled('razorpay_order_id')) {
+                $payment = $tenant->payments()->where('order_id', $request->razorpay_order_id)->first();
+            }
+
+            // 2. Otherwise pick the LATEST pending payment for this tenant (so newly initiated renewal/upgrade is updated, not an old record!)
+            if (!$payment) {
+                $payment = $tenant->payments()->where('status', 'pending')->latest('id')->first();
+            }
+
+            // 3. Fallback
             if (!$payment) {
                 $payment = $tenant->payments()->latest('id')->first();
             }
@@ -734,8 +801,8 @@ class ClientPurchaseController extends Controller
                     'status' => $paymentStatus,
                     'payment_method' => $paymentMethodStr,
                     'bank_rrn' => $bankRrn,
-                    'order_id' => $orderId,
-                    'customer_details' => $customerDetails,
+                    'order_id' => $orderId ?: $payment->order_id,
+                    'customer_details' => $customerDetails ?: $payment->customer_details,
                 ]);
             } else {
                 // Fallback if no payment was found
@@ -758,34 +825,47 @@ class ClientPurchaseController extends Controller
             if ($paymentStatus === 'success') {
                 $paymentType = $payment ? ($payment->type ?? 'purchase') : 'purchase';
 
+                // Automatically clean up any other orphaned pending renewal/upgrade attempts for this tenant so they don't linger in invoices list
+                $tenant->payments()
+                    ->where('status', 'pending')
+                    ->where('id', '!=', $payment->id)
+                    ->whereIn('type', ['renewal', 'upgrade'])
+                    ->update(['status' => 'canceled']);
+
                 if ($paymentType === 'renewal') {
                     if ($subscription) {
                         $currentEndDate = $subscription->end_date ? \Carbon\Carbon::parse($subscription->end_date) : now();
                         if ($currentEndDate->isPast()) {
                             $currentEndDate = now();
                         }
-                        $subscription->end_date = $currentEndDate->addMonth();
+                        $billingCycle = $payment->billing_cycle ?? $subscription->billing_cycle ?? 'monthly';
+                        if ($billingCycle === 'yearly' || $billingCycle === 'annual') {
+                            $subscription->end_date = $currentEndDate->addYear();
+                        } else {
+                            $subscription->end_date = $currentEndDate->addMonth();
+                        }
                         $subscription->status = 'active';
                         $subscription->save();
                     }
-                    if ($tenant->status === 'expired') {
+                    if (in_array($tenant->status, ['expired', 'past_due', 'pending'])) {
                         $tenant->status = 'active';
                         $tenant->save();
                         \App\Services\TenantProvisionService::unblockTenant($tenant);
                     }
                 } elseif ($paymentType === 'upgrade') {
                     $metadata = $payment->metadata ?? [];
-                    if ($subscription && isset($metadata['new_plan_id'])) {
-                        $subscription->plan_id = $metadata['new_plan_id'];
+                    $newPlanId = $metadata['new_plan_id'] ?? $request->input('new_plan_id');
+                    if ($subscription && $newPlanId) {
+                        $subscription->plan_id = $newPlanId;
                         if (isset($metadata['billing_cycle'])) {
                             $subscription->billing_cycle = $metadata['billing_cycle'];
                         }
                         $subscription->start_date = now();
                         
-                        $plan = \App\Models\Plan::find($metadata['new_plan_id']);
+                        $plan = \App\Models\Plan::find($newPlanId);
                         $billingCycle = $subscription->billing_cycle ?? 'monthly';
                         
-                        if ($billingCycle === 'yearly') {
+                        if ($billingCycle === 'yearly' || $billingCycle === 'annual') {
                             $subscription->end_date = now()->addYear();
                         } else if ($plan && $plan->duration_days) {
                             $subscription->end_date = now()->addDays($plan->duration_days);
@@ -796,7 +876,10 @@ class ClientPurchaseController extends Controller
                         $subscription->status = 'active';
                         $subscription->save();
                     }
-                    if ($tenant->status === 'expired') {
+                    if ($newPlanId) {
+                        $tenant->plan_id = $newPlanId;
+                    }
+                    if (in_array($tenant->status, ['expired', 'past_due', 'pending'])) {
                         $tenant->status = 'active';
                         $tenant->save();
                         \App\Services\TenantProvisionService::unblockTenant($tenant);
@@ -811,13 +894,17 @@ class ClientPurchaseController extends Controller
                     $tenant->save();
                 }
             } elseif (in_array($paymentStatus, ['failed', 'canceled', 'cancelled'])) {
-                if ($subscription) {
-                    $subscription->status = $paymentStatus;
-                    $subscription->save();
+                // If payment was for renewal or upgrade, do NOT cancel an active subscription or demote an active tenant to pending!
+                if ($payment && in_array($payment->type, ['renewal', 'upgrade'])) {
+                    // Keep subscription and tenant in their current active state; only payment record is marked failed/canceled
+                } else {
+                    if ($subscription) {
+                        $subscription->status = $paymentStatus;
+                        $subscription->save();
+                    }
+                    $tenant->status = 'pending';
+                    $tenant->save();
                 }
-                // Tenant remains pending
-                $tenant->status = 'pending';
-                $tenant->save();
             }
 
             DB::commit();
@@ -877,38 +964,6 @@ class ClientPurchaseController extends Controller
                         } else {
                             // Fallback
                             \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\ClientPaymentReceivedMail($tenant, $payment, $emailAttachments));
-                        }
-
-                        // Send App Setup / White-Label Requirements Email Automatically
-                        try {
-                            $isParkApp = ($tenant->product_id == 2 || str_contains(strtolower($tenant->product->name ?? ''), 'park'));
-                            $setupSlug = $isParkApp ? 'parkmeapp-whitelabel-setup' : 'foodapp-whitelabel-setup';
-
-                            $setupTemplate = \App\Models\EmailTemplate::where('slug', $setupSlug)->first();
-                            if ($setupTemplate && $setupTemplate->status === 'active') {
-                                $setupImageUrl = (!empty($setupTemplate->images) && isset($setupTemplate->images[0])) ? url($setupTemplate->images[0]) : '';
-                                
-                                $setupReplacements = [
-                                    '{name}' => $clientName,
-                                    '{{name}}' => $clientName,
-                                    '{email}' => $clientEmail,
-                                    '{{email}}' => $clientEmail,
-                                    '{clientName}' => $clientName,
-                                    '{business_name}' => $tenant->business_name,
-                                    '{{business_name}}' => $tenant->business_name,
-                                    '{tenant_name}' => $tenant->name,
-                                    '{{tenant_name}}' => $tenant->name,
-                                    '{product_name}' => $tenant->product->name ?? '',
-                                    '{{product_name}}' => $tenant->product->name ?? '',
-                                    '{image}' => $setupImageUrl,
-                                    '{{image}}' => $setupImageUrl,
-                                    'tenant' => $tenant,
-                                ];
-
-                                \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\DynamicEmail($setupTemplate, $setupReplacements));
-                            }
-                        } catch (\Exception $setupEx) {
-                            \Illuminate\Support\Facades\Log::error('Failed to send automated app setup email: ' . $setupEx->getMessage());
                         }
                     }
                 } catch (\Exception $e) {
@@ -993,6 +1048,61 @@ class ClientPurchaseController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Cancel an unfulfilled or pending payment (e.g., when user closes/cancels checkout popup).
+     */
+    public function cancelPayment(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $payment = null;
+        if ($request->filled('payment_id')) {
+            $payment = $tenant->payments()->where('id', $request->payment_id)->first();
+        } elseif ($request->filled('invoice_number')) {
+            $inv = $request->invoice_number;
+            $invId = null;
+            if (preg_match('/INV-\d{4}-(\d+)/', $inv, $matches)) {
+                $invId = (int)$matches[1];
+            } elseif (preg_match('/INV-(\d+)/', $inv, $matches)) {
+                $invId = (int)$matches[1];
+            } elseif (is_numeric($inv)) {
+                $invId = (int)$inv;
+            }
+            if ($invId) {
+                $payment = $tenant->payments()->where('id', $invId)->first();
+            }
+        }
+
+        if (!$payment) {
+            $payment = $tenant->payments()->where('status', 'pending')->latest('id')->first();
+        }
+
+        if ($payment && $payment->status === 'pending') {
+            $payment->update([
+                'status' => 'canceled'
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Pending payment cancelled successfully.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'payment_id' => $payment->id,
+                    'invoice_number' => $payment->invoice_number,
+                    'payment_status' => 'canceled'
+                ]
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'No active pending payment found to cancel.'
+        ]);
     }
 
     public function setupDomain(Request $request, $uuid)

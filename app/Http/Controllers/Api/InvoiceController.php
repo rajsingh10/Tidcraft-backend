@@ -49,6 +49,8 @@ class InvoiceController extends Controller
                 $query->where('status', 'pending');
             } elseif ($status === 'failed') {
                 $query->where('status', 'failed');
+            } elseif (in_array($status, ['canceled', 'cancelled'])) {
+                $query->whereIn('status', ['canceled', 'cancelled']);
             } else {
                 $query->where('status', $request->status);
             }
@@ -106,14 +108,16 @@ class InvoiceController extends Controller
         $totalPaid = (clone $countsQuery)->where('status', 'success')->count();
         $totalPending = (clone $countsQuery)->where('status', 'pending')->count();
         $totalFailed = (clone $countsQuery)->where('status', 'failed')->count();
+        $totalCanceled = (clone $countsQuery)->whereIn('status', ['canceled', 'cancelled'])->count();
 
         return response()->json([
             'status' => 'success',
             'summary' => [
-                'total' => $totalPaid + $totalPending + $totalFailed,
+                'total' => $totalPaid + $totalPending + $totalFailed + $totalCanceled,
                 'paid' => $totalPaid,
                 'pending' => $totalPending,
                 'failed' => $totalFailed,
+                'canceled' => $totalCanceled,
             ],
             'data' => $payments
         ]);
@@ -211,6 +215,52 @@ class InvoiceController extends Controller
         return response($pdfContent, 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="' . $fileName . '"',
+        ]);
+    }
+
+    /**
+     * Cancel an invoice / pending payment
+     */
+    public function cancel(Request $request, $id)
+    {
+        $user = $request->user();
+        $query = Payment::with(['tenant']);
+
+        if ($user && $user->hasRole('Client')) {
+            $query->whereHas('tenant', function($tq) use ($user) {
+                $tq->where('client_id', $user->id)
+                   ->orWhere('create_by', $user->id);
+            });
+        }
+
+        $payment = $query->find($id);
+
+        if (!$payment) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Invoice not found.'
+            ], 404);
+        }
+
+        if ($payment->status === 'success') {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Cannot cancel an already paid invoice.'
+            ], 400);
+        }
+
+        $payment->status = 'canceled';
+        $payment->save();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Invoice marked as cancelled.',
+            'data' => [
+                'id' => $payment->id,
+                'invoice_number' => $payment->invoice_number,
+                'status' => 'Cancelled',
+                'payment_status' => 'canceled'
+            ]
         ]);
     }
 }
