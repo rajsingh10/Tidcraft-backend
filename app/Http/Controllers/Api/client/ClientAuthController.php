@@ -319,7 +319,8 @@ class ClientAuthController extends Controller
 
         // Send OTP via Email
         try {
-            $template = \App\Models\EmailTemplate::where('slug', 'forgot_password')->orWhere('slug', 'forgot-password')->first();
+            $slugs = ['forgot_password', 'forgot-password', 'Forgot_Password'];
+            $template = \App\Models\EmailTemplate::whereIn('slug', $slugs)->first();
             if ($template) {
                 if ($template->status === 'active') {
                     $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
@@ -327,6 +328,12 @@ class ClientAuthController extends Controller
                         '{name}' => $user->name,
                         '{email}' => $user->email,
                         '{otp}' => $otp,
+                        '{otp_1}' => $otp[0],
+                        '{otp_2}' => $otp[1],
+                        '{otp_3}' => $otp[2],
+                        '{otp_4}' => $otp[3],
+                        '{otp_5}' => $otp[4],
+                        '{otp_6}' => $otp[5],
                         '{image}' => $imageUrl,
                     ]));
                 }

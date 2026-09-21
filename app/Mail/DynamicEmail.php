@@ -34,8 +34,8 @@ class DynamicEmail extends Mailable
         // Replace variables in content
         $content = html_entity_decode($template->content); // Decode in case WYSIWYG encoded tags
         
-        // Ensure any random zero-width spaces or non-breaking spaces before blade tags are removed
-        $content = str_replace(['&nbsp;', '<p>', '</p>'], [' ', '', '<br>'], $content); // Strip basic wrapping P tags that break block blade directives
+        // Ensure any random non-breaking spaces before blade tags are removed
+        $content = str_replace('&nbsp;', ' ', $content);
 
         // Automatically fetch and merge global settings for easy replacements
         $keys = [
@@ -49,6 +49,11 @@ class DynamicEmail extends Mailable
         
         foreach ($settingsData as $k => $v) {
             $replacements['{' . $k . '}'] = $v;
+        }
+
+        // Automatically replace {year}
+        if (!isset($replacements['{year}'])) {
+            $replacements['{year}'] = date('Y');
         }
 
         // We also want to support raw Blade syntax since the user pasted Blade code.
