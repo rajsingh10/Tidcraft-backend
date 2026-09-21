@@ -242,31 +242,15 @@ class TenantProvisionController extends Controller
      */
     public function index()
     {
-        // Fetch all clients (users) including those without tenants, and load all their tenant relations
-        $users = \App\Models\User::with(['tenants.product', 'tenants.plan', 'tenants.domains', 'tenants.firebaseProject', 'tenants.database', 'tenants.addOns', 'tenants.subscriptions', 'tenants.payments'])
-            ->whereDoesntHave('roles', function ($q) {
-                $q->where('name', 'SuperAdmin');
-            })->get();
-
-        $users->transform(function($client) {
-            if ($client->profile_image && !str_starts_with($client->profile_image, 'http')) {
-                $client->profile_image = asset($client->profile_image);
-            }
-            
-            // Add boolean flag to indicate if user has any tenants
-            $client->has_tenant = $client->tenants->isNotEmpty();
-            
-            // Check and update past due status for all their tenants
-            foreach ($client->tenants as $tenant) {
-                $this->checkAndMarkPastDue($tenant);
-            }
-            
-            return $client;
-        });
+        $tenants = \App\Models\Tenant::with(['client', 'product', 'plan', 'domains', 'firebaseProject', 'database', 'addOns', 'subscriptions', 'payments'])->get();
+        
+        foreach ($tenants as $tenant) {
+            $this->checkAndMarkPastDue($tenant);
+        }
 
         return response()->json([
             'status' => 'success',
-            'data' => $users
+            'data' => $tenants
         ]);
     }
 
