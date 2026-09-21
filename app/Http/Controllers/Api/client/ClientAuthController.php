@@ -56,11 +56,13 @@ class ClientAuthController extends Controller
             if ($template) {
                 if ($template->status === 'active') {
                     $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
+                    $globalCompanyName = Setting::where('key', 'company_name')->value('value') ?? 'Tidcraft';
                     Mail::to($user->email)->send(new \App\Mail\DynamicEmail($template, [
                         '{name}' => $user->name,
                         '{email}' => $user->email,
-                        '{company_name}' => $user->company_name ?? '',
+                        '{company_name}' => !empty($user->company_name) ? $user->company_name : $globalCompanyName,
                         '{image}' => $imageUrl,
+                        '{login_url}' => url('/login'),
                     ]));
                 }
             } else {

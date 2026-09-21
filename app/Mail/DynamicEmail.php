@@ -17,16 +17,19 @@ class DynamicEmail extends Mailable
     public $dynamicContent;
     public $dynamicSubject;
     public $settingsData;
+    public $emailAttachments = [];
 
     /**
      * Create a new message instance.
      *
      * @param EmailTemplate $template
      * @param array $replacements Key-Value pairs to replace in the content and subject
+     * @param array $attachments Array of attachments: [['data' => $bytes, 'name' => '...', 'mime' => '...']]
      */
-    public function __construct(EmailTemplate $template, array $replacements = [])
+    public function __construct(EmailTemplate $template, array $replacements = [], array $attachments = [])
     {
         $this->template = $template;
+        $this->emailAttachments = $attachments;
 
         // Replace variables in subject
         $subject = $template->subject;
@@ -92,7 +95,9 @@ class DynamicEmail extends Mailable
             if (in_array($k, ['company_logo', 'company_favicon', 'company_short_logo']) && $v && !str_starts_with($v, 'http')) {
                 $v = asset($v);
             }
-            $replacements['{' . $k . '}'] = $v;
+            if (!isset($replacements['{' . $k . '}'])) {
+                $replacements['{' . $k . '}'] = $v;
+            }
         }
 
         // Automatically replace {year}
@@ -255,7 +260,29 @@ class DynamicEmail extends Mailable
             \Illuminate\Support\Facades\Log::error('CSS Inlining failed: ' . $e->getMessage());
         }
 
-        return $this->subject($this->dynamicSubject)
-                    ->html($html);
+        $mail = $this->subject($this->dynamicSubject)
+                     ->html($html);
+
+        if (!empty($this->emailAttachments)) {
+            foreach ($this->emailAttachments as $att) {
+                if (isset($att['data']) && isset($att['name'])) {
+                    $mail->attachData(
+                        $att['data'],
+                        $att['name'],
+                        ['mime' => $att['mime'] ?? 'application/pdf']
+                    );
+                } elseif (isset($att['path'])) {
+                    $mail->attach(
+                        $att['path'],
+                        [
+                            'as' => $att['name'] ?? basename($att['path']),
+                            'mime' => $att['mime'] ?? 'application/pdf'
+                        ]
+                    );
+                }
+            }
+        }
+
+        return $mail;
     }
 }
