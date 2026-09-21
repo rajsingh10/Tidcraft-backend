@@ -246,19 +246,39 @@ class TenantProvisionController extends Controller
     {
         $tenants = \App\Models\Tenant::with(['client', 'product', 'plan', 'domains', 'firebaseProject', 'database', 'addOns', 'subscriptions', 'payments'])->get();
         
-        $tenantList = collect();
+        $purchasedList = collect();
 
         foreach ($tenants as $tenant) {
             $this->checkAndMarkPastDue($tenant);
-            $tenantList->push($tenant);
+
+            // Determine latest purchase/payment date for sorting
+            $latestPayment = $tenant->payments ? $tenant->payments->sortByDesc('id')->first() : null;
+            $paymentDate = $latestPayment ? ($latestPayment->create_at ?? $latestPayment->created_at) : null;
+
+            $latestSub = $tenant->subscriptions ? $tenant->subscriptions->sortByDesc('id')->first() : null;
+            $subDate = $latestSub ? ($latestSub->created_at ?? $latestSub->start_date) : null;
+
+            $purchaseDate = $paymentDate ?? $subDate ?? $tenant->created_at;
+            $purchaseTimestamp = $purchaseDate ? \Carbon\Carbon::parse($purchaseDate)->timestamp : 0;
+
+            $purchasedList->push([
+                'tenant' => $tenant,
+                'purchase_timestamp' => $purchaseTimestamp,
+            ]);
         }
+
+        // Sort real tenants by latest purchase/activity timestamp descending (latest purchases first)
+        $sortedPurchasedTenants = $purchasedList->sortByDesc('purchase_timestamp')->pluck('tenant');
 
         // Get all clients (users) who DO NOT have any tenants
         $usersWithoutTenants = \App\Models\User::doesntHave('tenants')
             ->whereDoesntHave('roles', function ($q) {
                 $q->where('name', 'SuperAdmin');
-            })->get();
+            })
+            ->latest()
+            ->get();
 
+        $noTenantList = collect();
         foreach ($usersWithoutTenants as $user) {
             if ($user->profile_image && !str_starts_with($user->profile_image, 'http')) {
                 $user->profile_image = asset($user->profile_image);
@@ -282,10 +302,13 @@ class TenantProvisionController extends Controller
                 'created_at' => clone $user->created_at,
             ];
             
-            $tenantList->push($mockTenant);
+            $noTenantList->push($mockTenant);
         }
 
-        $mappedTenants = $tenantList->map(function ($t) {
+        // Combine: Real purchased tenants first, followed by users without tenants (both in latest-first order)
+        $combined = $sortedPurchasedTenants->concat($noTenantList);
+
+        $mappedTenants = $combined->map(function ($t) {
             $item = is_array($t) ? $t : $t->toArray();
             
             // Map client to user to match requested frontend structure
@@ -295,10 +318,7 @@ class TenantProvisionController extends Controller
             }
             
             return $item;
-        });
-
-        // Sort by created_at descending
-        $mappedTenants = $mappedTenants->sortByDesc('created_at')->values();
+        })->values();
 
         return response()->json([
             'status' => 'success',
