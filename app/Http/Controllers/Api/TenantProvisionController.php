@@ -114,6 +114,7 @@ class TenantProvisionController extends Controller
                 'status' => 'active',
                 'start_date' => now(),
                 'end_date' => $endDate,
+                'billing_cycle' => $billingCycle,
             ]);
 
             // Calculate Amount
@@ -132,6 +133,7 @@ class TenantProvisionController extends Controller
                 'currency' => 'INR',
                 'payment_method' => 'manual',
                 'status' => 'success',
+                'billing_cycle' => $billingCycle,
             ]);
 
 
@@ -283,12 +285,24 @@ class TenantProvisionController extends Controller
             $tenantList->push($mockTenant);
         }
 
-        // Sort by created_at descending (optional but usually good)
-        $tenantList = $tenantList->sortByDesc('created_at')->values();
+        $mappedTenants = $tenantList->map(function ($t) {
+            $item = is_array($t) ? $t : $t->toArray();
+            
+            // Map client to user to match requested frontend structure
+            if (isset($item['client'])) {
+                $item['user'] = $item['client'];
+                // Keep client as well just in case to prevent breaking existing frontend logic
+            }
+            
+            return $item;
+        });
+
+        // Sort by created_at descending
+        $mappedTenants = $mappedTenants->sortByDesc('created_at')->values();
 
         return response()->json([
             'status' => 'success',
-            'data' => $tenantList
+            'data' => $mappedTenants
         ]);
     }
 
@@ -806,8 +820,22 @@ class TenantProvisionController extends Controller
                     $metadata = $payment->metadata ?? [];
                     if ($subscription && isset($metadata['new_plan_id'])) {
                         $subscription->plan_id = $metadata['new_plan_id'];
+                        if (isset($metadata['billing_cycle'])) {
+                            $subscription->billing_cycle = $metadata['billing_cycle'];
+                        }
                         $subscription->start_date = now();
-                        $subscription->end_date = now()->addMonth();
+                        
+                        $plan = \App\Models\Plan::find($metadata['new_plan_id']);
+                        $billingCycle = $subscription->billing_cycle ?? 'monthly';
+                        
+                        if ($billingCycle === 'yearly') {
+                            $subscription->end_date = now()->addYear();
+                        } else if ($plan && $plan->duration_days) {
+                            $subscription->end_date = now()->addDays($plan->duration_days);
+                        } else {
+                            $subscription->end_date = now()->addMonth();
+                        }
+                        
                         $subscription->status = 'active';
                         $subscription->save();
                     }
@@ -949,9 +977,15 @@ class TenantProvisionController extends Controller
         try {
             DB::beginTransaction();
 
+            $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired'])->first();
+            $billingCycle = $subscription->billing_cycle ?? 'monthly';
+
             // Calculate actual total amount
             $plan = $tenant->plan;
-            $paymentAmount = $plan ? (float) $plan->monthly_price : 0;
+            $paymentAmount = 0;
+            if ($plan) {
+                $paymentAmount = $billingCycle === 'yearly' ? (float) $plan->annual_price : (float) $plan->monthly_price;
+            }
             
             if ($tenant->addOns && $tenant->addOns->count() > 0) {
                 $paymentAmount += (float) $tenant->addOns->sum('price');
@@ -964,8 +998,10 @@ class TenantProvisionController extends Controller
                     'transaction_id' => 'txn_' . Str::random(12),
                     'amount' => $paymentAmount,
                     'currency' => 'INR',
+                    'billing_cycle' => $billingCycle,
                     'payment_method' => 'razorpay',
                     'status' => 'pending',
+                    'type' => 'renewal',
                 ]);
             }
 
