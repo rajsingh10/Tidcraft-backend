@@ -43,24 +43,39 @@ class CmsPageController extends Controller
      */
     public function save(Request $request)
     {
+        // If content is sent as a JSON string (e.g., via multipart/form-data), decode it first
+        if (is_string($request->input('content'))) {
+            $request->merge([
+                'content' => json_decode($request->input('content'), true)
+            ]);
+        }
+
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'slug' => 'required|string|max:255',
             'short_description' => 'nullable|string',
-            'content' => 'required|string',
+            'content' => 'required|array',
             'featured_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
             'meta_title' => 'nullable|string|max:255',
             'meta_description' => 'nullable|string',
             'meta_keywords' => 'nullable|string',
-            'status' => 'required|in:draft,published',
+            'status' => 'nullable|in:draft,published',
             'sort_order' => 'nullable|integer',
-            'is_active' => 'required|boolean',
+            'is_active' => 'nullable|boolean',
             'published_at' => 'nullable|date',
         ]);
 
         if ($request->hasFile('featured_image')) {
             $path = $request->file('featured_image')->store('cms_images', 'public');
             $validated['featured_image'] = $path;
+        }
+
+        if (!isset($validated['status'])) {
+            $validated['status'] = 'published';
+        }
+        
+        if (!isset($validated['is_active'])) {
+            $validated['is_active'] = true;
         }
 
         $cmsPage = CmsPage::updateOrCreate(

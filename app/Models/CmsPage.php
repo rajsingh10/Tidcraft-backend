@@ -31,6 +31,7 @@ class CmsPage extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'published_at' => 'datetime',
+        'content' => 'array',
     ];
 
     /**
