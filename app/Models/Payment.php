@@ -20,6 +20,7 @@ class Payment extends Model
         'order_id',
         'amount',
         'currency',
+        'billing_cycle',
         'payment_method',
         'status',
         'customer_details',

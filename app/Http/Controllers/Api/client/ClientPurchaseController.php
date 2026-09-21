@@ -390,6 +390,7 @@ class ClientPurchaseController extends Controller
                 'status' => $subscriptionStatus,
                 'start_date' => now(),
                 'end_date' => $endDate,
+                'billing_cycle' => $billingCycle,
             ]);
 
             // Create Payment
@@ -400,6 +401,7 @@ class ClientPurchaseController extends Controller
                 'payment_method' => $paymentAmount > 0 ? ($request->payment_method ?? 'razorpay') : 'free',
                 'status' => $initialPaymentStatus,
                 'type' => 'purchase',
+                'billing_cycle' => $billingCycle,
             ]);
 
             // 2. Create Domain Configuration
@@ -508,11 +510,13 @@ class ClientPurchaseController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Subscription plan not found.'], 400);
         }
 
-        $paymentAmount = (float) $plan->monthly_price;
+        $billingCycle = $subscription->billing_cycle ?? 'monthly';
+        $paymentAmount = $billingCycle === 'yearly' ? (float) $plan->annual_price : (float) $plan->monthly_price;
         
         $payment = $tenant->payments()->create([
             'amount' => $paymentAmount,
             'currency' => 'INR',
+            'billing_cycle' => $billingCycle,
             'payment_method' => 'razorpay',
             'status' => 'pending',
             'type' => 'renewal',
@@ -540,6 +544,7 @@ class ClientPurchaseController extends Controller
 
         $validator = Validator::make($request->all(), [
             'new_plan_id' => 'required|exists:plans,id',
+            'billing_cycle' => 'nullable|in:monthly,yearly',
         ]);
 
         if ($validator->fails()) {
@@ -547,15 +552,19 @@ class ClientPurchaseController extends Controller
         }
 
         $newPlan = \App\Models\Plan::find($request->new_plan_id);
-        $paymentAmount = (float) $newPlan->monthly_price;
+        
+        $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired'])->first();
+        $billingCycle = $request->billing_cycle ?? ($subscription->billing_cycle ?? 'monthly');
+        $paymentAmount = $billingCycle === 'yearly' ? (float) $newPlan->annual_price : (float) $newPlan->monthly_price;
 
         $payment = $tenant->payments()->create([
             'amount' => $paymentAmount,
             'currency' => 'INR',
+            'billing_cycle' => $billingCycle,
             'payment_method' => 'razorpay',
             'status' => 'pending',
             'type' => 'upgrade',
-            'metadata' => ['new_plan_id' => $newPlan->id]
+            'metadata' => ['new_plan_id' => $newPlan->id, 'billing_cycle' => $billingCycle]
         ]);
 
         $paymentLinkStr = $this->generateRazorpayLink($tenant, $paymentAmount, 'Payment for Plan Upgrade to ' . $newPlan->name);
@@ -768,8 +777,22 @@ class ClientPurchaseController extends Controller
                     $metadata = $payment->metadata ?? [];
                     if ($subscription && isset($metadata['new_plan_id'])) {
                         $subscription->plan_id = $metadata['new_plan_id'];
+                        if (isset($metadata['billing_cycle'])) {
+                            $subscription->billing_cycle = $metadata['billing_cycle'];
+                        }
                         $subscription->start_date = now();
-                        $subscription->end_date = now()->addMonth();
+                        
+                        $plan = \App\Models\Plan::find($metadata['new_plan_id']);
+                        $billingCycle = $subscription->billing_cycle ?? 'monthly';
+                        
+                        if ($billingCycle === 'yearly') {
+                            $subscription->end_date = now()->addYear();
+                        } else if ($plan && $plan->duration_days) {
+                            $subscription->end_date = now()->addDays($plan->duration_days);
+                        } else {
+                            $subscription->end_date = now()->addMonth();
+                        }
+                        
                         $subscription->status = 'active';
                         $subscription->save();
                     }
@@ -1091,6 +1114,7 @@ class ClientPurchaseController extends Controller
                 'status' => $subscriptionStatus,
                 'start_date' => now(),
                 'end_date' => $endDate,
+                'billing_cycle' => $billingCycle,
             ]);
 
             // Create Payment (Status defaults to pending, frontend handles actual payment; free plans are auto success)
@@ -1101,6 +1125,7 @@ class ClientPurchaseController extends Controller
                 'payment_method' => $paymentAmount > 0 ? ($request->payment_method ?? 'razorpay') : 'free',
                 'status' => $initialPaymentStatus,
                 'type' => 'purchase',
+                'billing_cycle' => $billingCycle,
             ]);
 
             // 2. Create Domain Configuration
