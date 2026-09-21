@@ -15,7 +15,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        if (!class_exists(\Razorpay\Api\Api::class) && file_exists(base_path('vendor/razorpay/razorpay/Razorpay.php'))) {
+            require_once base_path('vendor/razorpay/razorpay/Razorpay.php');
+        }
     }
 
     /**

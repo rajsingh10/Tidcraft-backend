@@ -66,12 +66,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/purchases/{uuid}/backup/firebase', [ClientPurchaseController::class, 'backupFirebase']);
         Route::post('/purchases/{uuid}/backup/{backupId}/restore', [ClientPurchaseController::class, 'restoreBackup']);
         Route::post('/purchases/{uuid}/verify-payment', [ClientPurchaseController::class, 'verifyPayment']);
+        Route::post('/purchases/{uuid}/cancel-payment', [ClientPurchaseController::class, 'cancelPayment']);
         Route::post('/purchases/{uuid}/renew', [ClientPurchaseController::class, 'renew']);
         Route::post('/purchases/{uuid}/upgrade', [ClientPurchaseController::class, 'upgrade']);
         Route::post('/purchases/{uuid}/domain', [ClientPurchaseController::class, 'setupDomain']);
         Route::get('/payments', [ClientPurchaseController::class, 'payments']);
         Route::get('/invoices', [\App\Http\Controllers\Api\InvoiceController::class, 'index']);
         Route::get('/invoices/{id}', [\App\Http\Controllers\Api\InvoiceController::class, 'show']);
+        Route::get('/invoices/{id}/pdf', [\App\Http\Controllers\Api\InvoiceController::class, 'downloadPdf']);
+        Route::post('/invoices/{id}/cancel', [\App\Http\Controllers\Api\InvoiceController::class, 'cancel']);
         Route::get('/payment-methods', [SettingController::class, 'getClientPaymentMethods']);
     });
 
@@ -163,7 +166,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/tenants/{uuid}', [TenantProvisionController::class, 'destroy']);
     Route::post('/tenants/{uuid}/renew', [TenantProvisionController::class, 'renewClient']);
     Route::post('/tenants/{uuid}/renew-manual', [TenantProvisionController::class, 'renewManual']);
+    Route::post('/tenants/{uuid}/upgrade', [TenantProvisionController::class, 'upgrade']);
     Route::post('/tenants/{uuid}/upgrade-manual', [TenantProvisionController::class, 'upgradeManual']);
+    Route::post('/tenants/{uuid}/verify-payment', [TenantProvisionController::class, 'verifyPayment']);
+    Route::post('/tenants/{uuid}/cancel-payment', [TenantProvisionController::class, 'cancelPayment']);
     Route::post('/tenants/{uuid}/send-setup-email', [TenantProvisionController::class, 'sendSetupEmail']);
     Route::post('/tenants/{uuid}/send-provisioned-email', [TenantProvisionController::class, 'sendProvisionedEmail']);
     Route::post('/tenants/{uuid}/provision', [TenantProvisionController::class, 'manualProvision']);
@@ -178,6 +184,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/invoices', [\App\Http\Controllers\Api\InvoiceController::class, 'index']);
     Route::get('/invoices/{id}', [\App\Http\Controllers\Api\InvoiceController::class, 'show']);
     Route::get('/invoices/{id}/pdf', [\App\Http\Controllers\Api\InvoiceController::class, 'downloadPdf']);
+    Route::post('/invoices/{id}/cancel', [\App\Http\Controllers\Api\InvoiceController::class, 'cancel']);
 
     // Dedicated APIs for Subscriptions and Payments
     Route::post('subscriptions/{subscription}', [SubscriptionController::class, 'update']);
