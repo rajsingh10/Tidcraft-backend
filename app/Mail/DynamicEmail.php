@@ -32,7 +32,13 @@ class DynamicEmail extends Mailable
         $subject = $template->subject;
         
         // Replace variables in content
-        $content = html_entity_decode($template->content); // Decode in case WYSIWYG encoded tags
+        $content = html_entity_decode($template->content, ENT_QUOTES | ENT_HTML5, 'UTF-8'); // Decode in case WYSIWYG encoded tags
+        
+        // WYSIWYG editors often inject <p>, <br>, or other HTML tags inside @php blocks, causing Blade parse errors.
+        // We strip all HTML tags exclusively from inside @php ... @endphp blocks.
+        $content = preg_replace_callback('/@php(.*?)@endphp/is', function($matches) {
+            return '@php' . strip_tags($matches[1]) . '@endphp';
+        }, $content);
         
         // Ensure any random non-breaking spaces before blade tags are removed
         $content = str_replace('&nbsp;', ' ', $content);
