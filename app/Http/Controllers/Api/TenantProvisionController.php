@@ -244,13 +244,51 @@ class TenantProvisionController extends Controller
     {
         $tenants = \App\Models\Tenant::with(['client', 'product', 'plan', 'domains', 'firebaseProject', 'database', 'addOns', 'subscriptions', 'payments'])->get();
         
+        $tenantList = collect();
+
         foreach ($tenants as $tenant) {
             $this->checkAndMarkPastDue($tenant);
+            $tenantList->push($tenant);
         }
+
+        // Get all clients (users) who DO NOT have any tenants
+        $usersWithoutTenants = \App\Models\User::doesntHave('tenants')
+            ->whereDoesntHave('roles', function ($q) {
+                $q->where('name', 'SuperAdmin');
+            })->get();
+
+        foreach ($usersWithoutTenants as $user) {
+            if ($user->profile_image && !str_starts_with($user->profile_image, 'http')) {
+                $user->profile_image = asset($user->profile_image);
+            }
+            
+            // Create a mock tenant structure for users without tenants
+            $mockTenant = [
+                'id' => null,
+                'uuid' => null,
+                'client_id' => $user->id,
+                'client' => $user,
+                'plan' => null,
+                'product' => null,
+                'domains' => [],
+                'firebaseProject' => null,
+                'database' => null,
+                'addOns' => [],
+                'subscriptions' => [],
+                'payments' => [],
+                'status' => 'no_tenant',
+                'created_at' => clone $user->created_at,
+            ];
+            
+            $tenantList->push($mockTenant);
+        }
+
+        // Sort by created_at descending (optional but usually good)
+        $tenantList = $tenantList->sortByDesc('created_at')->values();
 
         return response()->json([
             'status' => 'success',
-            'data' => $tenants
+            'data' => $tenantList
         ]);
     }
 
