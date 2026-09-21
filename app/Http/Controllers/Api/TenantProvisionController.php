@@ -242,15 +242,31 @@ class TenantProvisionController extends Controller
      */
     public function index()
     {
-        $tenants = Tenant::with(['client', 'product', 'plan', 'domains', 'firebaseProject', 'database', 'addOns', 'subscriptions', 'payments'])->get();
-        
-        foreach ($tenants as $tenant) {
-            $this->checkAndMarkPastDue($tenant);
-        }
+        // Fetch all clients (users) including those without tenants, and load all their tenant relations
+        $users = \App\Models\User::with(['tenants.product', 'tenants.plan', 'tenants.domains', 'tenants.firebaseProject', 'tenants.database', 'tenants.addOns', 'tenants.subscriptions', 'tenants.payments'])
+            ->whereDoesntHave('roles', function ($q) {
+                $q->where('name', 'SuperAdmin');
+            })->get();
+
+        $users->transform(function($client) {
+            if ($client->profile_image && !str_starts_with($client->profile_image, 'http')) {
+                $client->profile_image = asset($client->profile_image);
+            }
+            
+            // Add boolean flag to indicate if user has any tenants
+            $client->has_tenant = $client->tenants->isNotEmpty();
+            
+            // Check and update past due status for all their tenants
+            foreach ($client->tenants as $tenant) {
+                $this->checkAndMarkPastDue($tenant);
+            }
+            
+            return $client;
+        });
 
         return response()->json([
             'status' => 'success',
-            'data' => $tenants
+            'data' => $users
         ]);
     }
 
@@ -1188,5 +1204,73 @@ class TenantProvisionController extends Controller
                 'tenant_status' => $tenant->status,
             ]
         ]);
+    }
+
+    /**
+     * Send setup/whitelabel email to tenant client.
+     */
+    public function sendSetupEmail(Request $request, $uuid)
+    {
+        $tenant = Tenant::with(['client', 'product'])->where('uuid', $uuid)->orWhere('id', $uuid)->first();
+        
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $client = $tenant->client;
+        if (!$client) {
+            return response()->json(['status' => 'error', 'message' => 'Client not found for this tenant.'], 404);
+        }
+
+        // Determine the email template slug
+        $slug = $request->input('slug');
+        
+        // Auto-detect based on product if slug not provided
+        if (!$slug) {
+            $productName = strtolower($tenant->product->name ?? '');
+            if (str_contains($productName, 'food')) {
+                $slug = 'foodapp-whitelabel-setup';
+            } else {
+                $slug = 'whitelabel-setup';
+            }
+        }
+
+        $template = \App\Models\EmailTemplate::where('slug', $slug)->first();
+
+        if (!$template || $template->status !== 'active') {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Email template not found or is inactive: ' . $slug
+            ], 404);
+        }
+
+        try {
+            $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
+            
+            $replacements = [
+                '{name}' => $client->name,
+                '{email}' => $client->email,
+                '{business_name}' => $tenant->business_name,
+                '{tenant_name}' => $tenant->name,
+                '{product_name}' => $tenant->product->name ?? '',
+                '{image}' => $imageUrl,
+            ];
+
+            \Illuminate\Support\Facades\Mail::to($client->email)->send(new \App\Mail\DynamicEmail($template, $replacements));
+
+            AuditLogger::log('Setup Email Sent', 'Tenant Setup Email', "Sent setup email ($slug) to {$client->email} for tenant {$tenant->business_name}.");
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Setup email sent successfully.'
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send setup email: ' . $e->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to send setup email.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }

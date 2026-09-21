@@ -19,14 +19,19 @@ class ClientController extends Controller
     public function index()
     {
         // Only get users that are actually Clients (exclude SuperAdmins)
-        $clients = User::whereDoesntHave('roles', function ($q) {
-            $q->where('name', 'SuperAdmin');
-        })->get();
+        $clients = User::with(['tenants.product', 'tenants.plan', 'tenants.subscriptions', 'tenants.payments', 'tenants.domains', 'tenants.firebaseProject'])
+            ->whereDoesntHave('roles', function ($q) {
+                $q->where('name', 'SuperAdmin');
+            })->get();
 
         $clients->transform(function($client) {
             if ($client->profile_image && !str_starts_with($client->profile_image, 'http')) {
                 $client->profile_image = asset($client->profile_image);
             }
+            
+            // Add boolean flag to indicate if user has any tenants
+            $client->has_tenant = $client->tenants->isNotEmpty();
+            
             return $client;
         });
 
@@ -224,7 +229,7 @@ class ClientController extends Controller
             ], 404);
         }
 
-        $tenants = \App\Models\Tenant::with(['product', 'subscriptions', 'domains', 'database', 'firebaseProject'])
+        $tenants = \App\Models\Tenant::with(['product', 'plan', 'subscriptions', 'payments', 'domains', 'database', 'firebaseProject', 'addOns'])
             ->where('client_id', $client->id)
             ->get();
 
