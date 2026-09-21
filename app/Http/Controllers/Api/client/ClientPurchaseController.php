@@ -853,6 +853,8 @@ class ClientPurchaseController extends Controller
                                 '{{invoice_number}}' => $payment->invoice_number ?? '',
                                 '{image}' => $imageUrl,
                                 '{{image}}' => $imageUrl,
+                                'tenant' => $tenant,
+                                'payment' => $payment,
                             ];
 
                             \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\DynamicEmail($paymentTemplate, $replacements));

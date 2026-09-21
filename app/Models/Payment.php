@@ -44,6 +44,18 @@ class Payment extends Model
         return 'INV-' . \Carbon\Carbon::parse($issueDate)->format('Y') . '-' . str_pad($this->id, 3, '0', STR_PAD_LEFT);
     }
 
+    public function getCreatedAtAttribute()
+    {
+        $val = $this->attributes['create_at'] ?? $this->attributes['created_at'] ?? null;
+        return $val ? \Carbon\Carbon::parse($val) : now();
+    }
+
+    public function getUpdatedAtAttribute()
+    {
+        $val = $this->attributes['update_at'] ?? $this->attributes['updated_at'] ?? null;
+        return $val ? \Carbon\Carbon::parse($val) : now();
+    }
+
     public function tenant()
     {
         return $this->belongsTo(Tenant::class);
