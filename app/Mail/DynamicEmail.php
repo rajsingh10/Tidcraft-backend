@@ -39,6 +39,21 @@ class DynamicEmail extends Mailable
         $content = preg_replace_callback('/@php(.*?)@endphp/is', function($matches) {
             return '@php' . strip_tags($matches[1]) . '@endphp';
         }, $content);
+
+        // Frontend WYSIWYG editor protects Blade tags inside HTML attributes by wrapping them in <!-- [LARAVEL_VAR_{base64}] -->
+        // We must decode these before compiling with Blade.
+        $content = preg_replace_callback('/<!--\s*\[LARAVEL_VAR_([a-zA-Z0-9+\/]+=*)\]\s*-->/', function($matches) {
+            return base64_decode($matches[1]);
+        }, $content);
+
+        // Fix specifically mangled blade tags caused by single quotes inside double-quoted HTML attributes
+        // WYSIWYG breaks src="{{ asset(ltrim($logoToUse, '/')) }}" into src="{{ asset(ltrim($logoToUse, " '))="" }}"=""
+        $content = preg_replace('/\{\{\s*asset\(ltrim\(\$logoToUse[^}]+\}\}(?:”="”|”=”|""|=""){0,2}/i', '{{ url($logoToUse) }}"', $content);
+        $content = str_replace('}}""', '}}"', $content);
+        $content = str_replace('}}"=""', '}}"', $content);
+        $content = str_replace('" \'))="" }}"=""', '\')) }}"', $content);
+        // Catch-all for the exact string in the screenshot
+        $content = str_replace('{{ asset(ltrim($logoToUse, " \'))="" }}"=""', '{{ url($logoToUse) }}"', $content);
         
         // Ensure any random non-breaking spaces before blade tags are removed
         $content = str_replace('&nbsp;', ' ', $content);
@@ -73,16 +88,21 @@ class DynamicEmail extends Mailable
             'settings' => $settingsData
         ];
         
+        $stringReplacements = [];
         foreach ($replacements as $key => $value) {
-            $subject = str_replace($key, $value, $subject);
-            // We also add the variables to blade data so they can use {{ $name }}
             $cleanKey = trim($key, '{}');
             $bladeData[$cleanKey] = $value;
+            
+            // Only perform string replacement for scalar values to avoid 'Object to string conversion' errors
+            if (is_scalar($value)) {
+                $subject = str_replace($key, $value, $subject);
+                $stringReplacements[$key] = $value;
+            }
         }
 
         try {
             // First run standard string replacements in case they used {name}
-            $content = str_replace(array_keys($replacements), array_values($replacements), $content);
+            $content = str_replace(array_keys($stringReplacements), array_values($stringReplacements), $content);
             
             // Inject max-width inline style to all images to prevent them from blowing up in Gmail
             // This regex safely ignores > inside double/single quotes to avoid breaking blade syntax like $message->embed()

@@ -1282,6 +1282,7 @@ class TenantProvisionController extends Controller
                 '{{name}}' => $client->name,
                 '{email}' => $client->email,
                 '{{email}}' => $client->email,
+                '{clientName}' => $client->name,
                 '{business_name}' => $tenant->business_name,
                 '{{business_name}}' => $tenant->business_name,
                 '{tenant_name}' => $tenant->name,
@@ -1290,6 +1291,7 @@ class TenantProvisionController extends Controller
                 '{{product_name}}' => $tenant->product->name ?? '',
                 '{image}' => $imageUrl,
                 '{{image}}' => $imageUrl,
+                '{tenant}' => $tenant,
             ];
 
             \Illuminate\Support\Facades\Mail::to($client->email)->send(new \App\Mail\DynamicEmail($template, $replacements));
@@ -1348,6 +1350,9 @@ class TenantProvisionController extends Controller
                     '{{admin_password}}' => $adminPassword,
                     '{domain_url}' => $domainUrl,
                     '{{domain_url}}' => $domainUrl,
+                    '{domainUrl}' => $domainUrl,
+                    '{adminEmail}' => $adminEmail,
+                    '{adminPassword}' => $adminPassword,
                     '{business_name}' => $tenant->business_name,
                     '{{business_name}}' => $tenant->business_name,
                     '{tenant_name}' => $tenant->name,
@@ -1356,6 +1361,7 @@ class TenantProvisionController extends Controller
                     '{{product_name}}' => $tenant->product->name ?? '',
                     '{image}' => $imageUrl,
                     '{{image}}' => $imageUrl,
+                    '{tenant}' => $tenant,
                 ];
 
                 \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\DynamicEmail($template, $replacements));
