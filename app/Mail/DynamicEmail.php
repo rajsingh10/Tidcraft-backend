@@ -87,8 +87,15 @@ class DynamicEmail extends Mailable
      */
     public function build()
     {
+        // Detect if the content already has a full HTML structure or the specific email-container wrapper
+        $isFullHtml = stripos($this->dynamicContent, '<html') !== false 
+                   || stripos($this->dynamicContent, '<body') !== false 
+                   || stripos($this->dynamicContent, 'class="email-container"') !== false;
+
+        $viewName = $isFullHtml ? 'emails.layouts.raw' : 'emails.layouts.dynamic';
+
         return $this->subject($this->dynamicSubject)
-                    ->view('emails.layouts.dynamic', [
+                    ->view($viewName, [
                         'dynamicContent' => $this->dynamicContent,
                         'settings' => $this->settingsData,
                     ]);
