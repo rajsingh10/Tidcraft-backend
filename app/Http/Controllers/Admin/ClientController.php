@@ -47,7 +47,7 @@ class ClientController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'business_name' => 'nullable|string|max:255',
+            'company_name' => 'nullable|string|max:255',
             'owner_name' => 'required|string|max:255',
             'email_address' => 'required|string|email|max:255|unique:users,email',
             'phone_number' => 'nullable|string|max:20',
@@ -73,7 +73,7 @@ class ClientController extends Controller
         }
 
         $client = User::create([
-            'company_name' => $request->business_name,
+            'company_name' => $request->company_name,
             'name' => $request->owner_name,
             'email' => $request->email_address,
             'phone_number' => $request->phone_number,
@@ -139,7 +139,7 @@ class ClientController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'business_name' => 'nullable|string|max:255',
+            'company_name' => 'nullable|string|max:255',
             'owner_name' => 'nullable|string|max:255',
             'email_address' => ['nullable', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($client->id)],
             'phone_number' => 'nullable|string|max:20',
@@ -155,7 +155,7 @@ class ClientController extends Controller
             ], 422);
         }
 
-        if ($request->has('business_name')) $client->company_name = $request->business_name;
+        if ($request->has('company_name')) $client->company_name = $request->company_name;
         if ($request->has('owner_name')) $client->name = $request->owner_name;
         if ($request->has('email_address')) $client->email = $request->email_address;
         if ($request->has('phone_number')) $client->phone_number = $request->phone_number;
