@@ -165,6 +165,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tenants/{uuid}/renew-manual', [TenantProvisionController::class, 'renewManual']);
     Route::post('/tenants/{uuid}/upgrade-manual', [TenantProvisionController::class, 'upgradeManual']);
     Route::post('/tenants/{uuid}/send-setup-email', [TenantProvisionController::class, 'sendSetupEmail']);
+    Route::post('/tenants/{uuid}/send-provisioned-email', [TenantProvisionController::class, 'sendProvisionedEmail']);
     Route::post('/tenants/{uuid}/provision', [TenantProvisionController::class, 'manualProvision']);
 
     // Support Tickets API

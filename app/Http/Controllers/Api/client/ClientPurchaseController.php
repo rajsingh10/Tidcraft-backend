@@ -827,7 +827,39 @@ class ClientPurchaseController extends Controller
                     $client = $tenant->client;
                     $clientEmail = $client ? $client->email : $tenant->primary_contact_email;
                     if ($clientEmail) {
-                        \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\ClientPaymentReceivedMail($tenant, $payment));
+                        // Use Dynamic Template if available
+                        $paymentTemplate = \App\Models\EmailTemplate::where('slug', 'Payment_Received')->first();
+                        
+                        if ($paymentTemplate && $paymentTemplate->status === 'active') {
+                            $imageUrl = (!empty($paymentTemplate->images) && isset($paymentTemplate->images[0])) ? url($paymentTemplate->images[0]) : '';
+                            $clientName = $client ? $client->name : $tenant->business_name;
+                            
+                            $replacements = [
+                                '{name}' => $clientName,
+                                '{{name}}' => $clientName,
+                                '{email}' => $clientEmail,
+                                '{{email}}' => $clientEmail,
+                                '{business_name}' => $tenant->business_name,
+                                '{{business_name}}' => $tenant->business_name,
+                                '{tenant_name}' => $tenant->name,
+                                '{{tenant_name}}' => $tenant->name,
+                                '{tenant_slug}' => $tenant->tenant_key,
+                                '{{tenant_slug}}' => $tenant->tenant_key,
+                                '{product_name}' => $tenant->product->name ?? '',
+                                '{{product_name}}' => $tenant->product->name ?? '',
+                                '{invoice_amount}' => $payment->amount,
+                                '{{invoice_amount}}' => $payment->amount,
+                                '{invoice_number}' => $payment->invoice_number ?? '',
+                                '{{invoice_number}}' => $payment->invoice_number ?? '',
+                                '{image}' => $imageUrl,
+                                '{{image}}' => $imageUrl,
+                            ];
+
+                            \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\DynamicEmail($paymentTemplate, $replacements));
+                        } else {
+                            // Fallback
+                            \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\ClientPaymentReceivedMail($tenant, $payment));
+                        }
                     }
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Failed to send payment received email to client: ' . $e->getMessage());

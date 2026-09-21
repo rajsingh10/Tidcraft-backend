@@ -48,6 +48,10 @@ class DynamicEmail extends Mailable
         $settingsData = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
         
         foreach ($settingsData as $k => $v) {
+            // Ensure logo and image URLs are absolute for emails
+            if (in_array($k, ['company_logo', 'company_favicon', 'company_short_logo']) && $v && !str_starts_with($v, 'http')) {
+                $v = asset($v);
+            }
             $replacements['{' . $k . '}'] = $v;
         }
 
@@ -74,12 +78,32 @@ class DynamicEmail extends Mailable
             // First run standard string replacements in case they used {name}
             $content = str_replace(array_keys($replacements), array_values($replacements), $content);
             
+            // Inject max-width inline style to all images to prevent them from blowing up in Gmail
+            // This regex safely ignores > inside double/single quotes to avoid breaking blade syntax like $message->embed()
+            $content = preg_replace_callback('/<img\s+(?:[^>"\']|"[^"]*"|\'[^\']*\')+>/i', function($matches) {
+                $imgTag = $matches[0];
+                
+                // Determine sensible max-width: 200px for logos, 100% for everything else
+                $maxWidth = (stripos($imgTag, 'alt="logo"') !== false || stripos($imgTag, "alt='logo'") !== false) ? '200px' : '100%';
+                
+                if (stripos($imgTag, 'style=') !== false) {
+                    return preg_replace('/style=([\'"])/i', 'style=$1max-width: ' . $maxWidth . '; height: auto; ', $imgTag);
+                } else {
+                    return rtrim($imgTag, '>') . ' style="max-width: ' . $maxWidth . '; height: auto;">';
+                }
+            }, $content);
+
             // Then run Blade compilation
             $compiledContent = Blade::render($content, $bladeData);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             // Fallback if Blade compilation fails due to bad syntax in WYSIWYG
-            $compiledContent = $content;
             \Illuminate\Support\Facades\Log::error('Blade render failed in DynamicEmail: ' . $e->getMessage());
+            \Illuminate\Support\Facades\Log::error('Failing Blade Content: ' . $content);
+            $compiledContent = "<div style='background: #ffebe8; border: 1px solid #cc0000; padding: 15px; margin-bottom: 20px; color: #cc0000; font-family: monospace;'>
+                <strong>Blade Syntax Error Detected!</strong><br><br>
+                <strong>Error:</strong> " . htmlspecialchars($e->getMessage()) . "<br><br>
+                Please check your email template for typos like using '=' instead of ',' inside a function, or missing closing brackets.
+                </div>" . $content;
         }
 
         $this->dynamicSubject = $subject;
@@ -92,17 +116,31 @@ class DynamicEmail extends Mailable
      */
     public function build()
     {
-        // Detect if the content already has a full HTML structure or the specific email-container wrapper
+        // Detect if the content already has a full HTML structure or layout
         $isFullHtml = stripos($this->dynamicContent, '<html') !== false 
                    || stripos($this->dynamicContent, '<body') !== false 
+                   || stripos($this->dynamicContent, '<table') !== false // Email templates almost always use layout tables
+                   || stripos($this->dynamicContent, '<style') !== false 
                    || stripos($this->dynamicContent, 'class="email-container"') !== false;
 
         $viewName = $isFullHtml ? 'emails.layouts.raw' : 'emails.layouts.dynamic';
 
+        $html = view($viewName, [
+            'dynamicContent' => $this->dynamicContent,
+            'settings' => $this->settingsData,
+        ])->render();
+
+        // Convert any <style> blocks to inline CSS automatically for perfect email rendering across all clients
+        try {
+            if (class_exists(\TijsVerkoyen\CssToInlineStyles\CssToInlineStyles::class)) {
+                $inliner = new \TijsVerkoyen\CssToInlineStyles\CssToInlineStyles();
+                $html = $inliner->convert($html);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('CSS Inlining failed: ' . $e->getMessage());
+        }
+
         return $this->subject($this->dynamicSubject)
-                    ->view($viewName, [
-                        'dynamicContent' => $this->dynamicContent,
-                        'settings' => $this->settingsData,
-                    ]);
+                    ->html($html);
     }
 }
