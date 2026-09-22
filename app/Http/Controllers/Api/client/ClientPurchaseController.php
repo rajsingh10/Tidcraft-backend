@@ -73,7 +73,10 @@ class ClientPurchaseController extends Controller
         $user = $request->user();
 
         $tenant = Tenant::where('uuid', $uuid)
-            ->where('create_by', $user->id)
+            ->where(function ($q) use ($user) {
+                $q->where('create_by', $user->id)
+                  ->orWhere('client_id', $user->id);
+            })
             ->first();
 
         if (!$tenant) {
@@ -87,9 +90,39 @@ class ClientPurchaseController extends Controller
             ->orderBy('id', 'asc')
             ->get();
 
+        $isFullyProvisioned = $logs->where('step', 'activation')->where('status', 'success')->isNotEmpty()
+            && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id);
+
+        if (!$isFullyProvisioned) {
+            $hasDomain = $tenant->domains()->whereNotNull('domain')->where('domain', '!=', '')->exists();
+            $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+
+            if ($hasDomain && $productFirebase && !empty($productFirebase->firebase_project_id)) {
+                if ($tenant->status !== 'provisioning') {
+                    $tenant->update(['status' => 'provisioning']);
+                }
+
+                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                \App\Helpers\QueueRunner::runBackground();
+
+                if ($logs->isEmpty()) {
+                    usleep(300000);
+                    $logs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)
+                        ->orderBy('id', 'asc')
+                        ->get();
+                }
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'tenant_status' => 'provisioning',
+                'data' => $logs
+            ]);
+        }
+
         return response()->json([
             'status' => 'success',
-            'tenant_status' => $tenant->status,
+            'tenant_status' => 'active',
             'data' => $logs
         ]);
     }
@@ -1116,6 +1149,9 @@ class ClientPurchaseController extends Controller
         if ($request->domain_type === 'subdomain' && $request->has('subdomain_prefix')) {
             $prefix = trim($request->subdomain_prefix, " .");
             $request->merge(['domain' => $prefix . '.tidcraft.com']);
+        } elseif ($request->domain_type === 'custom' && $request->has('domain')) {
+            $cleanDomain = \App\Services\DnsService::normalizeDomain($request->domain);
+            $request->merge(['domain' => $cleanDomain]);
         }
 
         $existingDomain = Domain::where('tenant_id', $tenant->id)->first();
@@ -1137,25 +1173,69 @@ class ClientPurchaseController extends Controller
         try {
             DB::beginTransaction();
 
-            Domain::updateOrCreate(
+            $domainStatus = ($request->domain_type === 'custom') ? 'pending_dns' : 'pending';
+
+            $domainRecord = Domain::updateOrCreate(
                 ['tenant_id' => $tenant->id],
                 [
                     'client_id' => $tenant->client_id ?? $tenant->create_by,
                     'product_id' => $tenant->product_id,
                     'type' => $request->domain_type,
                     'domain' => $request->domain,
-                    'status' => 'pending',
+                    'status' => $domainStatus,
                 ]
             );
 
             DB::commit();
 
+            // For custom domain: auto-detect server IP, prepare DNS records, and send email instructions
+            if ($request->domain_type === 'custom') {
+                $serverIp = \App\Services\DnsService::getServerIp();
+                $dnsRecords = \App\Services\DnsService::getExpectedDnsRecords($request->domain, 'custom');
+
+                // Send email notification with DNS instructions to client
+                \App\Services\DnsService::sendDnsInstructionsEmail($tenant, $domainRecord);
+
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Custom domain configured successfully. Please add the required DNS records in your domain registrar.',
+                    'data' => [
+                        'tenant_id' => $tenant->uuid,
+                        'domain' => $request->domain,
+                        'domain_type' => 'custom',
+                        'domain_status' => 'pending_dns',
+                        'server_ip' => $serverIp,
+                        'dns_records' => $dnsRecords,
+                        'instructions' => [
+                            'title' => 'DNS Configuration Required',
+                            'description' => "Add the A record pointing to {$serverIp} and CNAME record for www at your domain registrar.",
+                            'verify_endpoint' => "/api/client/purchases/{$tenant->uuid}/verify-dns",
+                            'propagation_time' => '5-30 minutes (up to 24-48 hours)'
+                        ],
+                        'email_sent' => true
+                    ]
+                ]);
+            }
+
+            // For subdomain: trigger background provisioning if tenant is unprovisioned
+            $provisioningLogs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)->get();
+            $isFullyProvisioned = $provisioningLogs->where('step', 'activation')->where('status', 'success')->isNotEmpty()
+                && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id);
+
+            if (!$isFullyProvisioned) {
+                $tenant->update(['status' => 'provisioning']);
+                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                \App\Helpers\QueueRunner::runBackground();
+            }
+
+            // Standard response for subdomain (preserves existing behavior)
             return response()->json([
                 'status' => 'success',
                 'message' => 'Domain configured successfully.',
                 'data' => [
                     'tenant_id' => $tenant->uuid,
-                    'domain' => $request->domain
+                    'domain' => $request->domain,
+                    'domain_type' => $request->domain_type
                 ]
             ]);
 
@@ -1167,6 +1247,126 @@ class ClientPurchaseController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Verify live DNS propagation for the tenant domain.
+     */
+    public function verifyDns(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $domain = Domain::where('tenant_id', $tenant->id)->first();
+        if (!$domain) {
+            return response()->json(['status' => 'error', 'message' => 'No domain configured for this purchase.'], 404);
+        }
+
+        $verification = \App\Services\DnsService::verifyDomainDns($domain->domain, $domain->type);
+
+        if ($verification['verified']) {
+            $domain->update(['status' => 'active']);
+
+            // Create frontend symlink for Nginx
+            \App\Services\DnsService::createTenantSymlink($tenant, $domain->domain);
+
+            return response()->json([
+                'status' => 'success',
+                'verified' => true,
+                'message' => 'DNS records verified successfully! Your custom domain is now active.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'domain' => $domain->domain,
+                    'domain_type' => $domain->type,
+                    'status' => 'active',
+                    'server_ip' => $verification['server_ip'],
+                    'resolved_ips' => $verification['resolved_ips'],
+                    'verified_at' => now()->toIso8601String()
+                ]
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'pending',
+            'verified' => false,
+            'message' => $verification['message'],
+            'data' => [
+                'tenant_id' => $tenant->uuid,
+                'domain' => $domain->domain,
+                'domain_type' => $domain->type,
+                'status' => $domain->status,
+                'server_ip' => $verification['server_ip'],
+                'current_resolved_ips' => $verification['resolved_ips'],
+                'dns_records' => \App\Services\DnsService::getExpectedDnsRecords($domain->domain, $domain->type),
+                'help' => 'Ensure you have added an A record with Host @ pointing to ' . $verification['server_ip'] . '. Note that DNS propagation can take 5-30 minutes.'
+            ]
+        ]);
+    }
+
+    /**
+     * Get current DNS status and required records.
+     */
+    public function dnsStatus(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $domain = Domain::where('tenant_id', $tenant->id)->first();
+        if (!$domain) {
+            return response()->json(['status' => 'error', 'message' => 'No domain configured for this purchase.'], 404);
+        }
+
+        $serverIp = \App\Services\DnsService::getServerIp();
+        $dnsRecords = \App\Services\DnsService::getExpectedDnsRecords($domain->domain, $domain->type);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'tenant_id' => $tenant->uuid,
+                'domain' => $domain->domain,
+                'domain_type' => $domain->type,
+                'status' => $domain->status,
+                'server_ip' => $serverIp,
+                'dns_records' => $dnsRecords,
+                'is_active' => $domain->status === 'active'
+            ]
+        ]);
+    }
+
+    /**
+     * Resend DNS instructions email to the client.
+     */
+    public function sendDnsEmail(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $domain = Domain::where('tenant_id', $tenant->id)->first();
+        if (!$domain) {
+            return response()->json(['status' => 'error', 'message' => 'No domain configured for this purchase.'], 404);
+        }
+
+        $sent = \App\Services\DnsService::sendDnsInstructionsEmail($tenant, $domain);
+
+        if ($sent) {
+            $client = $tenant->client ?? \App\Models\User::find($tenant->client_id ?? $tenant->create_by);
+            $email = $client->email ?? $tenant->primary_contact_email;
+            return response()->json([
+                'status' => 'success',
+                'message' => "DNS instructions email successfully sent to {$email}."
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Failed to send DNS instructions email. Please check contact email configuration.'
+        ], 500);
     }
 
     public function checkoutproduct(Request $request)
@@ -1182,6 +1382,9 @@ class ClientPurchaseController extends Controller
         if ($request->domain_type === 'subdomain' && $request->has('subdomain_prefix')) {
             $prefix = trim($request->subdomain_prefix, " .");
             $request->merge(['domain' => $prefix . '.tidcraft.com']);
+        } elseif ($request->domain_type === 'custom' && $request->has('domain')) {
+            $cleanDomain = \App\Services\DnsService::normalizeDomain($request->domain);
+            $request->merge(['domain' => $cleanDomain]);
         }
         
         $validator = Validator::make($request->all(), [
@@ -1327,14 +1530,19 @@ class ClientPurchaseController extends Controller
 
             // 2. Create Domain Configuration
             if ($request->has('domain_type') && $request->has('domain')) {
-                Domain::create([
+                $domainStatus = ($request->domain_type === 'custom') ? 'pending_dns' : 'pending';
+                $domainRecord = Domain::create([
                     'tenant_id' => $tenant->id,
                     'client_id' => $user->id,
                     'product_id' => $tenant->product_id,
                     'type' => $request->domain_type,
                     'domain' => $request->domain,
-                    'status' => 'pending',
+                    'status' => $domainStatus,
                 ]);
+
+                if ($request->domain_type === 'custom') {
+                    \App\Services\DnsService::sendDnsInstructionsEmail($tenant, $domainRecord);
+                }
             }
 
             // Create Admin Notification
@@ -1359,16 +1567,24 @@ class ClientPurchaseController extends Controller
                 \Illuminate\Support\Facades\Log::error('Failed to send admin notification email: ' . $e->getMessage());
             }
 
+            $checkoutData = [
+                'tenant_id' => $tenant->uuid,
+                'tenant_status' => $tenant->status,
+                'payment_status' => $payment->status,
+                'amount' => $paymentAmount,
+                'invoice_number' => $payment->invoice_number,
+            ];
+
+            if ($request->domain_type === 'custom' && $request->has('domain')) {
+                $checkoutData['server_ip'] = \App\Services\DnsService::getServerIp();
+                $checkoutData['dns_records'] = \App\Services\DnsService::getExpectedDnsRecords($request->domain, 'custom');
+                $checkoutData['verify_endpoint'] = "/api/client/purchases/{$tenant->uuid}/verify-dns";
+            }
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Product checkout initiated successfully.',
-                'data' => [
-                    'tenant_id' => $tenant->uuid,
-                    'tenant_status' => $tenant->status,
-                    'payment_status' => $payment->status,
-                    'amount' => $paymentAmount,
-                    'invoice_number' => $payment->invoice_number,
-                ]
+                'data' => $checkoutData
             ], 201);
 
         } catch (\Exception $e) {
