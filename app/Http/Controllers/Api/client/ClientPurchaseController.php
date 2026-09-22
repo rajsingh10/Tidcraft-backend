@@ -1118,9 +1118,12 @@ class ClientPurchaseController extends Controller
             $request->merge(['domain' => $prefix . '.tidcraft.com']);
         }
 
+        $existingDomain = Domain::where('tenant_id', $tenant->id)->first();
+        $ignoreId = $existingDomain ? $existingDomain->id : 'NULL';
+
         $validator = Validator::make($request->all(), [
             'domain_type' => 'required|in:subdomain,shared,custom',
-            'domain' => 'required|string|unique:domains,domain',
+            'domain' => 'required|string|unique:domains,domain,' . $ignoreId . ',id',
         ]);
 
         if ($validator->fails()) {
@@ -1134,14 +1137,16 @@ class ClientPurchaseController extends Controller
         try {
             DB::beginTransaction();
 
-            Domain::create([
-                'tenant_id' => $tenant->id,
-                'client_id' => $tenant->client_id ?? $tenant->create_by,
-                'product_id' => $tenant->product_id,
-                'type' => $request->domain_type,
-                'domain' => $request->domain,
-                'status' => 'pending',
-            ]);
+            Domain::updateOrCreate(
+                ['tenant_id' => $tenant->id],
+                [
+                    'client_id' => $tenant->client_id ?? $tenant->create_by,
+                    'product_id' => $tenant->product_id,
+                    'type' => $request->domain_type,
+                    'domain' => $request->domain,
+                    'status' => 'pending',
+                ]
+            );
 
             DB::commit();
 

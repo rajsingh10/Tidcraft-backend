@@ -182,7 +182,8 @@ class TenantProvisionController extends Controller
 
     /**
      * Check if a subdomain prefix is available.
-     * Supports checking availability while excluding the current tenant (via tenant_id, uuid, tenant_uuid, id).
+     * Supports checking availability while excluding the caller's tenant (via tenant_id, uuid, etc.)
+     * or user/client (via user_id, client_id, email, or auth user).
      */
     public function checkSubdomain(Request $request, $uuid = null)
     {
@@ -197,13 +198,13 @@ class TenantProvisionController extends Controller
             ], 422);
         }
 
-        $prefix = trim($rawPrefix, " .");
+        $prefix = strtolower(trim($rawPrefix, " ."));
         $prefix = preg_replace('/\.tidcraft\.(com|app)$/i', '', $prefix);
         $fullDomain = $prefix . '.tidcraft.com';
 
-        // Resolve Tenant ID from all possible parameter sources (body, route, query, or headers)
+        // 1. Resolve Tenant ID from all possible parameter sources (body, route, query, or headers)
         $tenantId = null;
-        $identifier = $uuid 
+        $tenantIdentifier = $uuid 
             ?? $request->input('tenant_id') 
             ?? $request->input('tenant_uuid') 
             ?? $request->input('uuid') 
@@ -215,57 +216,137 @@ class TenantProvisionController extends Controller
             ?? $request->header('X-Tenant-Id')
             ?? $request->header('X-Tenant-Uuid');
 
-        if ($identifier) {
-            if (is_numeric($identifier)) {
-                $tenant = Tenant::find($identifier);
+        $tenant = null;
+        if ($tenantIdentifier) {
+            if (is_numeric($tenantIdentifier)) {
+                $tenant = Tenant::find($tenantIdentifier);
             } else {
-                $tenant = Tenant::where('uuid', $identifier)->first();
+                $tenant = Tenant::where('uuid', $tenantIdentifier)->first();
             }
             if ($tenant) {
                 $tenantId = $tenant->id;
             }
         }
 
-        $query = \App\Models\Domain::where('domain', $fullDomain);
-        
-        if ($tenantId) {
-            $query->where('tenant_id', '!=', $tenantId);
-        }
+        // 2. Resolve User / Client ID from all possible parameter sources
+        $userId = null;
+        $userIdentifier = $request->input('user_id') 
+            ?? $request->input('client_id')
+            ?? $request->query('user_id')
+            ?? $request->query('client_id')
+            ?? $request->header('X-User-Id')
+            ?? $request->header('X-Client-Id');
 
-        $existingDomain = $query->with('tenant')->first();
-        $isTakenByOther = ($existingDomain !== null);
-        $available = !$isTakenByOther;
+        $contactEmail = $request->input('email')
+            ?? $request->input('user_email')
+            ?? $request->input('client_email')
+            ?? $request->input('primary_contact_email')
+            ?? $request->query('email');
 
-        $response = [
-            'status' => 'success',
-            'available' => $available,
-            'domain' => $prefix,
-            'full_domain' => $fullDomain,
-            'message' => $available ? 'Subdomain is available' : 'Subdomain is already taken'
-        ];
-
-        // If available and already belongs to the current tenant being provisioned
-        if ($tenantId && $available) {
-            $isOwnReservation = \App\Models\Domain::where('domain', $fullDomain)
-                ->where('tenant_id', $tenantId)
-                ->exists();
-            if ($isOwnReservation) {
-                $response['message'] = 'Subdomain is reserved for this tenant and ready for setup';
-                $response['is_own_reservation'] = true;
+        if ($userIdentifier) {
+            if (is_numeric($userIdentifier)) {
+                $userId = (int)$userIdentifier;
+            } elseif (filter_var($userIdentifier, FILTER_VALIDATE_EMAIL)) {
+                $contactEmail = $userIdentifier;
+                $userByEmail = \App\Models\User::where('email', $userIdentifier)->first();
+                if ($userByEmail) {
+                    $userId = $userByEmail->id;
+                }
+            } else {
+                $userByUuid = \App\Models\User::where('uuid', $userIdentifier)->first();
+                if ($userByUuid) {
+                    $userId = $userByUuid->id;
+                }
             }
         }
 
-        // If taken, provide details on who reserved it so admin/frontend has full visibility
-        if ($isTakenByOther) {
-            $response['reserved_by'] = [
+        if (!$userId && $contactEmail && filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
+            $userByEmail = \App\Models\User::where('email', $contactEmail)->first();
+            if ($userByEmail) {
+                $userId = $userByEmail->id;
+            }
+        }
+
+        // If tenant was resolved, link its client_id
+        if ($tenant && !$userId && $tenant->client_id) {
+            $userId = $tenant->client_id;
+        }
+
+        // Fallback to authenticated user if no user_id passed and authenticated as client
+        if (!$userId && $request->user()) {
+            $authUser = $request->user();
+            if (!$authUser->hasRole('super-admin') && !$authUser->hasRole('admin')) {
+                $userId = $authUser->id;
+            }
+        }
+
+        // 3. Query existing domain (excluding soft-deleted tenants)
+        $existingDomain = \App\Models\Domain::where(function ($q) use ($fullDomain, $prefix) {
+                $q->where('domain', $fullDomain)
+                  ->orWhere('domain', $prefix . '.tidcraft.app');
+            })
+            ->whereHas('tenant')
+            ->with(['tenant', 'tenant.client'])
+            ->first();
+
+        // If no existing domain found at all, it's completely available
+        if (!$existingDomain) {
+            return response()->json([
+                'status' => 'success',
+                'available' => true,
+                'domain' => $prefix,
+                'full_domain' => $fullDomain,
+                'message' => 'Subdomain is available'
+            ]);
+        }
+
+        $ownerTenantId = $existingDomain->tenant_id;
+        $ownerClientId = $existingDomain->client_id ?? $existingDomain->tenant?->client_id;
+        $ownerEmail = $existingDomain->tenant?->primary_contact_email ?? $existingDomain->tenant?->client?->email;
+
+        // Check if this domain reservation belongs to the caller's tenant or user
+        $isOwnTenant = $tenantId && ((string)$ownerTenantId === (string)$tenantId);
+        $isOwnUser = $userId && $ownerClientId && ((string)$ownerClientId === (string)$userId);
+        $isOwnEmail = !empty($contactEmail) && $ownerEmail && (strtolower($contactEmail) === strtolower($ownerEmail));
+        // In case user passed tenant_id inside user_id parameter
+        $isTenantIdMatchFromUserParam = $userIdentifier && is_numeric($userIdentifier) && ((string)$ownerTenantId === (string)$userIdentifier);
+
+        $isOwnReservation = ($isOwnTenant || $isOwnUser || $isOwnEmail || $isTenantIdMatchFromUserParam);
+
+        if ($isOwnReservation) {
+            return response()->json([
+                'status' => 'success',
+                'available' => true,
+                'domain' => $prefix,
+                'full_domain' => $fullDomain,
+                'is_own_reservation' => true,
+                'message' => 'Subdomain is reserved for this user and ready for setup',
+                'reserved_by' => [
+                    'tenant_id' => $existingDomain->tenant_id,
+                    'tenant_uuid' => $existingDomain->tenant?->uuid,
+                    'business_name' => $existingDomain->tenant?->business_name ?? 'Your Tenant',
+                    'status' => $existingDomain->tenant?->status ?? 'pending',
+                    'client_id' => $ownerClientId,
+                    'user_id' => $ownerClientId,
+                ]
+            ]);
+        }
+
+        // Subdomain is taken by another tenant / user
+        return response()->json([
+            'status' => 'success',
+            'available' => false,
+            'domain' => $prefix,
+            'full_domain' => $fullDomain,
+            'is_own_reservation' => false,
+            'message' => 'Subdomain is already taken',
+            'reserved_by' => [
                 'tenant_id' => $existingDomain->tenant_id,
                 'tenant_uuid' => $existingDomain->tenant?->uuid,
                 'business_name' => $existingDomain->tenant?->business_name ?? 'Another Tenant',
                 'status' => $existingDomain->tenant?->status ?? 'unknown',
-            ];
-        }
-
-        return response()->json($response);
+            ]
+        ]);
     }
 
     /**
