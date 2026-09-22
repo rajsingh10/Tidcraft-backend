@@ -39,7 +39,11 @@ class AppServiceProvider extends ServiceProvider
                 ])->pluck('value', 'key');
 
                 if ($mailSettings->count() > 0) {
-                    if ($mailSettings->has('mail_mailer')) Config::set('mail.default', $mailSettings['mail_mailer']);
+                    if ($mailSettings->has('mail_mailer') && !empty($mailSettings['mail_mailer'])) {
+                        Config::set('mail.default', $mailSettings['mail_mailer']);
+                    } elseif ($mailSettings->has('mail_host') && !empty($mailSettings['mail_host'])) {
+                        Config::set('mail.default', 'smtp');
+                    }
                     if ($mailSettings->has('mail_host')) Config::set('mail.mailers.smtp.host', $mailSettings['mail_host']);
                     if ($mailSettings->has('mail_port')) Config::set('mail.mailers.smtp.port', $mailSettings['mail_port']);
                     if ($mailSettings->has('mail_encryption')) Config::set('mail.mailers.smtp.encryption', $mailSettings['mail_encryption']);

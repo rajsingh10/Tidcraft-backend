@@ -3,7 +3,6 @@
 namespace App\Mail;
 
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
@@ -11,7 +10,7 @@ use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 use App\Models\Inquiry;
 
-class AdminInquiryNotification extends Mailable implements ShouldQueue
+class AdminInquiryNotification extends Mailable
 {
     use Queueable, SerializesModels;
 
@@ -24,7 +23,7 @@ class AdminInquiryNotification extends Mailable implements ShouldQueue
     public function __construct(Inquiry $inquiry)
     {
         $this->inquiry = $inquiry;
-        $this->companyName = \App\Models\Setting::where('key', 'company_name')->value('value') ?? config('app.name', 'Nexira SaaS');
+        $this->companyName = \App\Models\Setting::where('key', 'company_name')->value('value') ?? config('app.name', 'TidCraft');
     }
 
     /**
@@ -33,7 +32,7 @@ class AdminInquiryNotification extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'New Inquiry Received',
+            subject: 'New Inquiry Received - ' . ($this->inquiry->customer_name ?? 'Website Visitor'),
         );
     }
 

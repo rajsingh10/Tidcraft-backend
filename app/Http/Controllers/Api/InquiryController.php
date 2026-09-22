@@ -28,7 +28,7 @@ class InquiryController extends Controller
             'customer_name' => 'required|string|max:255',
             'email' => 'required|email|max:255',
             'phone' => 'nullable|string|max:20',
-            'project_id' => 'nullable|string|max:255',
+            'project_id' => 'nullable|max:255',
             'description' => 'nullable|string',
         ]);
 
@@ -50,33 +50,110 @@ class InquiryController extends Controller
             $data['update_by'] = auth()->id();
         }
 
+        $rawProjectId = $data['project_id'] ?? null;
+        if (isset($data['project_id']) && !is_numeric($data['project_id'])) {
+            // inquiries.project_id is unsignedBigInteger in database; store null if text was passed
+            $data['project_id'] = null;
+        }
+
         try {
             $inquiry = Inquiry::create($data);
 
             // Create Admin Notification
-            \App\Models\AdminNotification::create([
-                'type' => 'inquiry',
-                'title' => 'New Inquiry Received',
-                'message' => 'A new inquiry has been received from ' . $inquiry->customer_name . '.',
-                'related_id' => $inquiry->id,
-                'client_name' => $inquiry->customer_name,
-                'is_read' => false,
-            ]);
-
-            // Dispatch Emails safely
             try {
-                $adminEmail = env('MAIL_FROM_ADDRESS', 'admin@example.com');
-                // You can also get it from settings if available
-                $settings = \App\Models\Setting::where('key', 'smtp_from_address')->first();
-                if ($settings && $settings->value) {
-                    $adminEmail = $settings->value;
+                \App\Models\AdminNotification::create([
+                    'type' => 'inquiry',
+                    'title' => 'New Inquiry Received',
+                    'message' => 'A new inquiry has been received from ' . $inquiry->customer_name . '.',
+                    'related_id' => $inquiry->id,
+                    'client_name' => $inquiry->customer_name,
+                    'is_read' => false,
+                ]);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning('Failed to create admin notification for inquiry: ' . $e->getMessage());
+            }
+
+            // Company information from settings
+            $companyName = \App\Models\Setting::where('key', 'company_name')->value('value') ?? config('app.name', 'TidCraft');
+            $companyEmail = \App\Models\Setting::where('key', 'company_email')->value('value') ?? config('mail.from.address');
+            $companyPhone = \App\Models\Setting::where('key', 'company_phone')->value('value') ?? '';
+
+            // Template replacement variables and objects for DynamicEmail & Blade
+            $replacements = [
+                'inquiry' => $inquiry,
+                'companyName' => $companyName,
+                'companyEmail' => $companyEmail,
+                'companyPhone' => $companyPhone,
+                '{name}' => $inquiry->customer_name,
+                '{{name}}' => $inquiry->customer_name,
+                '{customer_name}' => $inquiry->customer_name,
+                '{{customer_name}}' => $inquiry->customer_name,
+                '{email}' => $inquiry->email,
+                '{{email}}' => $inquiry->email,
+                '{phone}' => $inquiry->phone ?? 'N/A',
+                '{{phone}}' => $inquiry->phone ?? 'N/A',
+                '{project_id}' => $rawProjectId ?? $inquiry->project_id ?? 'N/A',
+                '{{project_id}}' => $rawProjectId ?? $inquiry->project_id ?? 'N/A',
+                '{service}' => $rawProjectId ?? $inquiry->project_id ?? 'N/A',
+                '{{service}}' => $rawProjectId ?? $inquiry->project_id ?? 'N/A',
+                '{description}' => $inquiry->description ?? 'N/A',
+                '{{description}}' => $inquiry->description ?? 'N/A',
+                '{message}' => $inquiry->description ?? 'N/A',
+                '{{message}}' => $inquiry->description ?? 'N/A',
+                '{inquiry_id}' => $inquiry->id,
+                '{{inquiry_id}}' => $inquiry->id,
+                '{company_name}' => $companyName,
+                '{{company_name}}' => $companyName,
+                '{company_email}' => $companyEmail,
+                '{{company_email}}' => $companyEmail,
+                '{company_phone}' => $companyPhone,
+                '{{company_phone}}' => $companyPhone,
+            ];
+
+            // 1. Send Email to Admin
+            try {
+                $adminEmail = \App\Models\Setting::where('key', 'company_email')->value('value');
+                if (!$adminEmail) {
+                    $superAdmin = \App\Models\User::role('SuperAdmin')->first();
+                    $adminEmail = $superAdmin ? $superAdmin->email : null;
+                }
+                if (!$adminEmail) {
+                    $adminEmail = \App\Models\Setting::where('key', 'mail_from_address')->value('value');
+                }
+                if (!$adminEmail) {
+                    $adminEmail = config('mail.from.address');
                 }
 
-                \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\AdminInquiryNotification($inquiry));
-                \Illuminate\Support\Facades\Mail::to($inquiry->email)->send(new \App\Mail\ClientInquiryConfirmation($inquiry));
+                if ($adminEmail) {
+                    $adminTemplate = \App\Models\EmailTemplate::whereIn('slug', ['Admin_Inquiry', 'admin_inquiry', 'admin-inquiry', 'new-inquiry-admin'])
+                        ->where('status', 'active')
+                        ->first();
+
+                    if ($adminTemplate) {
+                        \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\DynamicEmail($adminTemplate, $replacements));
+                    } else {
+                        \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\AdminInquiryNotification($inquiry));
+                    }
+                }
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Inquiry Email failed: ' . $e->getMessage());
-                // Non-blocking: continue without throwing error for email failure
+                \Illuminate\Support\Facades\Log::error('Failed to send admin inquiry notification email: ' . $e->getMessage());
+            }
+
+            // 2. Send Confirmation Email to Client / Customer
+            try {
+                if (!empty($inquiry->email)) {
+                    $clientTemplate = \App\Models\EmailTemplate::whereIn('slug', ['Your_Inquiry_Has_Been_Received', 'your_inquiry_has_been_received', 'client-inquiry', 'client_inquiry', 'inquiry-received', 'inquiry_confirmation'])
+                        ->where('status', 'active')
+                        ->first();
+
+                    if ($clientTemplate) {
+                        \Illuminate\Support\Facades\Mail::to($inquiry->email)->send(new \App\Mail\DynamicEmail($clientTemplate, $replacements));
+                    } else {
+                        \Illuminate\Support\Facades\Mail::to($inquiry->email)->send(new \App\Mail\ClientInquiryConfirmation($inquiry));
+                    }
+                }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to send client inquiry confirmation email: ' . $e->getMessage());
             }
 
             return response()->json([
