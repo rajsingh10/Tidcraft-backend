@@ -22,6 +22,8 @@ class CmsPage extends Model
         'status',
         'sort_order',
         'is_active',
+        'page_type',
+        'product_id',
         'published_at',
         'created_by',
         'updated_by',
@@ -29,10 +31,35 @@ class CmsPage extends Model
     ];
 
     protected $casts = [
-        'is_active' => 'boolean',
+        'is_active'    => 'boolean',
         'published_at' => 'datetime',
-        'content' => 'array',
+        'content'      => 'array',
+        'product_id'   => 'integer',
     ];
+
+    /**
+     * The product this CMS page belongs to (null for home-page sections).
+     */
+    public function product()
+    {
+        return $this->belongsTo(Product::class);
+    }
+
+    /**
+     * Scope: home-page sections only.
+     */
+    public function scopeHomePage($query)
+    {
+        return $query->where('page_type', 'home')->whereNull('product_id');
+    }
+
+    /**
+     * Scope: sections for a specific product.
+     */
+    public function scopeForProduct($query, $productId)
+    {
+        return $query->where('page_type', 'product')->where('product_id', $productId);
+    }
 
     /**
      * Get the route key for the model.

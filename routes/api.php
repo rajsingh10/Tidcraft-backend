@@ -24,9 +24,12 @@ Route::post('/login', [AuthController::class, 'login']);
 
 // Public API Routes
 Route::post('inquiries', [InquiryController::class, 'store']);
+Route::post('newsletter/subscribe', [\App\Http\Controllers\Api\NewsletterController::class, 'subscribe']);
 Route::get('products/client', [ProductController::class, 'publicIndex']);
 Route::get('settings/client', [SettingController::class, 'publicGeneral']);
-Route::get('cms-pages/slug/{slug}', [CmsPageController::class, 'showBySlug']);
+Route::get('cms-pages/slug/{slug}', [CmsPageController::class, 'showBySlug']); // ?product_id=<id> for product pages
+Route::get('cms-pages/home', [CmsPageController::class, 'homePage']);         // All published home sections
+Route::get('cms-pages/product/{productId}', [CmsPageController::class, 'productPage']); // All sections for a product
 
 Route::apiResource('plans', PlanController::class)->only(['index', 'show']);
 Route::apiResource('add-ons', AddOnController::class)->only(['index', 'show']);
