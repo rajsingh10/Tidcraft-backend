@@ -24,4 +24,9 @@ class Inquiry extends Model
         'update_by',
         'delete_by',
     ];
+
+    public function getCreatedAtAttribute()
+    {
+        return $this->create_at;
+    }
 }

@@ -3,7 +3,6 @@
 namespace App\Mail;
 
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
@@ -11,7 +10,7 @@ use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 use App\Models\Inquiry;
 
-class ClientInquiryConfirmation extends Mailable implements ShouldQueue
+class ClientInquiryConfirmation extends Mailable
 {
     use Queueable, SerializesModels;
 
@@ -26,9 +25,9 @@ class ClientInquiryConfirmation extends Mailable implements ShouldQueue
     public function __construct(Inquiry $inquiry)
     {
         $this->inquiry = $inquiry;
-        $this->companyName = \App\Models\Setting::where('key', 'company_name')->value('value') ?? config('app.name', 'Nexira SaaS');
+        $this->companyName = \App\Models\Setting::where('key', 'company_name')->value('value') ?? config('app.name', 'TidCraft');
         $this->companyPhone = \App\Models\Setting::where('key', 'company_phone')->value('value');
-        $this->companyEmail = \App\Models\Setting::where('key', 'company_email')->value('value');
+        $this->companyEmail = \App\Models\Setting::where('key', 'company_email')->value('value') ?? config('mail.from.address');
     }
 
     /**
@@ -37,7 +36,7 @@ class ClientInquiryConfirmation extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your Inquiry Has Been Received',
+            subject: 'Thank you for contacting us - Your Inquiry Has Been Received',
         );
     }
 
