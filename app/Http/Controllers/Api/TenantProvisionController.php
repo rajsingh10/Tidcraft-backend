@@ -497,9 +497,42 @@ class TenantProvisionController extends Controller
             ->orderBy('id', 'asc')
             ->get();
 
+        // Check if tenant has completed provisioning in the past
+        $isFullyProvisioned = $logs->where('step', 'activation')->where('status', 'success')->isNotEmpty()
+            && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id);
+
+        // If not fully provisioned, trigger background provisioning if domain is configured
+        if (!$isFullyProvisioned) {
+            $hasDomain = $tenant->domains()->whereNotNull('domain')->where('domain', '!=', '')->exists();
+            $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+
+            if ($hasDomain && $productFirebase && !empty($productFirebase->firebase_project_id)) {
+                if ($tenant->status !== 'provisioning') {
+                    $tenant->update(['status' => 'provisioning']);
+                }
+                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                \App\Helpers\QueueRunner::runBackground();
+
+                // Small delay to allow the first step to log if this is the initial trigger
+                if ($logs->isEmpty()) {
+                    usleep(300000);
+                    $logs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)
+                        ->orderBy('id', 'asc')
+                        ->get();
+                }
+            }
+
+            // An unprovisioned tenant MUST NEVER report status 'active' with empty/incomplete logs
+            return response()->json([
+                'status' => 'success',
+                'tenant_status' => 'provisioning',
+                'data' => $logs
+            ]);
+        }
+
         return response()->json([
             'status' => 'success',
-            'tenant_status' => $tenant->status,
+            'tenant_status' => 'active',
             'data' => $logs
         ]);
     }
@@ -640,6 +673,14 @@ class TenantProvisionController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
         }
 
+        // Auto-construct full domain from subdomain_prefix
+        if ($request->domain_type === 'subdomain' && $request->has('subdomain_prefix')) {
+            $prefix = trim($request->subdomain_prefix, " .");
+            $request->merge(['domain' => $prefix . '.tidcraft.com']);
+        } elseif ($request->domain_type === 'custom' && $request->has('domain')) {
+            $request->merge(['domain' => \App\Services\DnsService::normalizeDomain($request->domain)]);
+        }
+
         // Handle cases where frontend FormData sends array as JSON string or comma-separated string
         if ($request->has('add_ons') && is_string($request->add_ons)) {
             $decoded = json_decode($request->add_ons, true);
@@ -694,9 +735,19 @@ class TenantProvisionController extends Controller
 
             $this->syncClientProfile($request, $tenant->client_id);
 
+            // Check if tenant has already completed provisioning in the past
+            $provisioningLogs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)->get();
+            $isFullyProvisioned = $provisioningLogs->where('step', 'activation')->where('status', 'success')->isNotEmpty()
+                && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id);
+
             $updateData = $request->only([
                 'client_id', 'business_name', 'primary_contact_email', 'phone_number', 'address', 'industry', 'product_id', 'plan_id', 'status'
             ]);
+
+            // Never prematurely mark an unprovisioned tenant as 'active' via update API
+            if (!$isFullyProvisioned && isset($updateData['status']) && strtolower($updateData['status']) === 'active') {
+                unset($updateData['status']);
+            }
             
             // Auto-generate name/tenant_key if business_name or product_id changed
             if ($request->has('business_name')) {
@@ -706,6 +757,16 @@ class TenantProvisionController extends Controller
                 $bName = $request->business_name ?? $tenant->business_name;
                 $pId = $request->product_id ?? $tenant->product_id;
                 $updateData['tenant_key'] = Str::slug($bName) . '-p' . $pId;
+            }
+
+            // If domain is provided/updated and tenant has not yet completed provisioning, queue background provisioning
+            $shouldTriggerProvisioning = false;
+            if (!$isFullyProvisioned) {
+                $hasDomainNow = $request->filled('domain') || $tenant->domains()->whereNotNull('domain')->where('domain', '!=', '')->exists();
+                if ($hasDomainNow) {
+                    $updateData['status'] = 'provisioning';
+                    $shouldTriggerProvisioning = true;
+                }
             }
 
             $oldStatus = $tenant->status;
@@ -763,6 +824,12 @@ class TenantProvisionController extends Controller
             }
 
             DB::commit();
+
+            if ($shouldTriggerProvisioning) {
+                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                \App\Helpers\QueueRunner::runBackground();
+                AuditLogger::log('Tenant Provisioned', 'Provisioning Queued', "Tenant {$tenant->business_name} domain setup completed and background provisioning queued.");
+            }
 
             return response()->json([
                 'status' => 'success',
@@ -1796,64 +1863,111 @@ class TenantProvisionController extends Controller
         $adminPassword = empty($baseName) ? 'tidcraft' : str_replace(' ', '', strtolower($baseName)) . '-tidcraft';
         $domainObj = $tenant->domains()->first();
         $domainUrl = 'https://' . ($domainObj ? $domainObj->domain : 'tidcraft.com');
-        $adminUrl = $domainUrl . '/admin';
+        $adminUrl = rtrim($domainUrl, '/') . '/admin_panel';
+        $apanelUrl = $adminUrl;
+        $restaurantPanelUrl = rtrim($domainUrl, '/') . '/restaurant_panel';
+        $ownerPanelUrl = rtrim($domainUrl, '/') . '/owner_panel';
+
+        $prodName = strtolower($tenant->product?->slug ?? $tenant->product?->name ?? '');
+        $isFoodApp = str_contains($prodName, 'food') || str_contains($prodName, 'eats');
+        $isParkApp = str_contains($prodName, 'park') || str_contains($prodName, 'parkme');
 
         // Support both Setup_email (Admin Panel Setup Reminder) and Your_Application_is_Ready
-        $slug = $request->input('slug', 'Setup_email');
+        $slug = $request->input('slug', 'Your_Application_is_Ready');
         $template = \App\Models\EmailTemplate::where('slug', $slug)->first();
+
+        $recipientEmails = array_filter(array_unique([
+            $adminEmail,
+            $tenant->client?->email,
+            $tenant->primary_contact_email
+        ]));
 
         try {
             if ($template && $template->status === 'active') {
                 $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
                 
                 $replacements = [
+                    'name' => $clientName,
                     '{name}' => $clientName,
                     '{{name}}' => $clientName,
+                    'client_name' => $clientName,
                     '{client_name}' => $clientName,
                     '{{client_name}}' => $clientName,
-                    '{clientName}' => $clientName,
+                    'clientName' => $clientName,
+                    'email' => $adminEmail,
                     '{email}' => $adminEmail,
                     '{{email}}' => $adminEmail,
+                    'login_email' => $adminEmail,
+                    '{login_email}' => $adminEmail,
+                    '{{login_email}}' => $adminEmail,
+                    'admin_email' => $adminEmail,
                     '{admin_email}' => $adminEmail,
                     '{{admin_email}}' => $adminEmail,
+                    'adminEmail' => $adminEmail,
+                    'admin_password' => $adminPassword,
                     '{admin_password}' => $adminPassword,
                     '{{admin_password}}' => $adminPassword,
+                    'adminPassword' => $adminPassword,
+                    'password' => $adminPassword,
+                    '{password}' => $adminPassword,
+                    '{{password}}' => $adminPassword,
+                    'domain_url' => $domainUrl,
                     '{domain_url}' => $domainUrl,
                     '{{domain_url}}' => $domainUrl,
-                    '{domainUrl}' => $domainUrl,
+                    'domainUrl' => $domainUrl,
+                    'website_url' => $domainUrl,
+                    '{website_url}' => $domainUrl,
+                    '{{website_url}}' => $domainUrl,
+                    'admin_url' => $adminUrl,
                     '{admin_url}' => $adminUrl,
                     '{{admin_url}}' => $adminUrl,
-                    '{adminUrl}' => $adminUrl,
-                    '{adminEmail}' => $adminEmail,
-                    '{adminPassword}' => $adminPassword,
+                    'adminUrl' => $adminUrl,
+                    'apanel_url' => $apanelUrl,
+                    '{apanel_url}' => $apanelUrl,
+                    '{{apanel_url}}' => $apanelUrl,
+                    'restaurantPanelUrl' => $restaurantPanelUrl,
+                    'restaurant_panel_url' => $restaurantPanelUrl,
+                    '{restaurant_panel_url}' => $restaurantPanelUrl,
+                    'ownerPanelUrl' => $ownerPanelUrl,
+                    'owner_panel_url' => $ownerPanelUrl,
+                    '{owner_panel_url}' => $ownerPanelUrl,
+                    'isFoodApp' => $isFoodApp,
+                    'isParkApp' => $isParkApp,
+                    'business_name' => $tenant->business_name,
                     '{business_name}' => $tenant->business_name,
                     '{{business_name}}' => $tenant->business_name,
+                    'tenant_name' => $tenant->name,
                     '{tenant_name}' => $tenant->name,
                     '{{tenant_name}}' => $tenant->name,
+                    'product_name' => $tenant->product->name ?? '',
                     '{product_name}' => $tenant->product->name ?? '',
                     '{{product_name}}' => $tenant->product->name ?? '',
+                    'image' => $imageUrl,
                     '{image}' => $imageUrl,
                     '{{image}}' => $imageUrl,
-                    '{tenant}' => $tenant,
+                    'hasAppImage' => !empty($imageUrl),
                     'tenant' => $tenant,
                 ];
 
-                \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\DynamicEmail($template, $replacements));
+                foreach ($recipientEmails as $recEmail) {
+                    \Illuminate\Support\Facades\Mail::to($recEmail)->send(new \App\Mail\DynamicEmail($template, $replacements));
+                }
             } else {
-                // Fallback based on slug
-                if ($slug === 'Your_Application_is_Ready') {
-                    \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\TenantProvisionedEmail($tenant, $adminEmail, $adminPassword, $domainUrl));
-                } else {
-                    \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\TenantSetupReadyMail($tenant));
+                foreach ($recipientEmails as $recEmail) {
+                    if ($slug === 'Your_Application_is_Ready') {
+                        \Illuminate\Support\Facades\Mail::to($recEmail)->send(new \App\Mail\TenantProvisionedEmail($tenant, $adminEmail, $adminPassword, $domainUrl));
+                    } else {
+                        \Illuminate\Support\Facades\Mail::to($recEmail)->send(new \App\Mail\TenantSetupReadyMail($tenant));
+                    }
                 }
             }
 
             $templateTitle = $template ? $template->title : ($slug === 'Your_Application_is_Ready' ? 'Application Ready' : 'Setup Reminder');
-            AuditLogger::log('Provisioned Email Sent', 'Tenant Setup Reminder / Ready Email', "Sent {$templateTitle} to {$adminEmail} for tenant {$tenant->business_name}.");
+            AuditLogger::log('Provisioned Email Sent', 'Tenant Setup Reminder / Ready Email', "Sent {$templateTitle} to " . implode(', ', $recipientEmails) . " for tenant {$tenant->business_name}.");
 
             return response()->json([
                 'status' => 'success',
-                'message' => ($slug === 'Your_Application_is_Ready' ? 'Application Ready' : 'Setup reminder') . ' email sent successfully.'
+                'message' => ($slug === 'Your_Application_is_Ready' ? 'Application Ready' : 'Setup reminder') . ' email sent successfully to ' . implode(', ', $recipientEmails) . '.'
             ]);
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to send provisioned / setup reminder email: ' . $e->getMessage());
@@ -1863,5 +1977,92 @@ class TenantProvisionController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Verify live DNS propagation for tenant custom domain (Admin / Public API).
+     */
+    public function verifyDns(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $domain = Domain::where('tenant_id', $tenant->id)->first();
+        if (!$domain) {
+            return response()->json(['status' => 'error', 'message' => 'No domain configured for this tenant.'], 404);
+        }
+
+        $verification = \App\Services\DnsService::verifyDomainDns($domain->domain, $domain->type);
+
+        if ($verification['verified']) {
+            $domain->update(['status' => 'active']);
+
+            // Create frontend symlink for Nginx
+            \App\Services\DnsService::createTenantSymlink($tenant, $domain->domain);
+
+            return response()->json([
+                'status' => 'success',
+                'verified' => true,
+                'message' => 'DNS records verified successfully! Domain is now active.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'domain' => $domain->domain,
+                    'domain_type' => $domain->type,
+                    'status' => 'active',
+                    'server_ip' => $verification['server_ip'],
+                    'resolved_ips' => $verification['resolved_ips'],
+                    'verified_at' => now()->toIso8601String()
+                ]
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'pending',
+            'verified' => false,
+            'message' => $verification['message'],
+            'data' => [
+                'tenant_id' => $tenant->uuid,
+                'domain' => $domain->domain,
+                'domain_type' => $domain->type,
+                'status' => $domain->status,
+                'server_ip' => $verification['server_ip'],
+                'current_resolved_ips' => $verification['resolved_ips'],
+                'dns_records' => \App\Services\DnsService::getExpectedDnsRecords($domain->domain, $domain->type)
+            ]
+        ]);
+    }
+
+    /**
+     * Resend DNS instructions email to the client for this tenant (Admin API).
+     */
+    public function sendDnsEmail(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $domain = Domain::where('tenant_id', $tenant->id)->first();
+        if (!$domain) {
+            return response()->json(['status' => 'error', 'message' => 'No domain configured for this tenant.'], 404);
+        }
+
+        $sent = \App\Services\DnsService::sendDnsInstructionsEmail($tenant, $domain);
+
+        if ($sent) {
+            $client = $tenant->client ?? \App\Models\User::find($tenant->client_id ?? $tenant->create_by);
+            $email = $client->email ?? $tenant->primary_contact_email;
+            return response()->json([
+                'status' => 'success',
+                'message' => "DNS setup instructions email sent successfully to {$email}."
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Failed to send DNS instructions email. Please check contact email configuration.'
+        ], 500);
     }
 }

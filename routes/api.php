@@ -32,6 +32,7 @@ Route::apiResource('plans', PlanController::class)->only(['index', 'show']);
 Route::apiResource('add-ons', AddOnController::class)->only(['index', 'show']);
 Route::get('tenant/plan-status', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'show']);
 Route::get('tenant/check-quota', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'checkQuota']);
+Route::post('/tenant-provision/{uuid}/verify-dns', [TenantProvisionController::class, 'verifyDns']);
 
 // Client Public Routes
 Route::prefix('client')->group(function () {
@@ -70,6 +71,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/purchases/{uuid}/renew', [ClientPurchaseController::class, 'renew']);
         Route::post('/purchases/{uuid}/upgrade', [ClientPurchaseController::class, 'upgrade']);
         Route::post('/purchases/{uuid}/domain', [ClientPurchaseController::class, 'setupDomain']);
+        Route::post('/purchases/{uuid}/verify-dns', [ClientPurchaseController::class, 'verifyDns']);
+        Route::get('/purchases/{uuid}/dns-status', [ClientPurchaseController::class, 'dnsStatus']);
+        Route::post('/purchases/{uuid}/send-dns-email', [ClientPurchaseController::class, 'sendDnsEmail']);
         Route::get('/payments', [ClientPurchaseController::class, 'payments']);
         Route::get('/invoices', [\App\Http\Controllers\Api\InvoiceController::class, 'index']);
         Route::get('/invoices/{id}', [\App\Http\Controllers\Api\InvoiceController::class, 'show']);
@@ -174,6 +178,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tenants/{uuid}/send-provisioned-email', [TenantProvisionController::class, 'sendProvisionedEmail']);
     Route::post('/tenants/{uuid}/provision', [TenantProvisionController::class, 'manualProvision']);
     Route::post('/tenants/{uuid}/check-subdomain', [TenantProvisionController::class, 'checkSubdomain']);
+    Route::post('/tenants/{uuid}/verify-dns', [TenantProvisionController::class, 'verifyDns']);
+    Route::post('/tenants/{uuid}/send-dns-email', [TenantProvisionController::class, 'sendDnsEmail']);
 
     // Support Tickets API
     Route::get('/support-tickets', [\App\Http\Controllers\Api\SupportTicketController::class, 'index']);
