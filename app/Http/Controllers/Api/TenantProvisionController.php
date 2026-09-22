@@ -182,41 +182,90 @@ class TenantProvisionController extends Controller
 
     /**
      * Check if a subdomain prefix is available.
+     * Supports checking availability while excluding the current tenant (via tenant_id, uuid, tenant_uuid, id).
      */
-    public function checkSubdomain(Request $request)
+    public function checkSubdomain(Request $request, $uuid = null)
     {
-        $validator = Validator::make($request->all(), [
-            'subdomain_prefix' => 'required|string|max:255',
-            'tenant_id' => 'nullable|integer',
-        ]);
+        // Support either 'subdomain_prefix' or 'domain'
+        $rawPrefix = $request->input('subdomain_prefix') ?? $request->input('domain');
 
-        if ($validator->fails()) {
+        if (!$rawPrefix) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Validation Error',
-                'errors' => $validator->errors()
+                'errors' => ['subdomain_prefix' => ['The subdomain prefix field is required.']]
             ], 422);
         }
 
-        $prefix = trim($request->subdomain_prefix, " .");
+        $prefix = trim($rawPrefix, " .");
+        $prefix = preg_replace('/\.tidcraft\.(com|app)$/i', '', $prefix);
         $fullDomain = $prefix . '.tidcraft.com';
+
+        // Resolve Tenant ID from all possible parameter sources (body, route, query, or headers)
+        $tenantId = null;
+        $identifier = $uuid 
+            ?? $request->input('tenant_id') 
+            ?? $request->input('tenant_uuid') 
+            ?? $request->input('uuid') 
+            ?? $request->input('id')
+            ?? $request->query('tenant_id')
+            ?? $request->query('tenant_uuid')
+            ?? $request->query('uuid')
+            ?? $request->query('id')
+            ?? $request->header('X-Tenant-Id')
+            ?? $request->header('X-Tenant-Uuid');
+
+        if ($identifier) {
+            if (is_numeric($identifier)) {
+                $tenant = Tenant::find($identifier);
+            } else {
+                $tenant = Tenant::where('uuid', $identifier)->first();
+            }
+            if ($tenant) {
+                $tenantId = $tenant->id;
+            }
+        }
 
         $query = \App\Models\Domain::where('domain', $fullDomain);
         
-        if ($request->filled('tenant_id')) {
-            $query->where('tenant_id', '!=', $request->tenant_id);
+        if ($tenantId) {
+            $query->where('tenant_id', '!=', $tenantId);
         }
 
-        $existsInDomains = $query->exists();
+        $existingDomain = $query->with('tenant')->first();
+        $isTakenByOther = ($existingDomain !== null);
+        $available = !$isTakenByOther;
 
-        $available = !$existsInDomains;
-
-        return response()->json([
+        $response = [
             'status' => 'success',
             'available' => $available,
             'domain' => $prefix,
+            'full_domain' => $fullDomain,
             'message' => $available ? 'Subdomain is available' : 'Subdomain is already taken'
-        ]);
+        ];
+
+        // If available and already belongs to the current tenant being provisioned
+        if ($tenantId && $available) {
+            $isOwnReservation = \App\Models\Domain::where('domain', $fullDomain)
+                ->where('tenant_id', $tenantId)
+                ->exists();
+            if ($isOwnReservation) {
+                $response['message'] = 'Subdomain is reserved for this tenant and ready for setup';
+                $response['is_own_reservation'] = true;
+            }
+        }
+
+        // If taken, provide details on who reserved it so admin/frontend has full visibility
+        if ($isTakenByOther) {
+            $response['reserved_by'] = [
+                'tenant_id' => $existingDomain->tenant_id,
+                'tenant_uuid' => $existingDomain->tenant?->uuid,
+                'business_name' => $existingDomain->tenant?->business_name ?? 'Another Tenant',
+                'status' => $existingDomain->tenant?->status ?? 'unknown',
+            ];
+        }
+
+        return response()->json($response);
     }
 
     /**
@@ -1554,8 +1603,8 @@ class TenantProvisionController extends Controller
         }
 
         $client = $tenant->client;
-        $clientEmail = $tenant->primary_contact_email ?? ($client ? $client->email : null);
-        $clientName = $client ? $client->name : $tenant->business_name;
+        $clientEmail = $request->input('email') ?: ($tenant->primary_contact_email ?? ($client ? $client->email : null));
+        $clientName = $request->input('name') ?: ($client ? $client->name : $tenant->business_name);
 
         if (!$clientEmail) {
             return response()->json(['status' => 'error', 'message' => 'Client email not found for this tenant.'], 404);
@@ -1589,6 +1638,7 @@ class TenantProvisionController extends Controller
             $domainUrl = 'https://' . ($domainObj ? $domainObj->domain : 'tidcraft.com');
             $adminUrl = $domainUrl . '/admin_panel';
             $apiUrl = rtrim(config('app.url'), '/') . '/api';
+            $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
 
             $replacements = [
                 '{name}' => $clientName,

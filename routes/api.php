@@ -173,6 +173,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tenants/{uuid}/send-setup-email', [TenantProvisionController::class, 'sendSetupEmail']);
     Route::post('/tenants/{uuid}/send-provisioned-email', [TenantProvisionController::class, 'sendProvisionedEmail']);
     Route::post('/tenants/{uuid}/provision', [TenantProvisionController::class, 'manualProvision']);
+    Route::post('/tenants/{uuid}/check-subdomain', [TenantProvisionController::class, 'checkSubdomain']);
 
     // Support Tickets API
     Route::get('/support-tickets', [\App\Http\Controllers\Api\SupportTicketController::class, 'index']);
