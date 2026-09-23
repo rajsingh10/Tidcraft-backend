@@ -1750,6 +1750,14 @@ class TenantProvisionController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
         }
 
+        // Verify site provisioning is active before sending setup email
+        if (strtolower($tenant->status ?? '') !== 'active') {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Cannot send setup email. Site provisioning is not active yet (current status: ' . ($tenant->status ?: 'inactive') . '). Please wait until provisioning is complete.'
+            ], 422);
+        }
+
         $client = $tenant->client;
         $clientEmail = $request->input('email') ?: ($tenant->primary_contact_email ?? ($client ? $client->email : null));
         $clientName = $request->input('name') ?: ($client ? $client->name : $tenant->business_name);
@@ -1850,6 +1858,14 @@ class TenantProvisionController extends Controller
         
         if (!$tenant) {
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        // Verify site provisioning is active before sending provisioned / setup reminder email
+        if (strtolower($tenant->status ?? '') !== 'active') {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Cannot send provisioned email. Site provisioning is not active yet (current status: ' . ($tenant->status ?: 'inactive') . '). Please wait until provisioning is complete.'
+            ], 422);
         }
 
         $client = $tenant->client;

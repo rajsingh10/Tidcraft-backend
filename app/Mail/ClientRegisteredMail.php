@@ -13,10 +13,14 @@ class ClientRegisteredMail extends Mailable
 
     public $user;
     public $settings;
+    public $loginUrl;
+    public $contactUrl;
 
-    public function __construct($user)
+    public function __construct($user, ?string $loginUrl = null, ?string $contactUrl = null)
     {
         $this->user = $user;
+        $this->loginUrl = $loginUrl ?: \App\Helpers\UrlHelper::getLoginUrl();
+        $this->contactUrl = $contactUrl ?: \App\Helpers\UrlHelper::getContactUrl();
         
         // Fetch general settings
         $keys = [
@@ -35,6 +39,11 @@ class ClientRegisteredMail extends Mailable
     {
         $companyName = $this->settings['company_name'] ?? 'Tidcraft';
         return $this->subject('Welcome to ' . $companyName)
-                    ->view('emails.client_registered');
+                    ->view('emails.client_registered', [
+                        'user' => $this->user,
+                        'settings' => $this->settings,
+                        'loginUrl' => $this->loginUrl,
+                        'contactUrl' => $this->contactUrl,
+                    ]);
     }
 }

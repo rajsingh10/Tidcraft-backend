@@ -71,28 +71,35 @@
 </head>
 <body>
     <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <table class="header-table">
-                <tr>
-                    <td width="33%">
-                        <a href="{{ config('app.url') }}" class="brand-logo">
-                            @if(!empty($settings['company_logo']))
-                                <img src="{{ url($settings['company_logo']) }}" alt="{{ $settings['company_name'] ?? 'Tidcraft' }}">
-                            @else
-                                {{ $settings['company_name'] ?? 'Tidcraft' }}
-                            @endif
-                        </a>
+                <!-- Header -->
+        <div class="header" style="background: #002244; background-color: #002244; padding: 25px 35px; color: #ffffff;">
+            <table class="header-table" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; width: 100%; border-collapse: collapse;">
+                <tbody><tr>
+                    <td width="60%" valign="middle" style="vertical-align: middle;">
+                        <table cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse;">
+                            <tbody><tr>
+                                <td valign="middle" style="vertical-align: middle;">
+                                    <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; display: inline-block;">
+                                        <div style="background-color: #FFFFFF; width: 42px; height: 42px; border-radius: 8px; text-align: center; line-height: 42px; overflow: hidden; display: inline-block; vertical-align: middle;">
+                                            <img src="{{ !empty($settings['company_logo'] ?? null) ? url($settings['company_logo']) : asset('storage/settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg') }}" alt="Logo" width="42" height="42" style="display: block; width: 42px; height: 42px; max-width: 42px; max-height: 42px; object-fit: contain;">
+                                        </div>
+                                    </a>
+                                </td>
+                                <td valign="middle" style="padding-left: 12px; vertical-align: middle;">
+                                    <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; color: #ffffff;">
+                                        <div style="font-size: 20px; font-weight: 800; color: #FFFFFF; line-height: 1.2;">{{ $settings['company_name'] ?? 'TidCraft' }}</div>
+                                        <div style="font-size: 11px; color: #93c5fd; margin-top: 2px; letter-spacing: 0.3px;">Manage • Monitor • Grow</div>
+                                    </a>
+                                </td>
+                            </tr>
+                        </tbody></table>
                     </td>
-                    <td width="34%" class="header-nav">
-                        Build <span>|</span> Innovate <span>|</span> Grow
-                    </td>
-                    <td width="33%" class="header-motto">
+                    <td width="40%" align="right" valign="middle" class="header-motto" style="font-size: 12px; text-align: right; line-height: 1.4; color: #cbd5e1; vertical-align: middle;">
                         Technology<br>
-                        <strong>for a Brighter<br>Tomorrow</strong>
+                        <strong style="display: block; font-size: 13px; font-weight: 600; color: #ffffff;">for a Brighter<br>Tomorrow</strong>
                     </td>
                 </tr>
-            </table>
+            </tbody></table>
         </div>
 
         <!-- Content -->
@@ -139,31 +146,6 @@
                 </table>
             </div>
 
-            <!-- Attachment Box -->
-            <div class="attachment-box">
-                <div class="attachment-header">
-                    <div class="attachment-icon">
-                        <svg xmlns="http://www.w3.org/.svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                    </div>
-                    <div class="attachment-text">
-                        <h4>Invoice Attached</h4>
-                        <p>Your invoice has been attached to this email for your reference.<br>Please find the invoice in the attachment below.</p>
-                    </div>
-                </div>
-                <!-- If there was a real PDF, we'd link it here -->
-                <div class="file-box">
-                    <div class="file-info">
-                        <div class="pdf-icon">PDF</div>
-                        <div>
-                            <p class="file-name">{{ $payment->order_id ?? ('INV-' . $payment->id) }}_{{ $settings['company_name'] ?? 'Tidcraft' }}.pdf</p>
-                            <p class="file-size">Download available in dashboard</p>
-                        </div>
-                    </div>
-                    <a href="#" class="download-btn">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    </a>
-                </div>
-            </div>
 
             <!-- Next Steps -->
             <div class="next-steps-box">

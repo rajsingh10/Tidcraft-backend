@@ -241,57 +241,36 @@
     <div style="padding: 20px 0; background-color: #f4f6f9;">
         <div class="email-container">
             
-            <!-- Header -->
-            <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background: linear-gradient(135deg, #0b3d91 0%, #1e5bbd 100%);">
-                <tr>
-                    <td style="padding: 20px;">
-                        <table width="100%" border="0" cellspacing="0" cellpadding="0">
-                            <tr>
-                                <td width="50" valign="middle">
-                                    @php
-                                        $companyShortLogo = $settings['company_short_logo'] ?? null;
-                                        $companyLogo = $settings['company_logo'] ?? null;
-                                        $embedLogoPath = null;
-                                        $logoToUse = $companyShortLogo ?: $companyLogo;
-                                        
-                                        if ($logoToUse) {
-                                            $cleanPath = preg_replace('/^\/?storage\//', '', $logoToUse);
-                                            $possiblePaths = [
-                                                public_path(ltrim($logoToUse, '/')),
-                                                storage_path('app/public/' . $cleanPath),
-                                            ];
-                                            foreach ($possiblePaths as $path) {
-                                                if (file_exists($path)) {
-                                                    $embedLogoPath = $path;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    @endphp
-                                    @if($embedLogoPath && isset($message))
-                                        <div class="logo-box" style="background-color: transparent;">
-                                            <img src="{{ $message->embed($embedLogoPath) }}" alt="Logo" style="max-width: 100%; max-height: 100%; vertical-align: middle;">
-                                        </div>
-                                    @elseif($logoToUse)
-                                        <div class="logo-box" style="background-color: transparent;">
-                                            <img src="{{ asset(ltrim($logoToUse, '/')) }}" alt="Logo" style="max-width: 100%; max-height: 100%; vertical-align: middle;">
-                                        </div>
-                                    @else
-                                        <div class="logo-box">{{ strtoupper(substr($settings['company_name'] ?? 'T', 0, 1)) }}</div>
-                                    @endif
-                                </td>
-                                <td valign="middle">
-                                    <p class="brand-name" style="color:#ffffff;">{{ $settings['company_name'] ?? 'Tidcraft' }}</p>
-                                    <p class="brand-subtitle">{{ $settings['company_tagline'] ?? 'Manage &bull; Monitor &bull; Grow' }}</p>
-                                </td>
-                                <td align="right" class="header-right">
-                                    Secure Today.<br>A Safer Tomorrow.
-                                </td>
-                            </tr>
-                        </table>
-                    </td>
-                </tr>
-            </table>
+                        <!-- Header -->
+            <div class="header" style="background: #002244; background-color: #002244; padding: 25px 35px; color: #ffffff;">
+                <table class="header-table" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; width: 100%; border-collapse: collapse;">
+                    <tbody><tr>
+                        <td width="60%" valign="middle" style="vertical-align: middle;">
+                            <table cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse;">
+                                <tbody><tr>
+                                    <td valign="middle" style="vertical-align: middle;">
+                                        <a href="{{ $frontendUrl ?? \App\Helpers\UrlHelper::getFrontendUrl() }}" style="text-decoration: none; display: inline-block;">
+                                            <div style="background-color: #FFFFFF; width: 42px; height: 42px; border-radius: 8px; text-align: center; line-height: 42px; overflow: hidden; display: inline-block; vertical-align: middle;">
+                                                <img src="{{ !empty($settings['company_logo'] ?? null) ? url($settings['company_logo']) : asset('storage/settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg') }}" alt="Logo" width="42" height="42" style="display: block; width: 42px; height: 42px; max-width: 42px; max-height: 42px; object-fit: contain;">
+                                            </div>
+                                        </a>
+                                    </td>
+                                    <td valign="middle" style="padding-left: 12px; vertical-align: middle;">
+                                        <a href="{{ $frontendUrl ?? \App\Helpers\UrlHelper::getFrontendUrl() }}" style="text-decoration: none; color: #ffffff;">
+                                            <div style="font-size: 20px; font-weight: 800; color: #FFFFFF; line-height: 1.2;">{{ $settings['company_name'] ?? 'TidCraft' }}</div>
+                                            <div style="font-size: 11px; color: #93c5fd; margin-top: 2px; letter-spacing: 0.3px;">Manage • Monitor • Grow</div>
+                                        </a>
+                                    </td>
+                                </tr>
+                            </tbody></table>
+                        </td>
+                        <td width="40%" align="right" valign="middle" class="header-motto" style="font-size: 12px; text-align: right; line-height: 1.4; color: #cbd5e1; vertical-align: middle;">
+                            Technology<br>
+                            <strong style="display: block; font-size: 13px; font-weight: 600; color: #ffffff;">for a Brighter<br>Tomorrow</strong>
+                        </td>
+                    </tr>
+                </tbody></table>
+            </div>
 
             <!-- Hero Section -->
             <div class="hero">
@@ -309,7 +288,7 @@
                 <table width="100%" border="0" cellspacing="0" cellpadding="0">
                     <tr>
                         <td align="center">
-                            <a href="{{ config('app.url') }}" class="btn" style="color: #ffffff;">Login to Your Account &rarr;</a>
+                            <a href="{{ $loginUrl ?? \App\Helpers\UrlHelper::getLoginUrl() }}" class="btn" style="color: #ffffff;">Login to Your Account &rarr;</a>
                         </td>
                     </tr>
                 </table>
@@ -326,7 +305,7 @@
                     <td class="help-content">
                         <p class="help-title">Need Help?</p>
                         <p class="help-text">Our support team is always here to assist you. Feel free to reach out if you have any questions.</p>
-                        <a href="{{ config('app.url') }}/contact-us" class="btn-outline" style="color: #0d6efd;">Contact Support &rarr;</a>
+                        <a href="{{ $contactUrl ?? \App\Helpers\UrlHelper::getContactUrl() }}" class="btn-outline" style="color: #0d6efd;">Contact Support &rarr;</a>
                     </td>
                 </tr>
             </table>
