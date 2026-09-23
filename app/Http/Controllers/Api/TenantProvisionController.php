@@ -1785,7 +1785,6 @@ class TenantProvisionController extends Controller
             $domainObj = $tenant->domains()->first();
             $domainUrl = 'https://' . ($domainObj ? $domainObj->domain : 'tidcraft.com');
             $adminUrl = $domainUrl . '/admin_panel';
-            $apiUrl = rtrim(config('app.url'), '/') . '/api';
             $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
 
             $replacements = [
@@ -1810,8 +1809,6 @@ class TenantProvisionController extends Controller
                 '{{website_url}}' => $domainUrl,
                 '{store_url}' => $adminUrl,
                 '{{store_url}}' => $adminUrl,
-                '{api_url}' => $apiUrl,
-                '{{api_url}}' => $apiUrl,
                 '{support_email}' => $tenant->primary_contact_email ?: 'support@tidcraft.com',
                 '{{support_email}}' => $tenant->primary_contact_email ?: 'support@tidcraft.com',
                 '{support_phone}' => $tenant->phone_number ?: '+91 8545961258',

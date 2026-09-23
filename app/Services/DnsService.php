@@ -348,8 +348,10 @@ class DnsService
                     '{{server_ip}}' => $serverIp,
                     '{dns_records_table}' => $dnsTableHtml,
                     '{{dns_records_table}}' => $dnsTableHtml,
-                    '{verify_url}' => url('/api/client/purchases/' . $tenant->uuid . '/verify-dns'),
-                    '{{verify_url}}' => url('/api/client/purchases/' . $tenant->uuid . '/verify-dns'),
+                    '{verify_url}' => url('/client/purchases/' . $tenant->uuid),
+                    '{{verify_url}}' => url('/client/purchases/' . $tenant->uuid),
+                    '{portal_url}' => url('/client/purchases/' . $tenant->uuid),
+                    '{{portal_url}}' => url('/client/purchases/' . $tenant->uuid),
                     'tenant' => $tenant,
                     'domain' => $domain,
                 ];
