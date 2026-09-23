@@ -91,8 +91,13 @@ class DynamicEmail extends Mailable
             'company_short_logo',
             'company_logo',
             'company_tagline',
+            'company_email',
+            'company_phone',
+            'company_address',
         ];
         $settingsData = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
+        $platformCompanyName = !empty($settingsData['company_name']) ? $settingsData['company_name'] : 'TidCraft';
+        $settingsData['company_name'] = $platformCompanyName;
         
         foreach ($settingsData as $k => $v) {
             // Ensure logo and image URLs are absolute for emails
@@ -104,6 +109,12 @@ class DynamicEmail extends Mailable
             }
         }
 
+        // CRITICAL: Enforce that {company_name} ALWAYS represents our platform super admin settings value, NEVER a client company name
+        $replacements['{company_name}'] = $platformCompanyName;
+        $replacements['{{company_name}}'] = $platformCompanyName;
+        $replacements['{platform_name}'] = $platformCompanyName;
+        $replacements['{{platform_name}}'] = $platformCompanyName;
+
         // Automatically replace {year}
         if (!isset($replacements['{year}'])) {
             $replacements['{year}'] = date('Y');
@@ -113,7 +124,9 @@ class DynamicEmail extends Mailable
         // We will pass the replacements as array data to Blade::render.
         // Convert placeholders like '{name}' to just 'name' for the data array
         $bladeData = [
-            'settings' => $settingsData
+            'settings' => $settingsData,
+            'company_name' => $platformCompanyName,
+            'platform_name' => $platformCompanyName,
         ];
         
         $stringReplacements = [];
@@ -131,6 +144,12 @@ class DynamicEmail extends Mailable
                 }
             }
         }
+
+        // Ensure stringReplacements definitely retains platform company name
+        $stringReplacements['{company_name}'] = $platformCompanyName;
+        $stringReplacements['{{company_name}}'] = $platformCompanyName;
+        $stringReplacements['{platform_name}'] = $platformCompanyName;
+        $stringReplacements['{{platform_name}}'] = $platformCompanyName;
 
         // Provide safe defaults for variables commonly expected by email templates
         if (!isset($bladeData['tenant'])) {
