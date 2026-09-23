@@ -107,4 +107,95 @@ class UrlHelper
     {
         return self::getFrontendUrl($request) . '/profile';
     }
+
+    /**
+     * Resolve the API / backend base URL dynamically.
+     * Supports:
+     * - Testing/Dev: https://devapi.tidcraft.com
+     * - Production/Live: https://api.tidcraft.com
+     * - Localhost: config('app.url') or request()->root()
+     */
+    public static function getApiUrl(?Request $request = null): string
+    {
+        $envApi = env('API_URL');
+        if (!empty($envApi)) {
+            return rtrim($envApi, '/');
+        }
+
+        $req = $request ?: request();
+
+        if ($req) {
+            $origin = $req->header('Origin') ?: $req->header('Referer');
+            if ($origin) {
+                $host = strtolower(parse_url($origin, PHP_URL_HOST) ?? '');
+                if (str_contains($host, 'dev.tidcraft.com') || str_contains($host, 'devapi')) {
+                    return 'https://devapi.tidcraft.com';
+                }
+                if (str_contains($host, 'tidcraft.com')) {
+                    return 'https://api.tidcraft.com';
+                }
+            }
+
+            $currentHost = strtolower($req->getHost());
+            if (str_contains($currentHost, 'devapi') || str_contains($currentHost, 'dev.')) {
+                return 'https://devapi.tidcraft.com';
+            }
+            if (str_contains($currentHost, 'api.tidcraft.com') || (str_contains($currentHost, 'tidcraft.com') && !str_contains($currentHost, 'dev'))) {
+                return 'https://api.tidcraft.com';
+            }
+        }
+
+        $appUrl = config('app.url');
+        if ($appUrl) {
+            $appHost = strtolower(parse_url($appUrl, PHP_URL_HOST) ?? '');
+            if (str_contains($appHost, 'devapi') || str_contains($appHost, 'dev.')) {
+                return 'https://devapi.tidcraft.com';
+            }
+            if (str_contains($appHost, 'api.tidcraft.com') || (str_contains($appHost, 'tidcraft.com') && !str_contains($appHost, 'dev'))) {
+                return 'https://api.tidcraft.com';
+            }
+            if (str_contains($appHost, 'localhost') || str_contains($appHost, '127.0.0.1')) {
+                return rtrim($appUrl, '/');
+            }
+        }
+
+        return 'https://api.tidcraft.com';
+    }
+
+    /**
+     * Resolve a public storage asset URL hosted on the backend API.
+     * E.g. /storage/settings/xyz.jpg -> https://devapi.tidcraft.com/storage/settings/xyz.jpg
+     */
+    public static function getStorageUrl(?string $path = null, ?Request $request = null): string
+    {
+        if (empty($path)) {
+            return self::getApiUrl($request) . '/storage';
+        }
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return self::correctStorageUrl($path);
+        }
+
+        $cleanPath = ltrim($path, '/');
+        if (!str_starts_with($cleanPath, 'storage/')) {
+            $cleanPath = 'storage/' . $cleanPath;
+        }
+
+        return self::getApiUrl($request) . '/' . $cleanPath;
+    }
+
+    /**
+     * Correct any storage URLs mistakenly pointing to the frontend domain (dev.tidcraft.com or tidcraft.com)
+     * so they always point to the working API backend domain (devapi.tidcraft.com or api.tidcraft.com).
+     */
+    public static function correctStorageUrl(string $content): string
+    {
+        // Convert any dev frontend storage URLs to devapi backend storage URLs
+        $content = preg_replace('#https?://(?:www\.)?dev\.tidcraft\.com/storage/#i', 'https://devapi.tidcraft.com/storage/', $content);
+
+        // Convert any production frontend storage URLs to production api backend storage URLs
+        $content = preg_replace('#https?://(?:www\.)?(?<!api\.)tidcraft\.com/storage/#i', 'https://api.tidcraft.com/storage/', $content);
+
+        return $content;
+    }
 }

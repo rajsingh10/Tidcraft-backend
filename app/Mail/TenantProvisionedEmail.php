@@ -39,6 +39,12 @@ class TenantProvisionedEmail extends Mailable
         ];
         
         $this->settings = \App\Models\Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
+
+        foreach (['company_favicon', 'company_short_logo', 'company_logo'] as $fileField) {
+            if (!empty($this->settings[$fileField])) {
+                $this->settings[$fileField] = \App\Helpers\UrlHelper::getStorageUrl($this->settings[$fileField]);
+            }
+        }
     }
 
     /**

@@ -171,9 +171,7 @@ class SettingController extends Controller
 
         foreach (['company_favicon', 'company_short_logo', 'company_logo'] as $fileField) {
             if (isset($settings[$fileField]) && !empty($settings[$fileField])) {
-                if (!str_starts_with($settings[$fileField], 'http')) {
-                    $settings[$fileField] = url(ltrim($settings[$fileField], '/'));
-                }
+                $settings[$fileField] = \App\Helpers\UrlHelper::getStorageUrl($settings[$fileField]);
             }
         }
 
@@ -201,9 +199,7 @@ class SettingController extends Controller
 
         foreach (['company_favicon', 'company_short_logo', 'company_logo'] as $fileField) {
             if (isset($settings[$fileField]) && !empty($settings[$fileField])) {
-                if (!str_starts_with($settings[$fileField], 'http')) {
-                    $settings[$fileField] = url(ltrim($settings[$fileField], '/'));
-                }
+                $settings[$fileField] = \App\Helpers\UrlHelper::getStorageUrl($settings[$fileField]);
             }
         }
 
