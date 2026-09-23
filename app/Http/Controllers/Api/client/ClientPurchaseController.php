@@ -1005,9 +1005,9 @@ class ClientPurchaseController extends Controller
 
                 // Send Email to Admin
                 try {
-                    $admin = \App\Models\User::role('SuperAdmin')->first();
-                    if ($admin && $admin->email) {
-                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminPaymentReceivedMail($tenant, $payment));
+                    $adminEmails = \App\Models\User::role('SuperAdmin')->pluck('email')->filter()->unique();
+                    foreach ($adminEmails as $email) {
+                        \Illuminate\Support\Facades\Mail::to($email)->send(new \App\Mail\AdminPaymentReceivedMail($tenant, $payment));
                     }
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Failed to send admin payment notification email: ' . $e->getMessage());
@@ -1039,9 +1039,9 @@ class ClientPurchaseController extends Controller
                 }
 
                 try {
-                    $admin = \App\Models\User::role('SuperAdmin')->first();
-                    if ($admin && $admin->email) {
-                        \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminPaymentFailedMail($tenant, $payment));
+                    $adminEmails = \App\Models\User::role('SuperAdmin')->pluck('email')->filter()->unique();
+                    foreach ($adminEmails as $email) {
+                        \Illuminate\Support\Facades\Mail::to($email)->send(new \App\Mail\AdminPaymentFailedMail($tenant, $payment));
                     }
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Failed to send admin payment failed notification email: ' . $e->getMessage());
@@ -1545,11 +1545,13 @@ class ClientPurchaseController extends Controller
                 }
             }
 
+            $productName = \App\Models\Product::where('id', $request->product_id)->value('name') ?? $request->product_id;
+
             // Create Admin Notification
             \App\Models\AdminNotification::create([
                 'type' => 'new_purchase',
                 'title' => 'New Checkout Initiated',
-                'message' => 'Client ' . $user->name . ' has initiated a checkout for product ID ' . $request->product_id . '.',
+                'message' => 'Client ' . $user->name . ' has initiated a checkout for product ' . $productName . '.',
                 'related_id' => $tenant->id,
                 'client_name' => $user->name,
                 'is_read' => false
@@ -1559,9 +1561,9 @@ class ClientPurchaseController extends Controller
 
             // Send Email to Admin for Checkout Initiation
             try {
-                $admin = \App\Models\User::role('SuperAdmin')->first();
-                if ($admin && $admin->email) {
-                    \Illuminate\Support\Facades\Mail::to($admin->email)->send(new \App\Mail\AdminNewPurchaseMail($tenant, $user));
+                $adminEmails = \App\Models\User::role('SuperAdmin')->pluck('email')->filter()->unique();
+                foreach ($adminEmails as $email) {
+                    \Illuminate\Support\Facades\Mail::to($email)->send(new \App\Mail\AdminNewPurchaseMail($tenant, $user));
                 }
             } catch (\Exception $e) {
                 \Illuminate\Support\Facades\Log::error('Failed to send admin notification email: ' . $e->getMessage());

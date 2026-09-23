@@ -1873,11 +1873,11 @@ class TenantProvisionController extends Controller
         $slug = $request->input('slug', 'Your_Application_is_Ready');
         $template = \App\Models\EmailTemplate::where('slug', $slug)->first();
 
-        $recipientEmails = array_filter(array_unique([
+        $recipientEmails = array_filter(array_unique(array_map('strtolower', [
             $adminEmail,
             $tenant->client?->email,
             $tenant->primary_contact_email
-        ]));
+        ])));
 
         try {
             if ($template && $template->status === 'active') {

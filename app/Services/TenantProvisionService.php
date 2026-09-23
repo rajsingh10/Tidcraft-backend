@@ -288,11 +288,11 @@ class TenantProvisionService
             $isFoodApp = str_contains($prodName, 'food') || str_contains($prodName, 'eats');
             $isParkApp = str_contains($prodName, 'park') || str_contains($prodName, 'parkme');
 
-            $recipientEmails = array_filter(array_unique([
+            $recipientEmails = array_filter(array_unique(array_map('strtolower', [
                 $adminEmail,
                 $tenant->client?->email,
                 $tenant->primary_contact_email
-            ]));
+            ])));
 
             try {
                 $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
