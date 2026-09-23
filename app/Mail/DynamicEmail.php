@@ -53,6 +53,11 @@ class DynamicEmail extends Mailable
         // Clean up any remaining duplicate closing angle brackets inside opening tags like <div ... >>
         $content = preg_replace('/(<[a-zA-Z0-9\-]+(?:\s+[^>]*?)?)>>/i', '$1>', $content);
 
+        // Decode any URL-encoded Blade tags (e.g. %7B%7B ... %7D%7D) created by WYSIWYG or DOM serialization
+        $content = preg_replace_callback('/%7B%7B(.*?)%7D%7D/i', function($matches) {
+            return '{{' . urldecode($matches[1]) . '}}';
+        }, $content);
+
         // Fix specifically mangled blade tags caused by single quotes inside double-quoted HTML attributes in WYSIWYG:
         // 1. Mangled company_logo tag (e.g. {{ url($settings[" company_logo'])="" }}"="")
         $content = preg_replace(
@@ -104,16 +109,28 @@ class DynamicEmail extends Mailable
             if (in_array($k, ['company_logo', 'company_favicon', 'company_short_logo']) && $v && !str_starts_with($v, 'http')) {
                 $v = asset($v);
             }
+            $settingsData[$k] = $v;
             if (!isset($replacements['{' . $k . '}'])) {
                 $replacements['{' . $k . '}'] = $v;
             }
         }
+
+        $platformLogoUrl = !empty($settingsData['company_logo']) 
+            ? (str_starts_with($settingsData['company_logo'], 'http') ? $settingsData['company_logo'] : asset($settingsData['company_logo']))
+            : asset('storage/settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg');
+        $settingsData['company_logo'] = $platformLogoUrl;
 
         // CRITICAL: Enforce that {company_name} ALWAYS represents our platform super admin settings value, NEVER a client company name
         $replacements['{company_name}'] = $platformCompanyName;
         $replacements['{{company_name}}'] = $platformCompanyName;
         $replacements['{platform_name}'] = $platformCompanyName;
         $replacements['{{platform_name}}'] = $platformCompanyName;
+
+        // Logo placeholders
+        $replacements['{company_logo}'] = $platformLogoUrl;
+        $replacements['{{company_logo}}'] = $platformLogoUrl;
+        $replacements['{logo_url}'] = $platformLogoUrl;
+        $replacements['{{logo_url}}'] = $platformLogoUrl;
 
         // Automatically replace {year}
         if (!isset($replacements['{year}'])) {
@@ -145,11 +162,15 @@ class DynamicEmail extends Mailable
             }
         }
 
-        // Ensure stringReplacements definitely retains platform company name
+        // Ensure stringReplacements definitely retains platform company name and logo
         $stringReplacements['{company_name}'] = $platformCompanyName;
         $stringReplacements['{{company_name}}'] = $platformCompanyName;
         $stringReplacements['{platform_name}'] = $platformCompanyName;
         $stringReplacements['{{platform_name}}'] = $platformCompanyName;
+        $stringReplacements['{company_logo}'] = $platformLogoUrl;
+        $stringReplacements['{{company_logo}}'] = $platformLogoUrl;
+        $stringReplacements['{logo_url}'] = $platformLogoUrl;
+        $stringReplacements['{{logo_url}}'] = $platformLogoUrl;
 
         // Provide safe defaults for variables commonly expected by email templates
         if (!isset($bladeData['tenant'])) {
@@ -162,7 +183,27 @@ class DynamicEmail extends Mailable
             $fallbackDomain = new \stdClass();
             $fallbackDomain->domain = $bladeData['domain'] ?? 'yourdomain.com';
             $fallbackTenant->domain = $fallbackDomain;
+            $fallbackProduct = new \stdClass();
+            $fallbackProduct->name = $bladeData['product_name'] ?? 'Application';
+            $fallbackTenant->product = $fallbackProduct;
             $bladeData['tenant'] = $fallbackTenant;
+        } else {
+            if (is_object($bladeData['tenant'])) {
+                if (!isset($bladeData['tenant']->product)) {
+                    $fallbackProduct = new \stdClass();
+                    $fallbackProduct->name = $bladeData['product_name'] ?? 'Application';
+                    $bladeData['tenant']->product = $fallbackProduct;
+                }
+                if (!isset($bladeData['tenant']->client)) {
+                    $fallbackClient = new \stdClass();
+                    $fallbackClient->name = $bladeData['name'] ?? $bladeData['client_name'] ?? 'Client';
+                    $fallbackClient->email = $bladeData['email'] ?? $bladeData['client_email'] ?? '';
+                    $bladeData['tenant']->client = $fallbackClient;
+                }
+                if (!isset($bladeData['tenant']->business_name)) {
+                    $bladeData['tenant']->business_name = $bladeData['business_name'] ?? $bladeData['tenant_name'] ?? 'Tidcraft';
+                }
+            }
         }
 
         if (!isset($bladeData['payment'])) {
@@ -188,15 +229,59 @@ class DynamicEmail extends Mailable
         if (!isset($bladeData['adminUrl'])) {
             $bladeData['adminUrl'] = $bladeData['admin_url'] ?? (config('app.url') . '/admin');
         }
+        if (!isset($bladeData['adminEmail'])) {
+            $bladeData['adminEmail'] = $bladeData['admin_email'] ?? ($bladeData['email'] ?? 'admin@example.com');
+        }
+        if (!isset($bladeData['adminPassword'])) {
+            $bladeData['adminPassword'] = $bladeData['admin_password'] ?? ($bladeData['password'] ?? '********');
+        }
+        if (!isset($bladeData['clientName'])) {
+            $bladeData['clientName'] = $bladeData['client_name'] ?? ($bladeData['name'] ?? 'Client');
+        }
+
         if (!isset($bladeData['inquiry'])) {
             $fallbackInquiry = new \stdClass();
+            $fallbackInquiry->id = $bladeData['id'] ?? 1;
             $fallbackInquiry->name = $bladeData['name'] ?? 'User';
+            $fallbackInquiry->customer_name = $bladeData['customer_name'] ?? ($bladeData['name'] ?? 'User');
             $fallbackInquiry->email = $bladeData['email'] ?? '';
-            $fallbackInquiry->subject = 'Inquiry';
-            $fallbackInquiry->message = '';
+            $fallbackInquiry->customer_email = $bladeData['customer_email'] ?? ($bladeData['email'] ?? '');
+            $fallbackInquiry->phone = $bladeData['phone'] ?? '';
+            $fallbackInquiry->customer_phone = $bladeData['customer_phone'] ?? ($bladeData['phone'] ?? '');
+            $fallbackInquiry->subject = $bladeData['subject'] ?? 'Inquiry';
+            $fallbackInquiry->message = $bladeData['message'] ?? '';
             $fallbackInquiry->created_at = now();
             $bladeData['inquiry'] = $fallbackInquiry;
+        } else {
+            if (is_object($bladeData['inquiry'])) {
+                if (!isset($bladeData['inquiry']->id)) {
+                    $bladeData['inquiry']->id = $bladeData['id'] ?? 1;
+                }
+                if (!isset($bladeData['inquiry']->customer_name)) {
+                    $bladeData['inquiry']->customer_name = $bladeData['inquiry']->name ?? ($bladeData['name'] ?? 'User');
+                }
+                if (!isset($bladeData['inquiry']->customer_email)) {
+                    $bladeData['inquiry']->customer_email = $bladeData['inquiry']->email ?? ($bladeData['email'] ?? '');
+                }
+                if (!isset($bladeData['inquiry']->customer_phone)) {
+                    $bladeData['inquiry']->customer_phone = $bladeData['inquiry']->phone ?? '';
+                }
+            }
         }
+
+        if (!isset($bladeData['messageStr'])) {
+            $bladeData['messageStr'] = $bladeData['message'] ?? 'Your subscription will expire soon.';
+        }
+        if (!isset($bladeData['companyName'])) {
+            $bladeData['companyName'] = $platformCompanyName;
+        }
+        if (!isset($bladeData['companyPhone'])) {
+            $bladeData['companyPhone'] = $settingsData['company_phone'] ?? '';
+        }
+        if (!isset($bladeData['companyEmail'])) {
+            $bladeData['companyEmail'] = $settingsData['company_email'] ?? '';
+        }
+
         if (!isset($bladeData['title'])) {
             $bladeData['title'] = $bladeData['subject'] ?? $subject ?? 'Notification';
         }
@@ -233,6 +318,13 @@ class DynamicEmail extends Mailable
             // First run standard string replacements in case they used {name}
             $content = str_replace(array_keys($stringReplacements), array_values($stringReplacements), $content);
             
+            // Guarantee that any <img> tag with company_logo or settings logo in src gets the absolute platform logo URL directly
+            $content = preg_replace(
+                '/<img([^>]*?)src=["\'](?:\{\{|\%7B\%7B)[^"\']*(?:company_logo|lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6)[^"\']*(?:\}\}|\%7D\%7D)["\']([^>]*?)>/i',
+                '<img$1src="' . $platformLogoUrl . '"$2>',
+                $content
+            );
+
             // Sanitize any broken /client/login links to /login per requirement
             $content = str_ireplace('/client/login', '/login', $content);
             
@@ -313,6 +405,16 @@ class DynamicEmail extends Mailable
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('CSS Inlining failed: ' . $e->getMessage());
         }
+
+        // Failsafe: if DOM parser encoded any Blade tag or left uncompiled logo in an img tag, fix it to valid URL
+        $platformLogo = !empty($this->settingsData['company_logo']) ? $this->settingsData['company_logo'] : asset('storage/settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg');
+        $html = preg_replace_callback('/<img([^>]*?)src=["\'](?:%7B%7B|\{\{)(.*?)(?:%7D%7D|\}\})["\']([^>]*?)>/i', function($m) use ($platformLogo) {
+            $inner = urldecode($m[2]);
+            if (stripos($inner, 'logo') !== false || stripos($inner, 'lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6') !== false) {
+                return '<img' . $m[1] . 'src="' . $platformLogo . '"' . $m[3] . '>';
+            }
+            return '<img' . $m[1] . 'src="' . $platformLogo . '"' . $m[3] . '>';
+        }, $html);
 
         $mail = $this->subject($this->dynamicSubject)
                      ->html($html);

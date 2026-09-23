@@ -59,11 +59,15 @@
         $hasAppImage = file_exists($appImagePath);
         
         $companyName = $settings['company_name'] ?? 'Tidcraft';
-        $clientName = $tenant->client->name ?? $tenant->business_name;
+        $clientName = !empty($tenant->client?->name) ? $tenant->client->name : (!empty($clientName) ? $clientName : ($tenant->business_name ?? 'Client'));
         
-        $productName = $tenant->product ? strtolower($tenant->product->name) : '';
+        $productName = !empty($tenant->product?->name) ? strtolower($tenant->product->name) : (!empty($product_name) ? strtolower($product_name) : '');
         $isFoodApp = strpos($productName, 'food') !== false;
         $isParkApp = strpos($productName, 'park') !== false;
+
+        $domainUrl = $domainUrl ?? ($domain_url ?? config('app.url'));
+        $adminEmail = $adminEmail ?? ($admin_email ?? ($tenant->client?->email ?? ''));
+        $adminPassword = $adminPassword ?? ($admin_password ?? '********');
     @endphp
 
     <table width="100%" bgcolor="#f4f7f6" cellpadding="0" cellspacing="0" border="0">
