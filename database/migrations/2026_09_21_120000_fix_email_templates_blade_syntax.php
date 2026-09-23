@@ -15,7 +15,7 @@ return new class extends Migration
         $headerHtml = '<div class="header" style="background: #002244; background-color: #002244; padding: 25px 35px; color: #ffffff;">
             <table class="header-table" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; width: 100%;">
                 <tbody><tr>
-                    <td width="42%" valign="middle" style="vertical-align: middle;">
+                    <td width="60%" valign="middle" style="vertical-align: middle;">
                         <table cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0;">
                             <tbody><tr>
                                 <td valign="middle" style="vertical-align: middle;">
@@ -34,10 +34,7 @@ return new class extends Migration
                             </tr>
                         </tbody></table>
                     </td>
-                    <td width="28%" align="center" valign="middle" class="header-nav" style="font-size: 12px; color: #cbd5e1; text-align: center; vertical-align: middle;">
-                        Build <span style="margin: 0 4px; opacity: 0.5;">|</span> Innovate <span style="margin: 0 4px; opacity: 0.5;">|</span> Grow
-                    </td>
-                    <td width="30%" align="right" valign="middle" class="header-motto" style="font-size: 12px; text-align: right; line-height: 1.4; color: #cbd5e1; vertical-align: middle;">
+                    <td width="40%" align="right" valign="middle" class="header-motto" style="font-size: 12px; text-align: right; line-height: 1.4; color: #cbd5e1; vertical-align: middle;">
                         Technology<br>
                         <strong style="display: block; font-size: 13px; font-weight: 600; color: #ffffff;">for a Brighter<br>Tomorrow</strong>
                     </td>
