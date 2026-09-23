@@ -105,9 +105,9 @@ class DynamicEmail extends Mailable
         $settingsData['company_name'] = $platformCompanyName;
         
         foreach ($settingsData as $k => $v) {
-            // Ensure logo and image URLs are absolute for emails
-            if (in_array($k, ['company_logo', 'company_favicon', 'company_short_logo']) && $v && !str_starts_with($v, 'http')) {
-                $v = asset($v);
+            // Ensure logo and image URLs are absolute for emails pointing to the backend API storage
+            if (in_array($k, ['company_logo', 'company_favicon', 'company_short_logo']) && $v) {
+                $v = \App\Helpers\UrlHelper::getStorageUrl($v);
             }
             $settingsData[$k] = $v;
             if (!isset($replacements['{' . $k . '}'])) {
@@ -116,8 +116,8 @@ class DynamicEmail extends Mailable
         }
 
         $platformLogoUrl = !empty($settingsData['company_logo']) 
-            ? (str_starts_with($settingsData['company_logo'], 'http') ? $settingsData['company_logo'] : asset($settingsData['company_logo']))
-            : asset('storage/settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg');
+            ? \App\Helpers\UrlHelper::getStorageUrl($settingsData['company_logo'])
+            : \App\Helpers\UrlHelper::getStorageUrl('settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg');
         $settingsData['company_logo'] = $platformLogoUrl;
 
         // CRITICAL: Enforce that {company_name} ALWAYS represents our platform super admin settings value, NEVER a client company name
@@ -407,7 +407,7 @@ class DynamicEmail extends Mailable
         }
 
         // Failsafe: if DOM parser encoded any Blade tag or left uncompiled logo in an img tag, fix it to valid URL
-        $platformLogo = !empty($this->settingsData['company_logo']) ? $this->settingsData['company_logo'] : asset('storage/settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg');
+        $platformLogo = !empty($this->settingsData['company_logo']) ? \App\Helpers\UrlHelper::getStorageUrl($this->settingsData['company_logo']) : \App\Helpers\UrlHelper::getStorageUrl('settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg');
         $html = preg_replace_callback('/<img([^>]*?)src=["\'](?:%7B%7B|\{\{)(.*?)(?:%7D%7D|\}\})["\']([^>]*?)>/i', function($m) use ($platformLogo) {
             $inner = urldecode($m[2]);
             if (stripos($inner, 'logo') !== false || stripos($inner, 'lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6') !== false) {
@@ -415,6 +415,10 @@ class DynamicEmail extends Mailable
             }
             return '<img' . $m[1] . 'src="' . $platformLogo . '"' . $m[3] . '>';
         }, $html);
+
+        // Crucial: Correct any storage URLs mistakenly pointing to the frontend domain (dev.tidcraft.com)
+        // so that all images and assets load reliably from the backend API storage domain (devapi.tidcraft.com)
+        $html = \App\Helpers\UrlHelper::correctStorageUrl($html);
 
         $mail = $this->subject($this->dynamicSubject)
                      ->html($html);

@@ -81,7 +81,7 @@
                                 <td valign="middle" style="vertical-align: middle;">
                                     <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; display: inline-block;">
                                         <div style="background-color: #FFFFFF; width: 42px; height: 42px; border-radius: 8px; text-align: center; line-height: 42px; overflow: hidden; display: inline-block; vertical-align: middle;">
-                                            <img src="{{ !empty($settings['company_logo'] ?? null) ? url($settings['company_logo']) : asset('storage/settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg') }}" alt="Logo" width="42" height="42" style="display: block; width: 42px; height: 42px; max-width: 42px; max-height: 42px; object-fit: contain;">
+                                            <img src="{{ !empty($settings['company_logo'] ?? null) ? \App\Helpers\UrlHelper::getStorageUrl($settings['company_logo']) : \App\Helpers\UrlHelper::getStorageUrl('settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg') }}" alt="Logo" width="42" height="42" style="display: block; width: 42px; height: 42px; max-width: 42px; max-height: 42px; object-fit: contain;">
                                         </div>
                                     </a>
                                 </td>
