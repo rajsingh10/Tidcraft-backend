@@ -45,9 +45,13 @@ class DynamicEmail extends Mailable
 
         // Frontend WYSIWYG editor protects Blade tags inside HTML attributes by wrapping them in <!-- [LARAVEL_VAR_{base64}] -->
         // We must decode both normal and HTML-escaped comments before compiling with Blade.
-        $content = preg_replace_callback('/(?:<!--|&lt;!--)\s*\[LARAVEL_VAR_([a-zA-Z0-9+\/]+=*)\]\s*(?:-->|--&gt;)/i', function($matches) {
+        // Also strip any mangled '=""' around comments and stray duplicate '>' after HTML opening tags (e.g. <div class="step-row" ...>>).
+        $content = preg_replace_callback('/(?:<!--|&lt;!--)(?:="")?\s*\[(?:LARAVEL_VAR_|laravel_var_)([a-zA-Z0-9+\/]+=*)\](?:="")?\s*(?:-->|--&gt;)>?/i', function($matches) {
             return base64_decode($matches[1]);
         }, $content);
+
+        // Clean up any remaining duplicate closing angle brackets inside opening tags like <div ... >>
+        $content = preg_replace('/(<[a-zA-Z0-9\-]+(?:\s+[^>]*?)?)>>/i', '$1>', $content);
 
         // Fix specifically mangled blade tags caused by single quotes inside double-quoted HTML attributes in WYSIWYG:
         // 1. Mangled company_logo tag (e.g. {{ url($settings[" company_logo'])="" }}"="")
@@ -178,9 +182,40 @@ class DynamicEmail extends Mailable
             $bladeData['title'] = $bladeData['subject'] ?? $subject ?? 'Notification';
         }
 
+        // Dynamically provide frontend URLs
+        $defaultFrontendUrl = \App\Helpers\UrlHelper::getFrontendUrl();
+        $defaultLoginUrl = \App\Helpers\UrlHelper::getLoginUrl();
+        $defaultContactUrl = \App\Helpers\UrlHelper::getContactUrl();
+
+        if (!isset($bladeData['frontend_url'])) {
+            $bladeData['frontend_url'] = $defaultFrontendUrl;
+        }
+        if (!isset($bladeData['login_url'])) {
+            $bladeData['login_url'] = $defaultLoginUrl;
+        }
+        if (!isset($bladeData['contact_url'])) {
+            $bladeData['contact_url'] = $defaultContactUrl;
+        }
+
+        foreach ([
+            '{frontend_url}' => $defaultFrontendUrl,
+            '{{frontend_url}}' => $defaultFrontendUrl,
+            '{login_url}' => $defaultLoginUrl,
+            '{{login_url}}' => $defaultLoginUrl,
+            '{contact_url}' => $defaultContactUrl,
+            '{{contact_url}}' => $defaultContactUrl,
+        ] as $k => $v) {
+            if (!isset($stringReplacements[$k])) {
+                $stringReplacements[$k] = $v;
+            }
+        }
+
         try {
             // First run standard string replacements in case they used {name}
             $content = str_replace(array_keys($stringReplacements), array_values($stringReplacements), $content);
+            
+            // Sanitize any broken /client/login links to /login per requirement
+            $content = str_ireplace('/client/login', '/login', $content);
             
             // Inject sensible responsive styles to images without overriding existing explicit dimensions
             $content = preg_replace_callback('/<img\s+((?:[^>"\']|"[^"]*"|\'[^\']*\')+)>/i', function($matches) {

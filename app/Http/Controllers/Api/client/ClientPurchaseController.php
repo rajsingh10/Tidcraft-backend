@@ -949,20 +949,8 @@ class ClientPurchaseController extends Controller
                     if ($clientEmail) {
                         $clientName = $client ? $client->name : $tenant->business_name;
 
-                        // Generate Invoice PDF attachment
+                        // No invoice PDF attachment per requirement (download available in client dashboard)
                         $emailAttachments = [];
-                        try {
-                            $invoicePdfService = new \App\Services\InvoicePdfService();
-                            $pdfBytes = $invoicePdfService->generate($payment);
-                            $invoiceFileName = 'Invoice-' . ($payment->invoice_number ?: $payment->id) . '.pdf';
-                            $emailAttachments[] = [
-                                'data' => $pdfBytes,
-                                'name' => $invoiceFileName,
-                                'mime' => 'application/pdf',
-                            ];
-                        } catch (\Exception $pdfEx) {
-                            \Illuminate\Support\Facades\Log::error('Failed to generate invoice PDF for email: ' . $pdfEx->getMessage());
-                        }
 
                         // Use Dynamic Template if available
                         $paymentTemplate = \App\Models\EmailTemplate::where('slug', 'Payment_Received')->first();

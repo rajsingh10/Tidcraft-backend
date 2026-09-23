@@ -213,14 +213,16 @@ class EmailPreviewSampleDataProvider
                 'replacements' => [
                     '{name}' => 'Alex Morgan',
                     '{email}' => 'alex.morgan@example.com',
-                    '{login_url}' => $appUrl . '/client/login',
+                    '{login_url}' => $appUrl . '/login',
+                    '{contact_url}' => $appUrl . '/contact-us',
                     '{created_at}' => Carbon::now()->format('Y-m-d H:i:s'),
                     '{year}' => date('Y'),
                 ],
                 'variables' => [
                     '{name}' => ['type' => 'string', 'desc' => 'Registered user full name'],
                     '{email}' => ['type' => 'string', 'desc' => 'User email address'],
-                    '{login_url}' => ['type' => 'url', 'desc' => 'Direct link to client login portal'],
+                    '{login_url}' => ['type' => 'url', 'desc' => 'Direct link to client login portal (/login)'],
+                    '{contact_url}' => ['type' => 'url', 'desc' => 'Direct link to contact support page (/contact-us)'],
                     '{created_at}' => ['type' => 'datetime', 'desc' => 'Account creation date and time'],
                     '{year}' => ['type' => 'string', 'desc' => 'Current year for footer copyright'],
                 ],

@@ -71,43 +71,38 @@
             <td align="center" style="padding: 20px;">
                 <div class="container">
                     
-                    <!-- Header -->
-                    <div class="header">
-                        <table class="header-table" cellpadding="0" cellspacing="0">
-                            <tr>
-                                <td width="33%">
-                                    <table cellpadding="0" cellspacing="0">
-                                        <tr>
-                                            <td class="brand-logo-img">
-                                                @if($embedLogoPath && isset($message))
-                                                    <img src="{{ $message->embed($embedLogoPath) }}" alt="Logo" style="max-width: 36px; max-height: 36px; border-radius: 4px;">
-                                                @elseif($logoToUse)
-                                                    <img src="{{ asset(ltrim($logoToUse, '/')) }}" alt="Logo" style="max-width: 36px; max-height: 36px; border-radius: 4px;">
-                                                @else
-                                                    <div style="background-color: #ffffff; color: #0b57d0; width: 36px; height: 36px; border-radius: 8px; text-align: center; line-height: 36px; font-weight: bold; font-size: 20px;">
-                                                        {{ strtoupper(substr($companyName, 0, 1)) }}
-                                                    </div>
-                                                @endif
-                                            </td>
-                                            <td>
-                                                <div class="brand-logo">{{ $companyName }}</div>
-                                                <div class="brand-tagline">Technologies</div>
-                                            </td>
-                                        </tr>
-                                    </table>
+                            <!-- Header -->
+        <div class="header" style="background: #002244; background-color: #002244; padding: 25px 35px; color: #ffffff;">
+            <table class="header-table" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; width: 100%; border-collapse: collapse;">
+                <tbody><tr>
+                    <td width="60%" valign="middle" style="vertical-align: middle;">
+                        <table cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse;">
+                            <tbody><tr>
+                                <td valign="middle" style="vertical-align: middle;">
+                                    <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; display: inline-block;">
+                                        <div style="background-color: #FFFFFF; width: 42px; height: 42px; border-radius: 8px; text-align: center; line-height: 42px; overflow: hidden; display: inline-block; vertical-align: middle;">
+                                            <img src="{{ !empty($settings['company_logo'] ?? null) ? url($settings['company_logo']) : asset('storage/settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg') }}" alt="Logo" width="42" height="42" style="display: block; width: 42px; height: 42px; max-width: 42px; max-height: 42px; object-fit: contain;">
+                                        </div>
+                                    </a>
                                 </td>
-                                <td width="34%" class="header-nav">
-                                    Build <span>|</span> Innovate <span>|</span> Grow
-                                </td>
-                                <td width="33%" class="header-motto">
-                                    <strong>Technology</strong>
-                                    for a Brighter<br>Tomorrow <span style="color:#38bdf8;">&mdash;</span>
+                                <td valign="middle" style="padding-left: 12px; vertical-align: middle;">
+                                    <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; color: #ffffff;">
+                                        <div style="font-size: 20px; font-weight: 800; color: #FFFFFF; line-height: 1.2;">{{ $settings['company_name'] ?? 'TidCraft' }}</div>
+                                        <div style="font-size: 11px; color: #93c5fd; margin-top: 2px; letter-spacing: 0.3px;">Manage • Monitor • Grow</div>
+                                    </a>
                                 </td>
                             </tr>
-                        </table>
-                    </div>
+                        </tbody></table>
+                    </td>
+                    <td width="40%" align="right" valign="middle" class="header-motto" style="font-size: 12px; text-align: right; line-height: 1.4; color: #cbd5e1; vertical-align: middle;">
+                        Technology<br>
+                        <strong style="display: block; font-size: 13px; font-weight: 600; color: #ffffff;">for a Brighter<br>Tomorrow</strong>
+                    </td>
+                </tr>
+            </tbody></table>
+        </div>
 
-                    <!-- Content -->
+        <!-- Content -->
                     <div class="content">
                         
                         <table width="100%" cellpadding="0" cellspacing="0">

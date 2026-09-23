@@ -304,66 +304,55 @@
 </head>
 <body>
     <div class="container">
+        @php
+            $companyName = \App\Models\Setting::where('key', 'company_name')->value('value') ?? 'TidCraft';
+            $ua = $loginDetails['user_agent'] ?? '';
+            $os = 'Windows';
+            if (preg_match('/windows nt 11/i', $ua)) $os = 'Windows 11';
+            elseif (preg_match('/windows nt 10/i', $ua)) $os = 'Windows 10';
+            elseif (preg_match('/windows nt/i', $ua)) $os = 'Windows';
+            elseif (preg_match('/mac os x/i', $ua)) $os = 'macOS';
+            elseif (preg_match('/linux/i', $ua)) $os = 'Linux';
+            elseif (preg_match('/iphone|ipad|ipod/i', $ua)) $os = 'iOS';
+            elseif (preg_match('/android/i', $ua)) $os = 'Android';
+            
+            $browser = 'Chrome';
+            if (preg_match('/Edg/i', $ua)) $browser = 'Edge';
+            elseif (preg_match('/Chrome/i', $ua)) $browser = 'Chrome';
+            elseif (preg_match('/Safari/i', $ua)) $browser = 'Safari';
+            elseif (preg_match('/Firefox/i', $ua)) $browser = 'Firefox';
+        @endphp
+
         <!-- Header -->
-        <div class="header">
-            <div class="header-content">
-                <div class="header-left">
-                    <div class="brand-logo">
-                        @php
-                            $companyLogo = \App\Models\Setting::where('key', 'company_logo')->value('value');
-                            $companyName = \App\Models\Setting::where('key', 'company_name')->value('value') ?? 'YourBrand';
-                            $companyTagline = \App\Models\Setting::where('key', 'company_tagline')->value('value') ?? 'Manage • Monitor • Grow';
-                            
-                            $embedLogoPath = null;
-                            if ($companyLogo) {
-                                $cleanPath = preg_replace('/^\/?storage\//', '', $companyLogo);
-                                $possiblePaths = [
-                                    public_path(ltrim($companyLogo, '/')),
-                                    storage_path('app/public/' . $cleanPath),
-                                ];
-                                
-                                foreach ($possiblePaths as $path) {
-                                    if (file_exists($path)) {
-                                        $embedLogoPath = $path;
-                                        break;
-                                    }
-                                }
-                            }
-                            
-                            // Simple OS/Browser parser from User Agent
-                            $ua = $loginDetails['user_agent'] ?? '';
-                            $os = 'Unknown OS';
-                            if (preg_match('/windows nt 11/i', $ua)) $os = 'Windows 11';
-                            elseif (preg_match('/windows nt 10/i', $ua)) $os = 'Windows 10';
-                            elseif (preg_match('/windows nt/i', $ua)) $os = 'Windows';
-                            elseif (preg_match('/mac os x/i', $ua)) $os = 'macOS';
-                            elseif (preg_match('/linux/i', $ua)) $os = 'Linux';
-                            elseif (preg_match('/iphone|ipad|ipod/i', $ua)) $os = 'iOS';
-                            elseif (preg_match('/android/i', $ua)) $os = 'Android';
-                            
-                            $browser = 'Unknown Browser';
-                            if (preg_match('/Edg/i', $ua)) $browser = 'Edge';
-                            elseif (preg_match('/Chrome/i', $ua)) $browser = 'Chrome';
-                            elseif (preg_match('/Safari/i', $ua)) $browser = 'Safari';
-                            elseif (preg_match('/Firefox/i', $ua)) $browser = 'Firefox';
-                        @endphp
-                        @if($embedLogoPath && isset($message))
-                            <img src="{{ $message->embed($embedLogoPath) }}" alt="Logo" style="width: 32px; height: 32px; border-radius: 4px; vertical-align: middle;">
-                        @elseif($companyLogo)
-                            <img src="{{ asset(ltrim($companyLogo, '/')) }}" alt="Logo" style="width: 32px; height: 32px; border-radius: 4px; vertical-align: middle;">
-                        @else
-                            <img src="https://img.icons8.com/ios-filled/50/ffffff/company.png" alt="Logo" style="width: 32px; height: 32px; vertical-align: middle;">
-                        @endif
-                        {{ $companyName }}
-                    </div>
-                    <div class="brand-tagline">{{ $companyTagline }}</div>
-                </div>
-                <div class="header-right">
-                    Secure Today,<br>
-                    A Safer Tomorrow.
-                </div>
+            <div class="header" style="background: #002244; background-color: #002244; padding: 25px 35px; color: #ffffff;">
+                <table class="header-table" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; width: 100%; border-collapse: collapse;">
+                    <tbody><tr>
+                        <td width="60%" valign="middle" style="vertical-align: middle;">
+                            <table cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse;">
+                                <tbody><tr>
+                                    <td valign="middle" style="vertical-align: middle;">
+                                        <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; display: inline-block;">
+                                            <div style="background-color: #FFFFFF; width: 42px; height: 42px; border-radius: 8px; text-align: center; line-height: 42px; overflow: hidden; display: inline-block; vertical-align: middle;">
+                                                <img src="{{ !empty($settings['company_logo'] ?? null) ? url($settings['company_logo']) : asset('storage/settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg') }}" alt="Logo" width="42" height="42" style="display: block; width: 42px; height: 42px; max-width: 42px; max-height: 42px; object-fit: contain;">
+                                            </div>
+                                        </a>
+                                    </td>
+                                    <td valign="middle" style="padding-left: 12px; vertical-align: middle;">
+                                        <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; color: #ffffff;">
+                                            <div style="font-size: 20px; font-weight: 800; color: #FFFFFF; line-height: 1.2;">{{ $settings['company_name'] ?? 'TidCraft' }}</div>
+                                            <div style="font-size: 11px; color: #93c5fd; margin-top: 2px; letter-spacing: 0.3px;">Manage • Monitor • Grow</div>
+                                        </a>
+                                    </td>
+                                </tr>
+                            </tbody></table>
+                        </td>
+                        <td width="40%" align="right" valign="middle" class="header-motto" style="font-size: 12px; text-align: right; line-height: 1.4; color: #cbd5e1; vertical-align: middle;">
+                            Technology<br>
+                            <strong style="display: block; font-size: 13px; font-weight: 600; color: #ffffff;">for a Brighter<br>Tomorrow</strong>
+                        </td>
+                    </tr>
+                </tbody></table>
             </div>
-        </div>
 
         <!-- Shield Icon -->
         <div class="shield-icon-container">

@@ -53,6 +53,9 @@ class ClientAuthController extends Controller
         // Send email to client
         try {
             $template = \App\Models\EmailTemplate::where('slug', 'register')->first();
+            $frontendLoginUrl = \App\Helpers\UrlHelper::getLoginUrl($request);
+            $frontendContactUrl = \App\Helpers\UrlHelper::getContactUrl($request);
+
             if ($template) {
                 if ($template->status === 'active') {
                     $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
@@ -62,11 +65,16 @@ class ClientAuthController extends Controller
                         '{email}' => $user->email,
                         '{company_name}' => !empty($user->company_name) ? $user->company_name : $globalCompanyName,
                         '{image}' => $imageUrl,
-                        '{login_url}' => url('/login'),
+                        '{login_url}' => $frontendLoginUrl,
+                        '{{login_url}}' => $frontendLoginUrl,
+                        '{contact_url}' => $frontendContactUrl,
+                        '{{contact_url}}' => $frontendContactUrl,
+                        '{frontend_url}' => \App\Helpers\UrlHelper::getFrontendUrl($request),
+                        '{{frontend_url}}' => \App\Helpers\UrlHelper::getFrontendUrl($request),
                     ]));
                 }
             } else {
-                Mail::to($user->email)->send(new ClientRegisteredMail($user));
+                Mail::to($user->email)->send(new ClientRegisteredMail($user, $frontendLoginUrl, $frontendContactUrl));
             }
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to send registration email to client: ' . $e->getMessage());
