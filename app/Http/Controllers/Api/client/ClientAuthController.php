@@ -175,7 +175,7 @@ class ClientAuthController extends Controller
             $user->profile_image = asset($user->profile_image);
         }
 
-        $purchases = \App\Models\Tenant::with(['product', 'plan', 'domains', 'payments'])
+        $purchases = \App\Models\Tenant::with(['product', 'plan', 'domains', 'payments', 'subscriptions'])
             ->where(function($query) use ($user) {
                 $query->where('create_by', $user->id)
                       ->orWhere('client_id', $user->id);
