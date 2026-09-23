@@ -1260,9 +1260,9 @@ class ClientPurchaseController extends Controller
             // Create frontend symlink for Nginx
             \App\Services\DnsService::createTenantSymlink($tenant, $domain->domain);
 
-            if ($domain->type === 'custom') {
-                \App\Jobs\GenerateSslForCustomDomainJob::dispatch($tenant, $domain->domain);
-            }
+            // if ($domain->type === 'custom') {
+            //     \App\Jobs\GenerateSslForCustomDomainJob::dispatch($tenant, $domain->domain);
+            // }
 
             return response()->json([
                 'status' => 'success',
