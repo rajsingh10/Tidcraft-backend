@@ -315,27 +315,7 @@
                 </table>
             </div>
 
-            <!-- Features -->
-            <table class="features" border="0" cellspacing="0" cellpadding="0">
-                <tr>
-                    <td class="feature-item">
-                        <div class="feature-icon">🛒</div>
-                        <div class="feature-text">Browse<br>Products</div>
-                    </td>
-                    <td class="feature-item">
-                        <div class="feature-icon">📄</div>
-                        <div class="feature-text">Manage<br>Orders</div>
-                    </td>
-                    <td class="feature-item">
-                        <div class="feature-icon">❤️</div>
-                        <div class="feature-text">Save Your<br>Favorites</div>
-                    </td>
-                    <td class="feature-item">
-                        <div class="feature-icon">🎧</div>
-                        <div class="feature-text">Get<br>Support</div>
-                    </td>
-                </tr>
-            </table>
+
 
             <!-- Help Box -->
             <table class="help-box" border="0" cellspacing="0" cellpadding="0">

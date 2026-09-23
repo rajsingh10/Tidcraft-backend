@@ -74,13 +74,6 @@ class PlanController extends Controller
      */
     public function update(Request $request, Plan $plan)
     {
-        if (Subscription::where('plan_id', $plan->id)->exists()) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Cannot update plan because it is associated with one or more subscriptions.'
-            ], 400);
-        }
-
         $request->validate([
             'product_id' => 'sometimes|required|exists:products,id',
             'name' => 'sometimes|required|string|max:255',
