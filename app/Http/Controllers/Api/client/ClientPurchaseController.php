@@ -1352,7 +1352,7 @@ class ClientPurchaseController extends Controller
             return response()->json(['status' => 'error', 'message' => 'No domain configured for this purchase.'], 404);
         }
 
-        $sent = \App\Services\DnsService::sendDnsInstructionsEmail($tenant, $domain);
+        $sent = \App\Services\DnsService::sendDnsInstructionsEmail($tenant, $domain, true);
 
         if ($sent) {
             $client = $tenant->client ?? \App\Models\User::find($tenant->client_id ?? $tenant->create_by);

@@ -72,6 +72,7 @@ class TenantPlanStatusController extends Controller
                     'end_date' => $subscription->end_date,
                     'duration_days' => $tenant->duration_days,
                     'remaining_days' => $tenant->remaining_days,
+                    'expiry_date' => $tenant->expiry_date,
                 ] : null,
                 'quotas' => [
                     'max_orders' => $maxOrders,
@@ -188,6 +189,7 @@ class TenantPlanStatusController extends Controller
                 'store_configuration' => $storeConfig,
                 'is_subscription_active' => true,
                 'remaining_days' => $tenant->remaining_days,
+                'expiry_date' => $tenant->expiry_date,
             ]
         ]);
     }

@@ -13,7 +13,7 @@ class Tenant extends Model
     const UPDATED_AT = 'update_at';
     const DELETED_AT = 'delete_at';
 
-    protected $appends = ['duration_days', 'remaining_days'];
+    protected $appends = ['duration_days', 'remaining_days', 'expiry_date'];
 
     protected $fillable = [
         'uuid',
@@ -186,9 +186,10 @@ class Tenant extends Model
             
             // Dynamically calculate end_date if it's missing but we know the plan duration
             if (!$endDate && $this->plan && $this->plan->duration_days) {
-                $startDate = $subscription->start_date ? \Carbon\Carbon::parse($subscription->start_date) : $subscription->created_at;
-                $endDate = clone $startDate;
-                $endDate->addDays($this->plan->duration_days);
+                $startDate = $subscription->start_date ? \Carbon\Carbon::parse($subscription->start_date) : ($subscription->create_at ?? $subscription->created_at);
+                if ($startDate) {
+                    $endDate = \Carbon\Carbon::parse($startDate)->addDays($this->plan->duration_days);
+                }
             }
 
             if ($endDate) {
@@ -197,6 +198,35 @@ class Tenant extends Model
             }
         }
         return 0;
+    }
+
+    public function getExpiryDateAttribute()
+    {
+        $subscription = $this->relationLoaded('subscriptions') 
+            ? $this->subscriptions->sortByDesc('id')->first()
+            : $this->subscriptions()->latest('id')->first();
+
+        if ($subscription) {
+            $endDate = $subscription->end_date;
+            
+            // Dynamically calculate end_date if it's missing but we know the plan duration
+            if (!$endDate && $this->plan && $this->plan->duration_days) {
+                $startDate = $subscription->start_date ? \Carbon\Carbon::parse($subscription->start_date) : ($subscription->create_at ?? $subscription->created_at);
+                if ($startDate) {
+                    $endDate = \Carbon\Carbon::parse($startDate)->addDays($this->plan->duration_days);
+                }
+            }
+
+            if ($endDate) {
+                return \Carbon\Carbon::parse($endDate)->format('Y-m-d H:i:s');
+            }
+        }
+
+        if (!empty($this->subscription_end_date)) {
+            return \Carbon\Carbon::parse($this->subscription_end_date)->format('Y-m-d H:i:s');
+        }
+
+        return null;
     }
 
     /**

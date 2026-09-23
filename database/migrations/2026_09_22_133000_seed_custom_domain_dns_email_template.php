@@ -32,10 +32,6 @@ return new class extends Migration
         <strong>Note:</strong> DNS changes usually take between 5 to 30 minutes to propagate worldwide, but can take up to 24 hours. Once your DNS records are added, you can verify your domain.
     </div>
 
-    <p style="margin-top: 25px;">
-        <a href="{verify_url}" style="display: inline-block; background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Verify DNS Propagation</a>
-    </p>
-
     <p style="margin-top: 30px; font-size: 13px; color: #64748b;">
         If you need assistance configuring your DNS records, please contact our support team.
     </p>

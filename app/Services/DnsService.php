@@ -311,7 +311,7 @@ class DnsService
     /**
      * Send DNS setup instructions email to the client.
      */
-    public static function sendDnsInstructionsEmail(Tenant $tenant, Domain $domain): bool
+    public static function sendDnsInstructionsEmail(Tenant $tenant, Domain $domain, bool $force = false): bool
     {
         try {
             // Find client email
@@ -322,6 +322,14 @@ class DnsService
             if (empty($clientEmail)) {
                 Log::warning("DnsService::sendDnsInstructionsEmail: No recipient email found for Tenant ID {$tenant->id}");
                 return false;
+            }
+
+            // Deduplication: prevent sending duplicate DNS instructions for the same tenant & domain within 10 minutes unless forced
+            $cleanDomain = strtolower(trim($domain->domain));
+            $cacheKey = "dns_instructions_sent_{$tenant->id}_{$cleanDomain}";
+            if (!$force && Cache::has($cacheKey)) {
+                Log::info("DnsService: DNS instructions email already sent recently to {$clientEmail} for domain {$cleanDomain}. Skipping duplicate.");
+                return true;
             }
 
             $serverIp = self::getServerIp();
@@ -361,6 +369,8 @@ class DnsService
                 // Fallback to rich blade template
                 Mail::to($clientEmail)->send(new CustomDomainDnsSetupMail($tenant, $domain, $serverIp, $dnsRecords));
             }
+
+            Cache::put($cacheKey, true, now()->addMinutes(10));
 
             Log::info("DnsService: Sent DNS instructions email to {$clientEmail} for domain {$domain->domain}");
             return true;
