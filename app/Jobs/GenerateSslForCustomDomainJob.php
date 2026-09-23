@@ -48,17 +48,19 @@ class GenerateSslForCustomDomainJob implements ShouldQueue
             $sitesAvailablePath = "/etc/nginx/sites-available/{$this->domain}.conf";
             $sitesEnabledPath = "/etc/nginx/sites-enabled/{$this->domain}.conf";
             
-            $this->runCommand("sudo cp {$tmpFile} {$sitesAvailablePath}");
+            $this->runCommand("sudo /bin/cp {$tmpFile} {$sitesAvailablePath}");
             
             // 3. Create symlink
-            $this->runCommand("sudo ln -sf {$sitesAvailablePath} {$sitesEnabledPath}");
+            $this->runCommand("sudo /bin/ln -sf {$sitesAvailablePath} {$sitesEnabledPath}");
             
             // 4. Reload Nginx so the HTTP block is active
-            $this->runCommand("sudo systemctl reload nginx");
+            $this->runCommand("sudo /bin/systemctl reload nginx");
             
             // 5. Run Certbot to generate the certificate and automatically upgrade the Nginx config
             $adminEmail = env('ADMIN_EMAIL', 'admin@tidcraft.com');
-            $certbotCmd = "sudo certbot --nginx -d {$this->domain} -m {$adminEmail} --agree-tos --non-interactive --redirect";
+            
+            // Try both common paths for certbot (apt vs snap)
+            $certbotCmd = "if [ -x /usr/bin/certbot ]; then sudo /usr/bin/certbot --nginx -d {$this->domain} -m {$adminEmail} --agree-tos --non-interactive --redirect; else sudo /snap/bin/certbot --nginx -d {$this->domain} -m {$adminEmail} --agree-tos --non-interactive --redirect; fi";
             
             Log::info("GenerateSslForCustomDomainJob: Running Certbot: {$certbotCmd}");
             $this->runCommand($certbotCmd);
