@@ -1482,6 +1482,15 @@ class TenantProvisionController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
         }
 
+        $validator = Validator::make($request->all(), [
+            'plan_id' => 'nullable|exists:plans,id',
+            'billing_cycle' => 'nullable|in:monthly,yearly,annual',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['status' => 'error', 'message' => 'Validation Error', 'errors' => $validator->errors()], 422);
+        }
+
         $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired', 'past_due'])->first();
         if (!$subscription) {
             return response()->json(['status' => 'error', 'message' => 'No subscription found to renew.'], 400);
@@ -1490,7 +1499,17 @@ class TenantProvisionController extends Controller
         try {
             DB::beginTransaction();
 
-            $billingCycle = $subscription->billing_cycle ?? 'monthly';
+            if ($request->has('plan_id')) {
+                $newPlan = \App\Models\Plan::find($request->plan_id);
+                if ($newPlan) {
+                    $tenant->plan_id = $newPlan->id;
+                    $subscription->plan_id = $newPlan->id;
+                    $tenant->setRelation('plan', $newPlan);
+                    $subscription->setRelation('plan', $newPlan);
+                }
+            }
+
+            $billingCycle = $request->billing_cycle ?? $subscription->billing_cycle ?? 'monthly';
             $currentEndDate = $subscription->end_date ? \Carbon\Carbon::parse($subscription->end_date) : now();
             if ($currentEndDate->isPast()) {
                 $currentEndDate = now();
@@ -1501,6 +1520,7 @@ class TenantProvisionController extends Controller
             } else {
                 $subscription->end_date = $currentEndDate->addMonth();
             }
+            $subscription->billing_cycle = $billingCycle;
             $subscription->status = 'active';
             $subscription->save();
 
