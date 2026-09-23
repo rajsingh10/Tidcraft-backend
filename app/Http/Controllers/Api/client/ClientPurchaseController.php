@@ -1277,7 +1277,7 @@ class ClientPurchaseController extends Controller
         }
 
         return response()->json([
-            'status' => 'pending',
+            'status' => 'error',
             'verified' => false,
             'message' => $verification['message'],
             'data' => [
@@ -1290,7 +1290,7 @@ class ClientPurchaseController extends Controller
                 'dns_records' => \App\Services\DnsService::getExpectedDnsRecords($domain->domain, $domain->type),
                 'help' => 'Ensure you have added an A record with Host @ pointing to ' . $verification['server_ip'] . '. Note that DNS propagation can take 5-30 minutes.'
             ]
-        ]);
+        ], 400);
     }
 
     /**

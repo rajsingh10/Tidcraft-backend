@@ -794,13 +794,31 @@ class TenantProvisionController extends Controller
                 
                 $existingDomain = $tenant->domains()->first();
                 if ($existingDomain) {
+                    $oldDomain = $existingDomain->domain;
+                    $newType = $domainData['type'] ?? $existingDomain->type;
+                    $newDomain = $domainData['domain'] ?? $oldDomain;
+                    
+                    if ($newType === 'subdomain') {
+                        $domainData['status'] = 'active';
+                    } else if ($newType === 'custom' && $newDomain !== $oldDomain) {
+                        $domainData['status'] = 'pending';
+                    }
+
                     $existingDomain->update($domainData);
+
+                    if ($isFullyProvisioned && $newType === 'subdomain' && $newDomain !== $oldDomain) {
+                        \App\Services\DnsService::createTenantSymlink($tenant, $newDomain);
+                    }
                 } else {
                     $domainData['tenant_id'] = $tenant->id;
                     $domainData['client_id'] = $tenant->client_id;
                     $domainData['product_id'] = $tenant->product_id;
-                    $domainData['status'] = 'pending';
-                    Domain::create($domainData);
+                    $domainData['status'] = ($domainData['type'] ?? '') === 'subdomain' ? 'active' : 'pending';
+                    $newDomainRecord = Domain::create($domainData);
+                    
+                    if ($isFullyProvisioned && $newDomainRecord->type === 'subdomain') {
+                        \App\Services\DnsService::createTenantSymlink($tenant, $newDomainRecord->domain);
+                    }
                 }
             }
 
@@ -2052,7 +2070,7 @@ class TenantProvisionController extends Controller
         }
 
         return response()->json([
-            'status' => 'pending',
+            'status' => 'error',
             'verified' => false,
             'message' => $verification['message'],
             'data' => [
@@ -2064,7 +2082,7 @@ class TenantProvisionController extends Controller
                 'current_resolved_ips' => $verification['resolved_ips'],
                 'dns_records' => \App\Services\DnsService::getExpectedDnsRecords($domain->domain, $domain->type)
             ]
-        ]);
+        ], 400);
     }
 
     /**
