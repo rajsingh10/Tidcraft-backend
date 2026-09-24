@@ -779,7 +779,7 @@ class TenantProvisionController extends Controller
             // Handle suspending / un-suspending domains
             if ($request->has('status') && $request->status !== $oldStatus) {
                 $newStatus = strtolower($request->status);
-                if (in_array($newStatus, ['suspended', 'past due', 'past_due', 'expired'])) {
+                if (in_array($newStatus, ['suspended', 'expired'])) {
                     \App\Services\TenantProvisionService::blockTenant($tenant);
                 } elseif ($newStatus === 'active') {
                     \App\Services\TenantProvisionService::unblockTenant($tenant);
