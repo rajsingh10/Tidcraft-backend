@@ -1225,7 +1225,9 @@ class ClientPurchaseController extends Controller
                         'dns_records' => $dnsRecords,
                         'instructions' => [
                             'title' => 'DNS Configuration Required',
-                            'description' => "Add the A record pointing to {$serverIp} and CNAME record for www at your domain registrar.",
+                            'description' => \App\Services\DnsService::isApexDomain($request->domain)
+                                ? "Add the A record with Host @ pointing to {$serverIp} and CNAME record for www at your domain registrar."
+                                : "Add the A record with Host " . (explode('.', $request->domain)[0] ?? '@') . " pointing to {$serverIp} at your domain registrar.",
                             'verify_endpoint' => "/api/client/purchases/{$tenant->uuid}/verify-dns",
                             'propagation_time' => '5-30 minutes (up to 24-48 hours)'
                         ],
@@ -1328,7 +1330,7 @@ class ClientPurchaseController extends Controller
                 'server_ip' => $verification['server_ip'],
                 'current_resolved_ips' => $verification['resolved_ips'],
                 'dns_records' => \App\Services\DnsService::getExpectedDnsRecords($domain->domain, $domain->type),
-                'help' => 'Ensure you have added an A record with Host @ pointing to ' . $verification['server_ip'] . '. Note that DNS propagation can take 5-30 minutes.'
+                'help' => 'Ensure you have added an A record with Host ' . (\App\Services\DnsService::isApexDomain($domain->domain) ? '@' : (explode('.', $domain->domain)[0] ?? '@')) . ' pointing to ' . $verification['server_ip'] . '. Note that DNS propagation can take 5-30 minutes.'
             ]
         ], 400);
     }
