@@ -154,7 +154,8 @@ class Tenant extends Model
             $prefix = 't' . $this->id;
         }
 
-        return substr('tidcraft-' . $prefix, 0, 63);
+        // Append tenant ID to ensure uniqueness and bypass GCP's 5-minute cooldown on deleted database IDs
+        return substr('tidcraft-' . $prefix . '-' . $this->id, 0, 63);
     }
 
     public function getDurationDaysAttribute()
