@@ -1432,10 +1432,17 @@ class ClientPurchaseController extends Controller
         try {
             DB::beginTransaction();
 
-            // Update user profile with client name and logo if provided
+            // Update user profile with client name, logo, phone and address if provided
             if ($request->filled('client_name')) {
                 $user->name = $request->client_name;
             }
+            if ($request->filled('phone_number') && empty($user->phone_number)) {
+                $user->phone_number = $request->phone_number;
+            }
+            if ($request->filled('address') && empty($user->address)) {
+                $user->address = $request->address;
+            }
+            
             if ($request->hasFile('company_logo')) {
                 $path = $request->file('company_logo')->store('profiles', 'public');
                 $user->profile_image = '/storage/' . $path;
