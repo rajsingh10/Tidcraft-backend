@@ -446,6 +446,10 @@ class ClientPurchaseController extends Controller
                     'type' => $request->domain_type,
                     'domain' => $request->domain,
                     'status' => 'pending',
+                    'dns_verified' => false,
+                    'dns_verified_at' => null,
+                    'ssl_verified' => false,
+                    'ssl_verified_at' => null,
                 ]);
             }
 

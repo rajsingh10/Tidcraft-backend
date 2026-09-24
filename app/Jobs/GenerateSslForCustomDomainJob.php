@@ -69,6 +69,14 @@ class GenerateSslForCustomDomainJob implements ShouldQueue
             @unlink($tmpFile);
             
             Log::info("GenerateSslForCustomDomainJob: Successfully generated SSL for domain {$this->domain}");
+            
+            $domainModel = \App\Models\Domain::where('tenant_id', $this->tenant->id)->where('domain', $this->domain)->first();
+            if ($domainModel) {
+                $domainModel->update([
+                    'ssl_verified' => true,
+                    'ssl_verified_at' => now(),
+                ]);
+            }
 
         } catch (\Exception $e) {
             Log::error("GenerateSslForCustomDomainJob: Failed to generate SSL for {$this->domain}. Error: " . $e->getMessage());

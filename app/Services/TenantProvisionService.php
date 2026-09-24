@@ -230,7 +230,9 @@ class TenantProvisionService
         try {
             $domain = $tenant->domains()->first();
             if ($domain && $domain->status !== 'active') {
-                $domain->update(['status' => 'active']);
+                if ($domain->type !== 'custom' || $domain->dns_verified) {
+                    $domain->update(['status' => 'active']);
+                }
             }
 
             // Create a symlink for the frontend Nginx routing
