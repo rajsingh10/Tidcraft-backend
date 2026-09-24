@@ -38,32 +38,40 @@ class GenerateSslForCustomDomainJob implements ShouldQueue
         Log::info("GenerateSslForCustomDomainJob: Starting SSL generation for domain {$this->domain}");
 
         try {
-            $nginxConfig = $this->generateNginxConfig();
-            
-            // 1. Write the config to a temporary file
+            // STEP 1: Generate HTTP-only configuration to pass Let's Encrypt webroot challenge
+            $httpConfig = $this->generateHttpConfig();
             $tmpFile = '/tmp/' . $this->domain . '.conf';
-            file_put_contents($tmpFile, $nginxConfig);
+            file_put_contents($tmpFile, $httpConfig);
             
-            // 2. Move to sites-available using sudo
             $sitesAvailablePath = "/etc/nginx/sites-available/{$this->domain}.conf";
             $sitesEnabledPath = "/etc/nginx/sites-enabled/{$this->domain}.conf";
             
             $this->runCommand("sudo /bin/cp {$tmpFile} {$sitesAvailablePath}");
-            
-            // 3. Create symlink
             $this->runCommand("sudo /bin/ln -sf {$sitesAvailablePath} {$sitesEnabledPath}");
-            
-            // 4. Reload Nginx so the HTTP block is active
             $this->runCommand("sudo /bin/systemctl reload nginx");
             
-            // 5. Run Certbot to generate the certificate and automatically upgrade the Nginx config
+            // STEP 2: Run Certbot in certonly mode using webroot plugin (no Nginx auto-configuration)
             $adminEmail = env('ADMIN_EMAIL', 'admin@tidcraft.com');
+            $webrootPath = "/home/devtidcraftcomusr/tenants/{$this->domain}";
             
-            // Try both common paths for certbot (apt vs snap)
-            $certbotCmd = "if [ -x /usr/bin/certbot ]; then sudo /usr/bin/certbot --nginx -d {$this->domain} -m {$adminEmail} --agree-tos --non-interactive --redirect; else sudo /snap/bin/certbot --nginx -d {$this->domain} -m {$adminEmail} --agree-tos --non-interactive --redirect; fi";
+            $certbotCmd = "if [ -x /usr/bin/certbot ]; then sudo /usr/bin/certbot certonly --webroot -w {$webrootPath} -d {$this->domain} --cert-name {$this->domain} -m {$adminEmail} --agree-tos --non-interactive; else sudo /snap/bin/certbot certonly --webroot -w {$webrootPath} -d {$this->domain} --cert-name {$this->domain} -m {$adminEmail} --agree-tos --non-interactive; fi";
             
-            Log::info("GenerateSslForCustomDomainJob: Running Certbot: {$certbotCmd}");
-            $this->runCommand($certbotCmd);
+            Log::info("GenerateSslForCustomDomainJob: Running Certbot Webroot: {$certbotCmd}");
+            $certbotOutput = $this->runCommand($certbotCmd);
+            
+            // Allow success if certificate already exists or successfully received
+            if (stripos($certbotOutput, 'Successfully received certificate') === false && stripos($certbotOutput, 'Certificate not yet due for renewal') === false) {
+                if (stripos($certbotOutput, 'error') !== false || stripos($certbotOutput, 'failed') !== false) {
+                    throw new \Exception("Certbot certonly failed: " . $certbotOutput);
+                }
+            }
+
+            // STEP 3: Generate the final HTTPS configuration now that certificates exist
+            $httpsConfig = $this->generateHttpsConfig();
+            file_put_contents($tmpFile, $httpsConfig);
+            
+            $this->runCommand("sudo /bin/cp {$tmpFile} {$sitesAvailablePath}");
+            $this->runCommand("sudo /bin/systemctl reload nginx");
             
             // Clean up temp file
             @unlink($tmpFile);
@@ -80,10 +88,19 @@ class GenerateSslForCustomDomainJob implements ShouldQueue
 
         } catch (\Exception $e) {
             Log::error("GenerateSslForCustomDomainJob: Failed to generate SSL for {$this->domain}. Error: " . $e->getMessage());
+            
+            // Revert domain verification status if it fails
+            $domainModel = \App\Models\Domain::where('tenant_id', $this->tenant->id)->where('domain', $this->domain)->first();
+            if ($domainModel) {
+                $domainModel->update([
+                    'ssl_verified' => false,
+                    'ssl_verified_at' => null,
+                ]);
+            }
         }
     }
 
-    private function generateNginxConfig(): string
+    private function generateHttpConfig(): string
     {
         return <<<EOT
 server {
@@ -97,12 +114,59 @@ server {
     charset utf-8;
 
     location / {
-        try_files \$uri \$uri/ /index.html;
+        try_files \$uri \$uri/ /index.php?\$query_string;
     }
 
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/php8.5-fpm.sock;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        include fastcgi_params;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}
+EOT;
+    }
+
+    private function generateHttpsConfig(): string
+    {
+        return <<<EOT
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {$this->domain};
+    
+    # Redirect all HTTP requests to HTTPS
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    
+    server_name {$this->domain};
+
+    ssl_certificate /etc/letsencrypt/live/{$this->domain}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{$this->domain}/privkey.pem;
+    
+    # Basic SSL settings
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+
+    root /home/devtidcraftcomusr/tenants/{$this->domain};
+    index index.html index.php;
+    charset utf-8;
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
         fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
         include fastcgi_params;
     }
