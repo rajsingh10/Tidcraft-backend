@@ -358,17 +358,48 @@ class TenantProvisionController extends Controller
      */
     private function checkAndMarkPastDue($tenant)
     {
-        if ($tenant->status === 'active') {
+        if (in_array($tenant->status, ['active', 'past_due'])) {
             $subscription = $tenant->subscriptions()->whereIn('status', ['active'])->first();
             if ($subscription && $subscription->end_date) {
                 $endDate = \Carbon\Carbon::parse($subscription->end_date)->startOfDay();
                 $daysRemaining = now()->startOfDay()->diffInDays($endDate, false);
                 
-                if ($daysRemaining <= 5) {
-                    $tenant->status = 'past_due';
+                if ($daysRemaining <= 0 && $tenant->status !== 'expired') {
+                    $subscription->update(['status' => 'expired']);
+                    $tenant->status = 'expired';
                     $tenant->save();
                     \App\Services\TenantProvisionService::blockTenant($tenant);
+                    
+                    // Send Expiry Email dynamically
+                    $this->notifyClientExpiry($tenant, 'Subscription Expired', 'Your subscription has expired and your application has been blocked. Please renew to restore access.');
+                } elseif ($daysRemaining <= 5 && $daysRemaining > 0 && $tenant->status !== 'past_due') {
+                    $tenant->status = 'past_due';
+                    $tenant->save();
+                    
+                    // Send Past Due Warning Email dynamically
+                    $this->notifyClientExpiry($tenant, 'Subscription Expiring Soon', "Your subscription will expire in {$daysRemaining} day(s). Please renew to avoid service interruption.");
                 }
+            }
+        }
+    }
+
+    private function notifyClientExpiry(\App\Models\Tenant $tenant, $title, $message)
+    {
+        \App\Models\AdminNotification::create([
+            'type' => 'subscription_warning',
+            'title' => $title,
+            'message' => $message,
+            'related_id' => $tenant->id,
+            'client_name' => $tenant->client ? $tenant->client->name : 'Client',
+            'is_read' => false,
+        ]);
+
+        $adminEmail = $tenant->primary_contact_email ?? ($tenant->client ? $tenant->client->email : null);
+        if ($adminEmail) {
+            try {
+                \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\SubscriptionExpiryEmail($tenant, $title, $message));
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to send dynamic subscription expiry email: ' . $e->getMessage());
             }
         }
     }
