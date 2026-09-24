@@ -117,7 +117,12 @@ EOT;
     private function runCommand(string $command): void
     {
         Log::info("GenerateSslForCustomDomainJob: Executing command: {$command}");
-        $output = shell_exec($command . ' 2>&1');
-        Log::info("GenerateSslForCustomDomainJob: Command output: " . ($output ?: 'No output'));
+        exec($command . ' 2>&1', $output, $returnVar);
+        $outputStr = implode("\n", $output);
+        Log::info("GenerateSslForCustomDomainJob: Command output: " . ($outputStr ?: 'No output'));
+        
+        if ($returnVar !== 0) {
+            throw new \Exception("Command failed with exit code {$returnVar}. Output: {$outputStr}");
+        }
     }
 }
