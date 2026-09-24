@@ -1206,8 +1206,12 @@ class ClientPurchaseController extends Controller
                 $serverIp = \App\Services\DnsService::getServerIp();
                 $dnsRecords = \App\Services\DnsService::getExpectedDnsRecords($request->domain, 'custom');
 
-                // Send email notification with DNS instructions to client
-                \App\Services\DnsService::sendDnsInstructionsEmail($tenant, $domainRecord);
+                // Send email notification with DNS instructions only if not already verified
+                $emailSent = false;
+                if (!$domainRecord->dns_verified && $domainRecord->status !== 'active') {
+                    \App\Services\DnsService::sendDnsInstructionsEmail($tenant, $domainRecord);
+                    $emailSent = true;
+                }
 
                 return response()->json([
                     'status' => 'success',
@@ -1225,7 +1229,7 @@ class ClientPurchaseController extends Controller
                             'verify_endpoint' => "/api/client/purchases/{$tenant->uuid}/verify-dns",
                             'propagation_time' => '5-30 minutes (up to 24-48 hours)'
                         ],
-                        'email_sent' => true
+                        'email_sent' => $emailSent
                     ]
                 ]);
             }
