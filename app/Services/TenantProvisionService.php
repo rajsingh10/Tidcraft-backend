@@ -256,6 +256,12 @@ class TenantProvisionService
                     } elseif (!file_exists($symlinkPath)) {
                         @symlink($targetPath, $symlinkPath);
                     }
+
+                    // Generate SSL for subdomain automatically during provisioning
+                    if ($domain->type === 'subdomain') {
+                        \App\Jobs\GenerateSslForCustomDomainJob::dispatch($tenant, $domain->domain);
+                        \App\Helpers\QueueRunner::runBackground();
+                    }
                 }
             }
 
