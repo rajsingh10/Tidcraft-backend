@@ -1165,18 +1165,39 @@ class ClientPurchaseController extends Controller
         try {
             DB::beginTransaction();
 
+            $existingDomain = Domain::where('tenant_id', $tenant->id)->first();
             $domainStatus = ($request->domain_type === 'custom') ? 'pending_dns' : 'pending';
 
-            $domainRecord = Domain::updateOrCreate(
-                ['tenant_id' => $tenant->id],
-                [
+            if ($existingDomain) {
+                if ($existingDomain->domain === $request->domain) {
+                    // Keep the existing status if the domain hasn't changed
+                    $domainStatus = $existingDomain->status;
+                } else {
+                    // Domain changed: reset verifications
+                    $existingDomain->dns_verified = false;
+                    $existingDomain->dns_verified_at = null;
+                    $existingDomain->ssl_verified = false;
+                    $existingDomain->ssl_verified_at = null;
+                }
+
+                $existingDomain->update([
                     'client_id' => $tenant->client_id ?? $tenant->create_by,
                     'product_id' => $tenant->product_id,
                     'type' => $request->domain_type,
                     'domain' => $request->domain,
                     'status' => $domainStatus,
-                ]
-            );
+                ]);
+                $domainRecord = $existingDomain;
+            } else {
+                $domainRecord = Domain::create([
+                    'tenant_id' => $tenant->id,
+                    'client_id' => $tenant->client_id ?? $tenant->create_by,
+                    'product_id' => $tenant->product_id,
+                    'type' => $request->domain_type,
+                    'domain' => $request->domain,
+                    'status' => $domainStatus,
+                ]);
+            }
 
             DB::commit();
 
@@ -1194,8 +1215,8 @@ class ClientPurchaseController extends Controller
                     'data' => [
                         'tenant_id' => $tenant->uuid,
                         'domain' => $request->domain,
-                        'domain_type' => 'custom',
-                        'domain_status' => 'pending_dns',
+                        'domain_type' => $domainRecord->type,
+                        'domain_status' => $domainRecord->status,
                         'server_ip' => $serverIp,
                         'dns_records' => $dnsRecords,
                         'instructions' => [
