@@ -149,6 +149,10 @@ class TenantProvisionController extends Controller
                 'type' => $domainType,
                 'domain' => $domainStr,
                 'status' => 'pending',
+                'dns_verified' => false,
+                'dns_verified_at' => null,
+                'ssl_verified' => false,
+                'ssl_verified_at' => null,
             ]);
 
             DB::commit();
@@ -2048,14 +2052,19 @@ class TenantProvisionController extends Controller
         $verification = \App\Services\DnsService::verifyDomainDns($domain->domain, $domain->type);
 
         if ($verification['verified']) {
-            $domain->update(['status' => 'active']);
+            $domain->update([
+                'status' => 'active',
+                'dns_verified' => true,
+                'dns_verified_at' => now(),
+            ]);
 
             // Create frontend symlink for Nginx
             \App\Services\DnsService::createTenantSymlink($tenant, $domain->domain);
 
-            // if ($domain->type === 'custom') {
-            //     \App\Jobs\GenerateSslForCustomDomainJob::dispatch($tenant, $domain->domain);
-            // }
+            if ($domain->type === 'custom') {
+                \App\Jobs\GenerateSslForCustomDomainJob::dispatch($tenant, $domain->domain);
+                \App\Helpers\QueueRunner::runBackground();
+            }
 
             return response()->json([
                 'status' => 'success',
@@ -2066,6 +2075,8 @@ class TenantProvisionController extends Controller
                     'domain' => $domain->domain,
                     'domain_type' => $domain->type,
                     'status' => 'active',
+                    'dns_verified' => true,
+                    'dns_verified_at' => now()->toIso8601String(),
                     'server_ip' => $verification['server_ip'],
                     'resolved_ips' => $verification['resolved_ips'],
                     'verified_at' => now()->toIso8601String()
