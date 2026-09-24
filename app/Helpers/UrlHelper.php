@@ -198,4 +198,16 @@ class UrlHelper
 
         return $content;
     }
+
+    /**
+     * Resolve the CNAME/DNS target domain dynamically.
+     * - Dev/Testing: dev.tidcraft.com
+     * - Production/Live: tidcraft.com
+     */
+    public static function getDnsTargetHost(?Request $request = null): string
+    {
+        $frontendUrl = self::getFrontendUrl($request);
+        $host = parse_url($frontendUrl, PHP_URL_HOST);
+        return $host ?: 'tidcraft.com';
+    }
 }

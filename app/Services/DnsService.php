@@ -176,7 +176,7 @@ class DnsService
             ];
         }
 
-        // Subdomain of a custom domain (e.g. order.ratak.com)
+        // Subdomain of a custom domain (e.g. tidcraft.domain.com or order.ratak.com)
         $subPart = explode('.', $domain)[0];
         return [
             [
@@ -186,16 +186,7 @@ class DnsService
                 'value' => $serverIp,
                 'ttl' => 3600,
                 'status' => 'required',
-                'description' => "Points {$domain} directly to Tidcraft server IP ({$serverIp})."
-            ],
-            [
-                'type' => 'CNAME',
-                'name' => $subPart,
-                'host' => $domain,
-                'value' => 'devapi.tidcraft.com',
-                'ttl' => 3600,
-                'status' => 'alternative',
-                'description' => "Alternative: Point CNAME to Tidcraft host (devapi.tidcraft.com)."
+                'description' => "Points directly to server IP ({$serverIp})."
             ]
         ];
     }
