@@ -812,7 +812,24 @@ class TenantProvisionController extends Controller
                 $newStatus = strtolower($request->status);
                 if (in_array($newStatus, ['suspended', 'expired'])) {
                     \App\Services\TenantProvisionService::blockTenant($tenant);
-                } elseif ($newStatus === 'active') {
+
+                    // Send suspend email to the client
+                    if ($newStatus === 'suspended') {
+                        $adminEmail = $tenant->primary_contact_email ?? ($tenant->client ? $tenant->client->email : null);
+                        if ($adminEmail) {
+                            try {
+                                \Illuminate\Support\Facades\Mail::to($adminEmail)->send(
+                                    new \App\Mail\TenantSuspendedEmail(
+                                        $tenant, 
+                                        'Manual suspension by administrator.'
+                                    )
+                                );
+                            } catch (\Exception $e) {
+                                \Illuminate\Support\Facades\Log::error('Failed to send suspension email: ' . $e->getMessage());
+                            }
+                        }
+                    }
+                } elseif (in_array($newStatus, ['active', 'past due', 'past_due'])) {
                     \App\Services\TenantProvisionService::unblockTenant($tenant);
                 }
             }
