@@ -860,6 +860,8 @@ class TenantProvisionController extends Controller
 
                     if ($isFullyProvisioned && $newType === 'subdomain' && $newDomain !== $oldDomain) {
                         \App\Services\DnsService::createTenantSymlink($tenant, $newDomain);
+                        \App\Jobs\GenerateSslForCustomDomainJob::dispatch($tenant, $newDomain);
+                        \App\Helpers\QueueRunner::runBackground();
                     }
                 } else {
                     $domainData['tenant_id'] = $tenant->id;
@@ -870,6 +872,8 @@ class TenantProvisionController extends Controller
                     
                     if ($isFullyProvisioned && $newDomainRecord->type === 'subdomain') {
                         \App\Services\DnsService::createTenantSymlink($tenant, $newDomainRecord->domain);
+                        \App\Jobs\GenerateSslForCustomDomainJob::dispatch($tenant, $newDomainRecord->domain);
+                        \App\Helpers\QueueRunner::runBackground();
                     }
                 }
             }
