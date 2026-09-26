@@ -282,6 +282,19 @@ class ClientPurchaseController extends Controller
             $request->merge(['domain' => $prefix . '.tidcraft.com']);
         }
         
+        $ignoreDomainId = null;
+        if ($request->filled('domain')) {
+            $existingDomain = \App\Models\Domain::where('domain', $request->domain)
+                ->with('tenant')
+                ->first();
+            if ($existingDomain) {
+                $ownerClientId = $existingDomain->client_id ?? $existingDomain->tenant?->client_id;
+                if ($ownerClientId && (string)$ownerClientId === (string)$user->id) {
+                    $ignoreDomainId = $existingDomain->id;
+                }
+            }
+        }
+
         $validator = Validator::make($request->all(), [
             // Step 1: Client Info
             'business_name' => 'required|string|max:255',
@@ -299,7 +312,7 @@ class ClientPurchaseController extends Controller
 
             // Step 4: Domain Setup
             'domain_type' => 'nullable|in:subdomain,shared,custom',
-            'domain' => 'nullable|string|unique:domains,domain',
+            'domain' => 'nullable|string' . ($ignoreDomainId ? "|unique:domains,domain,{$ignoreDomainId}" : "|unique:domains,domain"),
 
 
 
@@ -1417,6 +1430,19 @@ class ClientPurchaseController extends Controller
             $request->merge(['domain' => $cleanDomain]);
         }
         
+        $ignoreDomainId = null;
+        if ($request->filled('domain')) {
+            $existingDomain = \App\Models\Domain::where('domain', $request->domain)
+                ->with('tenant')
+                ->first();
+            if ($existingDomain) {
+                $ownerClientId = $existingDomain->client_id ?? $existingDomain->tenant?->client_id;
+                if ($ownerClientId && (string)$ownerClientId === (string)$user->id) {
+                    $ignoreDomainId = $existingDomain->id;
+                }
+            }
+        }
+
         $validator = Validator::make($request->all(), [
             // Step 1: Client Info
             'business_name' => 'required|string|max:255',
@@ -1434,7 +1460,7 @@ class ClientPurchaseController extends Controller
 
             // Step 4: Domain Setup
             'domain_type' => 'nullable|in:subdomain,shared,custom',
-            'domain' => 'nullable|string|unique:domains,domain',
+            'domain' => 'nullable|string' . ($ignoreDomainId ? "|unique:domains,domain,{$ignoreDomainId}" : "|unique:domains,domain"),
 
             // Add-ons
             'add_ons' => 'nullable|array',
