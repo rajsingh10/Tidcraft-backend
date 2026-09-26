@@ -37,7 +37,9 @@ class PlanController extends Controller
             'integrations' => 'nullable|array',
             'is_popular' => 'nullable|boolean',
             'max_users' => 'nullable|integer',
+            'max_users_annual' => 'nullable|integer',
             'max_orders' => 'nullable|integer',
+            'max_orders_monthly' => 'nullable|integer',
             'additional_order_price' => 'nullable|numeric|min:0',
             'store_configuration' => 'nullable|string',
             'has_hybrid_customer_app' => 'nullable|boolean',
@@ -46,6 +48,7 @@ class PlanController extends Controller
             'has_white_labeled_solution' => 'nullable|boolean',
             'has_white_labeled_dashboard' => 'nullable|boolean',
             'storage_gb' => 'nullable|integer',
+            'storage_gb_annual' => 'nullable|integer',
             'duration_days' => 'nullable|integer',
         ]);
 
@@ -85,7 +88,9 @@ class PlanController extends Controller
             'integrations' => 'nullable|array',
             'is_popular' => 'nullable|boolean',
             'max_users' => 'nullable|integer',
+            'max_users_annual' => 'nullable|integer',
             'max_orders' => 'nullable|integer',
+            'max_orders_monthly' => 'nullable|integer',
             'additional_order_price' => 'nullable|numeric|min:0',
             'store_configuration' => 'nullable|string',
             'has_hybrid_customer_app' => 'nullable|boolean',
@@ -94,6 +99,7 @@ class PlanController extends Controller
             'has_white_labeled_solution' => 'nullable|boolean',
             'has_white_labeled_dashboard' => 'nullable|boolean',
             'storage_gb' => 'nullable|integer',
+            'storage_gb_annual' => 'nullable|integer',
             'duration_days' => 'nullable|integer',
         ]);
 
