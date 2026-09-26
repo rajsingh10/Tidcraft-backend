@@ -180,7 +180,7 @@
                                     <!-- Step 3 -->
                                     <td class="step-item">
                                         <div class="step-icon">
-                                            <img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/mail.png" width="24" height="24">
+                                            <img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/new-post.png" width="24" height="24">
                                         </div>
                                         <div class="step-title">3. Contact Us</div>
                                         <div class="step-desc">If you believe this is a mistake, please reach out to our support team.</div>
