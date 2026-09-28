@@ -14,7 +14,7 @@ class PlanController extends Controller
      */
     public function index()
     {
-        $plans = Plan::all();
+        $plans = Plan::with('currency')->get();
         return response()->json([
             'status' => 'success',
             'data' => $plans
@@ -28,6 +28,9 @@ class PlanController extends Controller
     {
         $request->validate([
             'product_id' => 'required|exists:products,id',
+            'currency_id' => 'nullable|exists:currencies,id',
+            'currency' => 'nullable|string|max:10',
+            'currency_code' => 'nullable|string|max:10',
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'monthly_price' => 'required|numeric|min:0',
@@ -52,7 +55,35 @@ class PlanController extends Controller
             'duration_days' => 'nullable|integer',
         ]);
 
-        $plan = Plan::create($request->all());
+        $data = $request->all();
+
+        // Resolve currency: prioritize currency_id, then currency / currency_code string, fallback to default INR
+        $currencyModel = null;
+        if (!empty($data['currency_id'])) {
+            $currencyModel = \App\Models\Currency::find($data['currency_id']);
+        } elseif (!empty($data['currency'])) {
+            if (is_numeric($data['currency'])) {
+                $currencyModel = \App\Models\Currency::find($data['currency']);
+            } else {
+                $currencyModel = \App\Models\Currency::where('code', strtoupper($data['currency']))->first();
+            }
+        } elseif (!empty($data['currency_code'])) {
+            $currencyModel = \App\Models\Currency::where('code', strtoupper($data['currency_code']))->first();
+        }
+
+        if (!$currencyModel) {
+            $currencyModel = \App\Models\Currency::where('code', 'INR')->first() ?? \App\Models\Currency::first();
+        }
+
+        if ($currencyModel) {
+            $data['currency_id'] = $currencyModel->id;
+            $data['currency_code'] = $currencyModel->code;
+        } else {
+            $data['currency_code'] = 'INR';
+        }
+
+        $plan = Plan::create($data);
+        $plan->load('currency');
 
         return response()->json([
             'status' => 'success',
@@ -66,6 +97,7 @@ class PlanController extends Controller
      */
     public function show(Plan $plan)
     {
+        $plan->load('currency');
         return response()->json([
             'status' => 'success',
             'data' => $plan
@@ -79,6 +111,9 @@ class PlanController extends Controller
     {
         $request->validate([
             'product_id' => 'sometimes|required|exists:products,id',
+            'currency_id' => 'nullable|exists:currencies,id',
+            'currency' => 'nullable|string|max:10',
+            'currency_code' => 'nullable|string|max:10',
             'name' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
             'monthly_price' => 'sometimes|required|numeric|min:0',
@@ -103,7 +138,28 @@ class PlanController extends Controller
             'duration_days' => 'nullable|integer',
         ]);
 
-        $plan->update($request->all());
+        $data = $request->all();
+
+        $currencyModel = null;
+        if (isset($data['currency_id'])) {
+            $currencyModel = \App\Models\Currency::find($data['currency_id']);
+        } elseif (isset($data['currency'])) {
+            if (is_numeric($data['currency'])) {
+                $currencyModel = \App\Models\Currency::find($data['currency']);
+            } else {
+                $currencyModel = \App\Models\Currency::where('code', strtoupper($data['currency']))->first();
+            }
+        } elseif (isset($data['currency_code'])) {
+            $currencyModel = \App\Models\Currency::where('code', strtoupper($data['currency_code']))->first();
+        }
+
+        if ($currencyModel) {
+            $data['currency_id'] = $currencyModel->id;
+            $data['currency_code'] = $currencyModel->code;
+        }
+
+        $plan->update($data);
+        $plan->load('currency');
 
         return response()->json([
             'status' => 'success',

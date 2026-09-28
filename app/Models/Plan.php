@@ -15,6 +15,8 @@ class Plan extends Model
 
     protected $fillable = [
         'product_id',
+        'currency_id',
+        'currency_code',
         'name',
         'description',
         'monthly_price',
@@ -43,6 +45,7 @@ class Plan extends Model
     ];
 
     protected $casts = [
+        'currency_id' => 'integer',
         'features' => 'array',
         'integrations' => 'array',
         'is_popular' => 'boolean',
@@ -52,4 +55,9 @@ class Plan extends Model
         'has_white_labeled_solution' => 'boolean',
         'has_white_labeled_dashboard' => 'boolean',
     ];
+
+    public function currency()
+    {
+        return $this->belongsTo(Currency::class, 'currency_id');
+    }
 }
