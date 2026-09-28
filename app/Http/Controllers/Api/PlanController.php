@@ -14,7 +14,7 @@ class PlanController extends Controller
      */
     public function index()
     {
-        $plans = Plan::with('currency')->get();
+        $plans = Plan::with(['prices.currency', 'currency'])->get();
         return response()->json([
             'status' => 'success',
             'data' => $plans
@@ -26,6 +26,8 @@ class PlanController extends Controller
      */
     public function store(Request $request)
     {
+        $prices = $this->parseJsonFields($request);
+
         $request->validate([
             'product_id' => 'required|exists:products,id',
             'currency_id' => 'nullable|exists:currencies,id',
@@ -53,11 +55,15 @@ class PlanController extends Controller
             'storage_gb' => 'nullable|integer',
             'storage_gb_annual' => 'nullable|integer',
             'duration_days' => 'nullable|integer',
+            'prices' => 'nullable|array',
+            'prices.*.currency_id' => 'required_with:prices|exists:currencies,id',
+            'prices.*.monthly_price' => 'required_with:prices|numeric|min:0',
+            'prices.*.annual_price' => 'required_with:prices|numeric|min:0',
         ]);
 
-        $data = $request->all();
+        $data = $request->except('prices');
 
-        // Resolve currency: prioritize currency_id, then currency / currency_code string, fallback to default INR
+        // Resolve legacy currency: prioritize currency_id, then currency / currency_code string, fallback to default INR
         $currencyModel = null;
         if (!empty($data['currency_id'])) {
             $currencyModel = \App\Models\Currency::find($data['currency_id']);
@@ -83,7 +89,28 @@ class PlanController extends Controller
         }
 
         $plan = Plan::create($data);
-        $plan->load('currency');
+
+        // Store prices array
+        if (!empty($prices) && is_array($prices)) {
+            foreach ($prices as $p) {
+                if (!empty($p['currency_id'])) {
+                    $plan->prices()->create([
+                        'currency_id' => (int) $p['currency_id'],
+                        'monthly_price' => (float) ($p['monthly_price'] ?? 0),
+                        'annual_price' => (float) ($p['annual_price'] ?? 0),
+                    ]);
+                }
+            }
+        } elseif ($plan->currency_id) {
+            // Legacy single price fallback
+            $plan->prices()->create([
+                'currency_id' => $plan->currency_id,
+                'monthly_price' => (float) ($plan->monthly_price ?? 0),
+                'annual_price' => (float) ($plan->annual_price ?? 0),
+            ]);
+        }
+
+        $plan->load(['prices.currency', 'currency']);
 
         return response()->json([
             'status' => 'success',
@@ -97,7 +124,7 @@ class PlanController extends Controller
      */
     public function show(Plan $plan)
     {
-        $plan->load('currency');
+        $plan->load(['prices.currency', 'currency']);
         return response()->json([
             'status' => 'success',
             'data' => $plan
@@ -109,6 +136,8 @@ class PlanController extends Controller
      */
     public function update(Request $request, Plan $plan)
     {
+        $prices = $this->parseJsonFields($request);
+
         $request->validate([
             'product_id' => 'sometimes|required|exists:products,id',
             'currency_id' => 'nullable|exists:currencies,id',
@@ -136,9 +165,13 @@ class PlanController extends Controller
             'storage_gb' => 'nullable|integer',
             'storage_gb_annual' => 'nullable|integer',
             'duration_days' => 'nullable|integer',
+            'prices' => 'nullable|array',
+            'prices.*.currency_id' => 'required_with:prices|exists:currencies,id',
+            'prices.*.monthly_price' => 'required_with:prices|numeric|min:0',
+            'prices.*.annual_price' => 'required_with:prices|numeric|min:0',
         ]);
 
-        $data = $request->all();
+        $data = $request->except('prices');
 
         $currencyModel = null;
         if (isset($data['currency_id'])) {
@@ -159,13 +192,79 @@ class PlanController extends Controller
         }
 
         $plan->update($data);
-        $plan->load('currency');
+
+        // Sync prices array if provided
+        if ($request->has('prices') && is_array($prices)) {
+            $syncedCurrencyIds = [];
+            foreach ($prices as $p) {
+                if (!empty($p['currency_id'])) {
+                    $currId = (int) $p['currency_id'];
+                    $syncedCurrencyIds[] = $currId;
+                    $plan->prices()->updateOrCreate(
+                        ['currency_id' => $currId],
+                        [
+                            'monthly_price' => (float) ($p['monthly_price'] ?? 0),
+                            'annual_price' => (float) ($p['annual_price'] ?? 0),
+                        ]
+                    );
+                }
+            }
+            $plan->prices()->whereNotIn('currency_id', $syncedCurrencyIds)->delete();
+        }
+
+        $plan->load(['prices.currency', 'currency']);
 
         return response()->json([
             'status' => 'success',
             'message' => 'Plan updated successfully.',
             'data' => $plan
         ]);
+    }
+
+    /**
+     * Parse JSON encoded fields that might be sent via FormData.
+     */
+    private function parseJsonFields(Request $request): array
+    {
+        $prices = $request->input('prices');
+        if (is_string($prices)) {
+            $decoded = json_decode($prices, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $prices = $decoded;
+                $request->merge(['prices' => $prices]);
+            }
+        }
+
+        if (is_string($request->features)) {
+            $decoded = json_decode($request->features, true);
+            if (is_array($decoded)) {
+                $request->merge(['features' => $decoded]);
+            }
+        }
+
+        if (is_string($request->integrations)) {
+            $decoded = json_decode($request->integrations, true);
+            if (is_array($decoded)) {
+                $request->merge(['integrations' => $decoded]);
+            }
+        }
+
+        // Auto-populate legacy fields from first price if not sent directly
+        $pricesArray = $request->input('prices');
+        if (!empty($pricesArray) && is_array($pricesArray) && isset($pricesArray[0])) {
+            $first = $pricesArray[0];
+            if (!$request->filled('monthly_price') && isset($first['monthly_price'])) {
+                $request->merge(['monthly_price' => $first['monthly_price']]);
+            }
+            if (!$request->filled('annual_price') && isset($first['annual_price'])) {
+                $request->merge(['annual_price' => $first['annual_price']]);
+            }
+            if (!$request->filled('currency_id') && isset($first['currency_id'])) {
+                $request->merge(['currency_id' => $first['currency_id']]);
+            }
+        }
+
+        return (array) $request->input('prices', []);
     }
 
     /**

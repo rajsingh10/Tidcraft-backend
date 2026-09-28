@@ -60,4 +60,9 @@ class Plan extends Model
     {
         return $this->belongsTo(Currency::class, 'currency_id');
     }
+
+    public function prices()
+    {
+        return $this->hasMany(PlanPrice::class, 'plan_id');
+    }
 }
