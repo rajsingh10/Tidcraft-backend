@@ -1979,8 +1979,11 @@ class TenantProvisionController extends Controller
         $isFoodApp = str_contains($prodName, 'food') || str_contains($prodName, 'eats');
         $isParkApp = str_contains($prodName, 'park') || str_contains($prodName, 'parkme');
 
-        // Support both Setup_email (Admin Panel Setup Reminder) and Your_Application_is_Ready
-        $slug = $request->input('slug', 'Your_Application_is_Ready');
+        // Exclusively send Setup_email (Domain & Admin Panel Setup Template) on this API call
+        $slug = $request->input('slug', 'Setup_email');
+        if ($slug === 'Your_Application_is_Ready') {
+            $slug = 'Setup_email';
+        }
         $template = \App\Models\EmailTemplate::where('slug', $slug)->first();
 
         $recipientEmails = array_filter(array_unique(array_map('strtolower', [
@@ -2032,6 +2035,10 @@ class TenantProvisionController extends Controller
                     'apanel_url' => $apanelUrl,
                     '{apanel_url}' => $apanelUrl,
                     '{{apanel_url}}' => $apanelUrl,
+                    'login_url' => $adminUrl,
+                    '{login_url}' => $adminUrl,
+                    '{{login_url}}' => $adminUrl,
+                    'loginUrl' => $adminUrl,
                     'restaurantPanelUrl' => $restaurantPanelUrl,
                     'restaurant_panel_url' => $restaurantPanelUrl,
                     '{restaurant_panel_url}' => $restaurantPanelUrl,
@@ -2061,20 +2068,16 @@ class TenantProvisionController extends Controller
                 }
             } else {
                 foreach ($recipientEmails as $recEmail) {
-                    if ($slug === 'Your_Application_is_Ready') {
-                        \Illuminate\Support\Facades\Mail::to($recEmail)->send(new \App\Mail\TenantProvisionedEmail($tenant, $adminEmail, $adminPassword, $domainUrl));
-                    } else {
-                        \Illuminate\Support\Facades\Mail::to($recEmail)->send(new \App\Mail\TenantSetupReadyMail($tenant));
-                    }
+                    \Illuminate\Support\Facades\Mail::to($recEmail)->send(new \App\Mail\TenantSetupReadyMail($tenant));
                 }
             }
 
-            $templateTitle = $template ? $template->title : ($slug === 'Your_Application_is_Ready' ? 'Application Ready' : 'Setup Reminder');
-            AuditLogger::log('Provisioned Email Sent', 'Tenant Setup Reminder / Ready Email', "Sent {$templateTitle} to " . implode(', ', $recipientEmails) . " for tenant {$tenant->business_name}.");
+            $templateTitle = $template ? $template->title : 'Domain Setup Email';
+            AuditLogger::log('Provisioned Email Sent', 'Tenant Setup Reminder / Ready Email', "Sent {$templateTitle} (Setup_email) to " . implode(', ', $recipientEmails) . " for tenant {$tenant->business_name}.");
 
             return response()->json([
                 'status' => 'success',
-                'message' => ($slug === 'Your_Application_is_Ready' ? 'Application Ready' : 'Setup reminder') . ' email sent successfully to ' . implode(', ', $recipientEmails) . '.'
+                'message' => 'Setup email sent successfully to ' . implode(', ', $recipientEmails) . '.'
             ]);
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to send provisioned / setup reminder email: ' . $e->getMessage());
