@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\client\ClientPurchaseController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\CmsPageController;
 use App\Http\Controllers\Api\EmailTemplateController;
+use App\Http\Controllers\Api\CurrencyController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -31,6 +32,8 @@ Route::get('cms-pages/slug/{slug}', [CmsPageController::class, 'showBySlug']); /
 Route::get('cms-pages/home', [CmsPageController::class, 'homePage']);         // All published home sections
 Route::get('cms-pages/product/{productId}', [CmsPageController::class, 'productPage']); // All sections for a product
 
+Route::get('currencies', [CurrencyController::class, 'index']);
+Route::get('currencies/{currency}', [CurrencyController::class, 'show']);
 Route::apiResource('plans', PlanController::class)->only(['index', 'show']);
 Route::apiResource('add-ons', AddOnController::class)->only(['index', 'show']);
 Route::get('tenant/plan-status', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'show']);
@@ -120,6 +123,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('plans/{plan}', [PlanController::class, 'update']);
     Route::apiResource('plans', PlanController::class)->except(['index', 'show']);
+
+    Route::post('currencies/{currency}', [CurrencyController::class, 'update']);
+    Route::apiResource('currencies', CurrencyController::class)->except(['index', 'show']);
 
     Route::get('products/{product}/firebase', [ProductController::class, 'getFirebase']);
     Route::post('products/{product}/firebase', [ProductController::class, 'updateFirebase']);
