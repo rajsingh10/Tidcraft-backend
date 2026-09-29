@@ -48,4 +48,11 @@ return [
         'enable_cloudfunction_deploy' => env('ENABLE_CLOUDFUNCTION_DEPLOY', false),
     ],
 
+    'cloud_billing' => [
+        'aws_key' => env('AWS_BILLING_KEY'),
+        'aws_secret' => env('AWS_BILLING_SECRET'),
+        'aws_region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+        'gcp_credentials' => env('GOOGLE_APPLICATION_CREDENTIALS'),
+    ],
+
 ];
