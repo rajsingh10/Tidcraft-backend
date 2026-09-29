@@ -161,8 +161,17 @@ class Tenant extends Model
             $prefix = 't' . $this->id;
         }
 
-        // Append tenant ID to ensure uniqueness and bypass GCP's 5-minute cooldown on deleted database IDs
-        return substr('tidcraft-' . $prefix . '-' . $this->id, 0, 63);
+        $productSlug = '';
+        if ($this->relationLoaded('product') && $this->product) {
+            $productSlug = \Illuminate\Support\Str::slug($this->product->name) . '-';
+        } elseif ($this->product_id) {
+            $product = \App\Models\Product::find($this->product_id);
+            if ($product) {
+                $productSlug = \Illuminate\Support\Str::slug($product->name) . '-';
+            }
+        }
+
+        return substr('tidcraft-' . $productSlug . $prefix, 0, 63);
     }
 
     public function getDurationDaysAttribute()
