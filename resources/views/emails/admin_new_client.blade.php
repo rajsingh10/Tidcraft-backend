@@ -334,7 +334,7 @@
                             <div class="detail-icon-wrap">📞</div>
                             <div class="detail-content">
                                 <p class="detail-label">Phone Number</p>
-                                <p class="detail-value">{{ $user->contact ?? 'N/A' }}</p>
+                                <p class="detail-value">{{ $user->phone_number ?? $user->contact ?? 'N/A' }}</p>
                             </div>
                         </td>
                         <td class="detail-item" style="padding-top: 15px;">
@@ -342,6 +342,22 @@
                             <div class="detail-content">
                                 <p class="detail-label">Company Name</p>
                                 <p class="detail-value">{{ $user->company_name ?? 'N/A' }}</p>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="detail-item" style="padding-top: 15px;">
+                            <div class="detail-icon-wrap">💬</div>
+                            <div class="detail-content">
+                                <p class="detail-label">WhatsApp Number</p>
+                                <p class="detail-value">{{ $user->whatsapp_number ?? 'N/A' }}</p>
+                            </div>
+                        </td>
+                        <td class="detail-item" style="padding-top: 15px;">
+                            <div class="detail-icon-wrap">🌍</div>
+                            <div class="detail-content">
+                                <p class="detail-label">Country Code</p>
+                                <p class="detail-value">{{ $user->country_code ?? 'N/A' }}</p>
                             </div>
                         </td>
                     </tr>

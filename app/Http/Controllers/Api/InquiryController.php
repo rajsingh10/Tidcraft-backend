@@ -29,6 +29,7 @@ class InquiryController extends Controller
             'email' => 'required|email|max:255',
             'phone' => 'nullable|string|max:20',
             'whatsapp_number' => 'nullable|string|max:20',
+            'country_code' => 'nullable|string|max:10',
             'project_id' => 'nullable|max:255',
             'description' => 'nullable|string',
         ]);
@@ -78,6 +79,7 @@ class InquiryController extends Controller
             $companyName = \App\Models\Setting::where('key', 'company_name')->value('value') ?? config('app.name', 'TidCraft');
             $companyEmail = \App\Models\Setting::where('key', 'company_email')->value('value') ?? config('mail.from.address');
             $companyPhone = \App\Models\Setting::where('key', 'company_phone')->value('value') ?? '';
+            $companyWhatsapp = \App\Models\Setting::where('key', 'whatsapp_number')->value('value') ?? '';
 
             // Template replacement variables and objects for DynamicEmail & Blade
             $replacements = [
@@ -95,6 +97,8 @@ class InquiryController extends Controller
                 '{{phone}}' => $inquiry->phone ?? 'N/A',
                 '{whatsapp_number}' => $inquiry->whatsapp_number ?? 'N/A',
                 '{{whatsapp_number}}' => $inquiry->whatsapp_number ?? 'N/A',
+                '{country_code}' => $inquiry->country_code ?? 'N/A',
+                '{{country_code}}' => $inquiry->country_code ?? 'N/A',
                 '{project_id}' => $rawProjectId ?? $inquiry->project_id ?? 'N/A',
                 '{{project_id}}' => $rawProjectId ?? $inquiry->project_id ?? 'N/A',
                 '{service}' => $rawProjectId ?? $inquiry->project_id ?? 'N/A',
@@ -111,6 +115,8 @@ class InquiryController extends Controller
                 '{{company_email}}' => $companyEmail,
                 '{company_phone}' => $companyPhone,
                 '{{company_phone}}' => $companyPhone,
+                '{company_whatsapp}' => $companyWhatsapp,
+                '{{company_whatsapp}}' => $companyWhatsapp,
             ];
 
             // 1. Send Email to Admin
@@ -195,6 +201,7 @@ class InquiryController extends Controller
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:20',
             'whatsapp_number' => 'nullable|string|max:20',
+            'country_code' => 'nullable|string|max:10',
             'project_id' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'status' => 'nullable|in:new,in_review,resolved',

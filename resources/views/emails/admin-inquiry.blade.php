@@ -22,6 +22,10 @@
             <td style="padding: 8px; border: 1px solid #ddd;">{{ $inquiry->phone ?? 'N/A' }}</td>
         </tr>
         <tr>
+            <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Country Code</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{{ $inquiry->country_code ?? 'N/A' }}</td>
+        </tr>
+        <tr>
             <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">WhatsApp Number</td>
             <td style="padding: 8px; border: 1px solid #ddd;">{{ $inquiry->whatsapp_number ?? 'N/A' }}</td>
         </tr>

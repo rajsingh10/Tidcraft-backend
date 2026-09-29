@@ -285,10 +285,31 @@
                 <p class="content-text">
                     Welcome to {{ $settings['company_name'] ?? 'Tidcraft' }}! Your account has been successfully created. You can now log in and explore our products and services.
                 </p>
+                
+                <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 15px; margin: 20px 0;">
+                    <h3 style="margin-top: 0; color: #0b3d91; font-size: 16px;">Your Login Credentials</h3>
+                    <p style="margin: 5px 0; font-size: 14px; color: #555;"><strong>Login URL:</strong> <a href="{{ $loginUrl ?? \App\Helpers\UrlHelper::getLoginUrl() }}">{{ $loginUrl ?? \App\Helpers\UrlHelper::getLoginUrl() }}</a></p>
+                    <p style="margin: 5px 0; font-size: 14px; color: #555;"><strong>Email/ID:</strong> {{ $user->email }}</p>
+                    @if(!empty($password))
+                    <p style="margin: 5px 0; font-size: 14px; color: #555;"><strong>Password:</strong> {{ $password }}</p>
+                    @endif
+                </div>
+
+                <div style="background-color: #f0f6ff; border: 1px solid #cce5ff; border-radius: 6px; padding: 15px; margin: 20px 0;">
+                    <h3 style="margin-top: 0; color: #0d6efd; font-size: 16px;">Contact Your Admin</h3>
+                    <p style="margin: 5px 0; font-size: 14px; color: #555;">If you need any help, please reach out to us:</p>
+                    @if(!empty($whatsappNumber))
+                    <p style="margin: 5px 0; font-size: 14px; color: #555;"><strong>WhatsApp:</strong> <a href="https://wa.me/{{ preg_replace('/[^0-9]/', '', $whatsappNumber) }}">{{ $whatsappNumber }}</a></p>
+                    @endif
+                    @if(!empty($companyEmail))
+                    <p style="margin: 5px 0; font-size: 14px; color: #555;"><strong>Email:</strong> <a href="mailto:{{ $companyEmail }}">{{ $companyEmail }}</a></p>
+                    @endif
+                </div>
+
                 <table width="100%" border="0" cellspacing="0" cellpadding="0">
                     <tr>
                         <td align="center">
-                            <a href="{{ $loginUrl ?? \App\Helpers\UrlHelper::getLoginUrl() }}" class="btn" style="color: #ffffff;">Login to Your Account &rarr;</a>
+                            <a href="{{ $loginUrl ?? \App\Helpers\UrlHelper::getLoginUrl() }}" class="btn" style="color: #ffffff;">Login to Your Dashboard &rarr;</a>
                         </td>
                     </tr>
                 </table>

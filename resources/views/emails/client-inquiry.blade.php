@@ -20,6 +20,9 @@
         @if(!empty($companyPhone))
             Phone: {{ $companyPhone }}<br>
         @endif
+        @if(!empty($companyWhatsapp))
+            WhatsApp: {{ $companyWhatsapp }}<br>
+        @endif
         @if(!empty($companyEmail))
             Email: {{ $companyEmail }}<br>
         @endif
