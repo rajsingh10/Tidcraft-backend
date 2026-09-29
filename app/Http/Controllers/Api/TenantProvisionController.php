@@ -58,6 +58,7 @@ class TenantProvisionController extends Controller
                 'product_id' => $request->product_id,
                 'plan_id' => null, // No plan
                 'status' => 'provisioning', // Will be picked up by the Job
+                'is_demo' => true,
             ]);
 
             // Create Domain Configuration
