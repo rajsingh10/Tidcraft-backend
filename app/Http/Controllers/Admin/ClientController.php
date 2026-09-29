@@ -51,6 +51,8 @@ class ClientController extends Controller
             'owner_name' => 'required|string|max:255',
             'email_address' => 'required|string|email|max:255|unique:users,email',
             'phone_number' => 'nullable|string|max:20',
+            'whatsapp_number' => 'nullable|string|max:20',
+            'country_code' => 'nullable|string|max:10',
             'address' => 'nullable|string',
             'password' => 'required|string|min:8',
             'status' => 'nullable|in:active,inactive'
@@ -77,6 +79,8 @@ class ClientController extends Controller
             'name' => $request->owner_name,
             'email' => $request->email_address,
             'phone_number' => $request->phone_number,
+            'whatsapp_number' => $request->whatsapp_number,
+            'country_code' => $request->country_code,
             'address' => $request->address,
             'profile_image' => $businessImage,
             'password' => Hash::make($request->password),
@@ -92,6 +96,50 @@ class ClientController extends Controller
         $client->assignRole($role);
 
         AuditLogger::log('Client Created', 'Insert', "A new client ({$client->name}) was created.");
+
+        // Send Welcome Email to Client
+        try {
+            $frontendLoginUrl = \App\Helpers\UrlHelper::getLoginUrl($request);
+            $frontendContactUrl = \App\Helpers\UrlHelper::getContactUrl($request);
+            $whatsappNumber = \App\Models\Setting::where('key', 'whatsapp_number')->value('value') ?? '';
+            $companyEmail = \App\Models\Setting::where('key', 'company_email')->value('value') ?? '';
+
+            \Illuminate\Support\Facades\Mail::to($client->email)->send(new \App\Mail\ClientRegisteredMail($client, $frontendLoginUrl, $frontendContactUrl, $request->password, $whatsappNumber, $companyEmail));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send registration email to client: ' . $e->getMessage());
+        }
+
+        // Send Email to Admin
+        try {
+            $adminEmail = \App\Models\Setting::where('key', 'company_email')->value('value');
+            if (!$adminEmail) {
+                $superAdmin = \App\Models\User::role('SuperAdmin')->first();
+                $adminEmail = $superAdmin ? $superAdmin->email : null;
+            }
+            if (!$adminEmail) {
+                $adminEmail = config('mail.from.address') ?? 'admin@example.com';
+            }
+            
+            if ($adminEmail) {
+                \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\AdminNewClientMail($client));
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send registration email to admin: ' . $e->getMessage());
+        }
+
+        // Create Admin Notification
+        try {
+            \App\Models\AdminNotification::create([
+                'type' => 'new_client',
+                'title' => 'New Client Added',
+                'message' => 'A new client has been added by an Admin: ' . $client->name . ' (' . $client->email . ')',
+                'related_id' => $client->id,
+                'client_name' => $client->name,
+                'is_read' => false,
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to create admin notification: ' . $e->getMessage());
+        }
 
         return response()->json([
             'status' => 'success',
@@ -143,6 +191,8 @@ class ClientController extends Controller
             'owner_name' => 'nullable|string|max:255',
             'email_address' => ['nullable', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($client->id)],
             'phone_number' => 'nullable|string|max:20',
+            'whatsapp_number' => 'nullable|string|max:20',
+            'country_code' => 'nullable|string|max:10',
             'address' => 'nullable|string',
             'password' => 'nullable|string|min:8',
             'status' => 'nullable|in:active,inactive'
@@ -159,6 +209,8 @@ class ClientController extends Controller
         if ($request->has('owner_name')) $client->name = $request->owner_name;
         if ($request->has('email_address')) $client->email = $request->email_address;
         if ($request->has('phone_number')) $client->phone_number = $request->phone_number;
+        if ($request->has('whatsapp_number')) $client->whatsapp_number = $request->whatsapp_number;
+        if ($request->has('country_code')) $client->country_code = $request->country_code;
         if ($request->has('address')) $client->address = $request->address;
         
         if ($request->hasFile('business_image')) {
