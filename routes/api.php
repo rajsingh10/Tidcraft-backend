@@ -65,8 +65,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Client Purchases & Payments 
         Route::get('/purchases', [ClientPurchaseController::class, 'index']);
-        // Route::post('/purchases', [ClientPurchaseController::class, 'store']);
-        Route::post('/purchases', [ClientPurchaseController::class, 'checkoutproduct']);
+        Route::post('/purchases', [ClientPurchaseController::class, 'store']);
         Route::get('/purchases/{uuid}', [ClientPurchaseController::class, 'show']);
         Route::get('/purchases/{uuid}/provisioning-status', [ClientPurchaseController::class, 'provisioningStatus']);
         Route::get('/purchases/{uuid}/backups', [ClientPurchaseController::class, 'listBackups']);
@@ -153,6 +152,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard', [\App\Http\Controllers\Api\DashboardController::class, 'index']);
     Route::get('/usage-metering', [\App\Http\Controllers\Api\UsageMeteringController::class, 'index']);
     Route::get('/revenue-analytics', [\App\Http\Controllers\Api\DashboardController::class, 'revenueAnalytics']);
+    Route::get('/profitability', [\App\Http\Controllers\Api\ProfitabilityController::class, 'index']);
+    Route::post('/profitability/costs', [\App\Http\Controllers\Api\ProfitabilityController::class, 'store']);
 
     // Admin Notifications API
     Route::get('/notifications', [\App\Http\Controllers\Api\AdminNotificationController::class, 'index']);
