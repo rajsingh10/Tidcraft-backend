@@ -92,11 +92,20 @@ class FirebaseProvisionService
                     $collectionDir = public_path('collection');
                     if (is_dir($collectionDir)) {
                         $folders = array_diff(scandir($collectionDir), ['..', '.']);
-                        $firstWord = explode('-', \Illuminate\Support\Str::slug($product->name))[0]; // 'park' or 'food'
+                        
+                        $productSlugStr = strtolower(\Illuminate\Support\Str::slug($product->name));
+                        $searchWord = $productSlugStr;
+                        
+                        // Map specific product names to their folder counterparts
+                        if (strpos($productSlugStr, 'eats') !== false || strpos($productSlugStr, 'food') !== false) {
+                            $searchWord = 'food';
+                        } elseif (strpos($productSlugStr, 'park') !== false) {
+                            $searchWord = 'park';
+                        }
                         
                         foreach ($folders as $folder) {
-                            if (is_dir($collectionDir . '/' . $folder) && strpos(strtolower($folder), strtolower($firstWord)) !== false) {
-                                $productSlug = $folder; // found 'park-app'
+                            if (is_dir($collectionDir . '/' . $folder) && strpos(strtolower($folder), $searchWord) !== false) {
+                                $productSlug = $folder; // found 'park-app' or 'food-app'
                                 $indexPath = $collectionDir . '/' . $folder . '/firestore_indexes.json';
                                 $collectionPath = $collectionDir . '/' . $folder . '/collections.json';
                                 break;
