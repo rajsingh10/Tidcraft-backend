@@ -17,6 +17,7 @@ class Inquiry extends Model
         'customer_name',
         'email',
         'phone',
+        'whatsapp_number',
         'project_id',
         'description',
         'status',
