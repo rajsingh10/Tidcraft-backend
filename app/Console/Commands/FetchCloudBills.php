@@ -72,7 +72,11 @@ class FetchCloudBills extends Command
 
     private function fetchAwsCost($startDate, $endDate)
     {
-        if (!env('AWS_BILLING_KEY') || !env('AWS_BILLING_SECRET')) {
+        $awsKey = config('services.cloud_billing.aws_key');
+        $awsSecret = config('services.cloud_billing.aws_secret');
+        $awsRegion = config('services.cloud_billing.aws_region', 'us-east-1');
+
+        if (!$awsKey || !$awsSecret) {
             $this->warn("AWS Billing keys missing. Skipping AWS.");
             return null;
         }
@@ -80,10 +84,10 @@ class FetchCloudBills extends Command
         try {
             $client = new CostExplorerClient([
                 'version' => 'latest',
-                'region'  => env('AWS_DEFAULT_REGION', 'us-east-1'),
+                'region'  => $awsRegion,
                 'credentials' => [
-                    'key'    => env('AWS_BILLING_KEY'),
-                    'secret' => env('AWS_BILLING_SECRET'),
+                    'key'    => $awsKey,
+                    'secret' => $awsSecret,
                 ],
             ]);
 
@@ -109,7 +113,7 @@ class FetchCloudBills extends Command
 
     private function fetchGoogleCloudCost($startDate, $endDate)
     {
-        $credentialsPaths = env('GOOGLE_APPLICATION_CREDENTIALS');
+        $credentialsPaths = config('services.cloud_billing.gcp_credentials');
         
         if (!$credentialsPaths) {
             $this->warn("Google Cloud Billing credentials missing. Skipping Firebase.");
