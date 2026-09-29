@@ -10,3 +10,6 @@ Artisan::command('inspire', function () {
 use Illuminate\Support\Facades\Schedule;
 
 Schedule::command('subscriptions:check-expiry')->daily();
+
+// Fetch AWS and Firebase Bills on the 1st of every month at midnight
+Schedule::command('costs:fetch-cloud')->monthlyOn(1, '00:00');

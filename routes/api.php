@@ -154,6 +154,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/revenue-analytics', [\App\Http\Controllers\Api\DashboardController::class, 'revenueAnalytics']);
     Route::get('/profitability', [\App\Http\Controllers\Api\ProfitabilityController::class, 'index']);
     Route::post('/profitability/costs', [\App\Http\Controllers\Api\ProfitabilityController::class, 'store']);
+    Route::post('/profitability/fetch-cloud', [\App\Http\Controllers\Api\ProfitabilityController::class, 'fetchCloudBillsManually']);
 
     // Admin Notifications API
     Route::get('/notifications', [\App\Http\Controllers\Api\AdminNotificationController::class, 'index']);
