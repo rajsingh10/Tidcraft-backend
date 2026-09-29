@@ -27,6 +27,8 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('inquiries', [InquiryController::class, 'store']);
 Route::post('newsletter/subscribe', [\App\Http\Controllers\Api\NewsletterController::class, 'subscribe']);
 Route::get('products/client', [ProductController::class, 'publicIndex']);
+Route::get('products/{product}/demos', [\App\Http\Controllers\Api\ProductDemoController::class, 'index']);
+Route::get('products/{product}/demos/{demo}', [\App\Http\Controllers\Api\ProductDemoController::class, 'show']);
 Route::get('settings/client', [SettingController::class, 'publicGeneral']);
 Route::get('cms-pages/slug/{slug}', [CmsPageController::class, 'showBySlug']); // ?product_id=<id> for product pages
 Route::get('cms-pages/home', [CmsPageController::class, 'homePage']);         // All published home sections
@@ -39,6 +41,7 @@ Route::apiResource('add-ons', AddOnController::class)->only(['index', 'show']);
 Route::get('tenant/plan-status', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'show']);
 Route::get('tenant/check-quota', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'checkQuota']);
 Route::post('/tenant-provision/{uuid}/verify-dns', [TenantProvisionController::class, 'verifyDns']);
+Route::post('/tenant-provision/demo', [TenantProvisionController::class, 'provisionDemo']);
 
 // Client Public Routes
 Route::prefix('client')->group(function () {
@@ -130,6 +133,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('products/{product}/firebase', [ProductController::class, 'updateFirebase']);
     Route::get('products/{product}/attachments', [ProductController::class, 'getAttachments']);
     Route::post('products/{product}/attachments', [ProductController::class, 'uploadAttachments']);
+    
+    // Product Demos Management
+    Route::post('products/{product}/demos', [\App\Http\Controllers\Api\ProductDemoController::class, 'store']);
+    Route::put('products/{product}/demos/{demo}', [\App\Http\Controllers\Api\ProductDemoController::class, 'update']);
+    Route::post('products/{product}/demos/{demo}', [\App\Http\Controllers\Api\ProductDemoController::class, 'update']);
+    Route::delete('products/{product}/demos/{demo}', [\App\Http\Controllers\Api\ProductDemoController::class, 'destroy']);
+    Route::post('products/{product}/demos/{demo}/screenshots', [\App\Http\Controllers\Api\ProductDemoController::class, 'uploadScreenshots']);
+    Route::post('products/{product}/demos/{demo}/screenshots/delete', [\App\Http\Controllers\Api\ProductDemoController::class, 'deleteScreenshot']);
+    
     Route::post('products/{product}', [ProductController::class, 'update']);
     Route::apiResource('products', ProductController::class);
 

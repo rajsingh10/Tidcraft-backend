@@ -14,6 +14,98 @@ use App\Services\AuditLogger;
 
 class TenantProvisionController extends Controller
 {
+    /**
+     * Provision a live demo instance (No user, no plan, just a sandbox clone).
+     */
+    public function provisionDemo(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'product_id' => 'required|exists:products,id',
+            'business_name' => 'required|string|max:255',
+            'subdomain_prefix' => 'required|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation Error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $request->product_id)->first();
+        if (!$productFirebase || empty($productFirebase->firebase_project_id)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'This product has no Firebase project ID. Save it via POST /api/products/{id}/firebase first.',
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $tenantKey = Str::slug($request->business_name) . '-demo-' . Str::random(4);
+            $domainStr = trim($request->subdomain_prefix, " .") . '.tidcraft.com';
+
+            // 1. Create Demo Tenant (No client_id, no plan_id)
+            $tenant = Tenant::create([
+                'uuid' => Str::uuid()->toString(),
+                'client_id' => null, // No user attached
+                'name' => $request->business_name . ' (Demo)',
+                'tenant_key' => $tenantKey,
+                'business_name' => $request->business_name . ' (Demo)',
+                'primary_contact_email' => 'demo@tidcraft.com',
+                'product_id' => $request->product_id,
+                'plan_id' => null, // No plan
+                'status' => 'provisioning', // Will be picked up by the Job
+            ]);
+
+            // Create Domain Configuration
+            Domain::create([
+                'tenant_id' => $tenant->id,
+                'client_id' => null,
+                'product_id' => $request->product_id,
+                'type' => 'subdomain',
+                'domain' => $domainStr,
+                'status' => 'pending',
+                'dns_verified' => false,
+            ]);
+
+            DB::commit();
+
+            // Dispatch the exact same background provisioning job
+            \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+            \App\Helpers\QueueRunner::runBackground();
+
+            AuditLogger::log('Demo Provisioned', 'New Demo Created', "Demo {$tenant->business_name} was provisioned.");
+
+            // Calculate expected credentials
+            $baseName = trim($tenant->name ?: $tenant->business_name);
+            $adminEmail = $tenant->primary_contact_email;
+            $adminPassword = empty($baseName) ? 'tidcraft' : str_replace(' ', '', strtolower($baseName)) . '-tidcraft';
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Demo instance created and queued for background provisioning.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'tenant_status' => $tenant->status,
+                    'domain' => $domainStr,
+                    'admin_login' => $adminEmail,
+                    'admin_password' => $adminPassword
+                ]
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to provision demo.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function store(Request $request)
     {
         // Auto-construct full domain from subdomain_prefix
