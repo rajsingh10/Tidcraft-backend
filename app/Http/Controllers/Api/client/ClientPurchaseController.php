@@ -302,6 +302,8 @@ class ClientPurchaseController extends Controller
             'company_logo' => 'nullable',
             'primary_contact_email' => 'nullable|email|max:255',
             'phone_number' => 'nullable|string|max:20',
+            'whatsapp_number' => 'nullable|string|max:20',
+            'country_code' => 'nullable|string|max:10',
             'industry' => 'nullable|string|max:255',
             'address' => 'nullable|string|max:500',
             
@@ -394,6 +396,8 @@ class ClientPurchaseController extends Controller
                 'business_name' => $request->business_name,
                 'primary_contact_email' => $user->email, // Always use the logged-in client's email securely
                 'phone_number' => $request->phone_number,
+                'whatsapp_number' => $request->whatsapp_number,
+                'country_code' => $request->country_code,
                 'address' => $request->address,
                 'industry' => $request->industry,
                 'product_id' => $request->product_id,

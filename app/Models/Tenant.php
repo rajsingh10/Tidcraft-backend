@@ -23,6 +23,8 @@ class Tenant extends Model
         'business_name',
         'primary_contact_email',
         'phone_number',
+        'whatsapp_number',
+        'country_code',
         'address',
         'industry',
         'product_id',

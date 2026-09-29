@@ -15,12 +15,18 @@ class ClientRegisteredMail extends Mailable
     public $settings;
     public $loginUrl;
     public $contactUrl;
+    public $password;
+    public $whatsappNumber;
+    public $companyEmail;
 
-    public function __construct($user, ?string $loginUrl = null, ?string $contactUrl = null)
+    public function __construct($user, ?string $loginUrl = null, ?string $contactUrl = null, ?string $password = null, ?string $whatsappNumber = null, ?string $companyEmail = null)
     {
         $this->user = $user;
         $this->loginUrl = $loginUrl ?: \App\Helpers\UrlHelper::getLoginUrl();
         $this->contactUrl = $contactUrl ?: \App\Helpers\UrlHelper::getContactUrl();
+        $this->password = $password;
+        $this->whatsappNumber = $whatsappNumber;
+        $this->companyEmail = $companyEmail;
         
         // Fetch general settings
         $keys = [
@@ -44,6 +50,9 @@ class ClientRegisteredMail extends Mailable
                         'settings' => $this->settings,
                         'loginUrl' => $this->loginUrl,
                         'contactUrl' => $this->contactUrl,
+                        'password' => $this->password,
+                        'whatsappNumber' => $this->whatsappNumber,
+                        'companyEmail' => $this->companyEmail,
                     ]);
     }
 }

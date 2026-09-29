@@ -18,6 +18,7 @@ class Inquiry extends Model
         'email',
         'phone',
         'whatsapp_number',
+        'country_code',
         'project_id',
         'description',
         'status',

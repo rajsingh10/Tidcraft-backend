@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('inquiries', function (Blueprint $table) {
-            $table->string('whatsapp_number', 20)->nullable();
+            $table->string('country_code', 10)->nullable();
         });
     }
 
@@ -22,7 +22,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('inquiries', function (Blueprint $table) {
-            $table->dropColumn('whatsapp_number');
+            $table->dropColumn('country_code');
         });
     }
 };

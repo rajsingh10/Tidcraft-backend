@@ -60,11 +60,18 @@ class ClientAuthController extends Controller
                 if ($template->status === 'active') {
                     $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
                     $globalCompanyName = Setting::where('key', 'company_name')->value('value') ?? 'TidCraft';
+                    $whatsappNumber = Setting::where('key', 'whatsapp_number')->value('value') ?? '';
+                    $companyEmail = Setting::where('key', 'company_email')->value('value') ?? '';
                     Mail::to($user->email)->send(new \App\Mail\DynamicEmail($template, [
                         '{name}' => $user->name,
                         '{email}' => $user->email,
+                        '{password}' => $request->password,
                         '{company_name}' => $globalCompanyName,
                         '{{company_name}}' => $globalCompanyName,
+                        '{whatsapp_number}' => $whatsappNumber,
+                        '{{whatsapp_number}}' => $whatsappNumber,
+                        '{company_email}' => $companyEmail,
+                        '{{company_email}}' => $companyEmail,
                         '{platform_name}' => $globalCompanyName,
                         '{{platform_name}}' => $globalCompanyName,
                         '{client_company}' => $user->company_name ?? '',
@@ -79,7 +86,9 @@ class ClientAuthController extends Controller
                     ]));
                 }
             } else {
-                Mail::to($user->email)->send(new ClientRegisteredMail($user, $frontendLoginUrl, $frontendContactUrl));
+                $whatsappNumber = Setting::where('key', 'whatsapp_number')->value('value') ?? '';
+                $companyEmail = Setting::where('key', 'company_email')->value('value') ?? '';
+                Mail::to($user->email)->send(new ClientRegisteredMail($user, $frontendLoginUrl, $frontendContactUrl, $request->password, $whatsappNumber, $companyEmail));
             }
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to send registration email to client: ' . $e->getMessage());
@@ -212,6 +221,9 @@ class ClientAuthController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'contact' => $user->contact ?? null,
+                'phone_number' => $user->phone_number ?? null,
+                'whatsapp_number' => $user->whatsapp_number ?? null,
+                'country_code' => $user->country_code ?? null,
                 'company_name' => $user->company_name ?? null,
                 'profile_image' => $user->profile_image ?? null,
                 'purchases' => $purchases->isEmpty() ? null : $purchases,
@@ -230,6 +242,9 @@ class ClientAuthController extends Controller
             'name' => 'nullable|string|max:255',
             'email' => 'nullable|email|unique:users,email,' . $user->id,
             'contact' => 'nullable|string|max:20',
+            'phone_number' => 'nullable|string|max:20',
+            'whatsapp_number' => 'nullable|string|max:20',
+            'country_code' => 'nullable|string|max:10',
             'company_name' => 'nullable|string|max:255',
             'address' => 'nullable|string',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
@@ -254,6 +269,9 @@ class ClientAuthController extends Controller
         if (isset($data['name'])) $user->name = $data['name'];
         if (isset($data['email'])) $user->email = $data['email'];
         if (isset($data['contact'])) $user->contact = $data['contact'];
+        if ($request->has('phone_number')) $user->phone_number = $request->phone_number;
+        if ($request->has('whatsapp_number')) $user->whatsapp_number = $request->whatsapp_number;
+        if ($request->has('country_code')) $user->country_code = $request->country_code;
         if (isset($data['company_name'])) $user->company_name = $data['company_name'];
         if (isset($data['address'])) $user->address = $data['address'];
         if (isset($data['profile_image'])) $user->profile_image = $data['profile_image'];
@@ -272,6 +290,9 @@ class ClientAuthController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'contact' => $user->contact ?? null,
+                'phone_number' => $user->phone_number ?? null,
+                'whatsapp_number' => $user->whatsapp_number ?? null,
+                'country_code' => $user->country_code ?? null,
                 'company_name' => $user->company_name ?? null,
                 'address' => $user->address ?? null,
                 'profile_image' => $user->profile_image ?? null,

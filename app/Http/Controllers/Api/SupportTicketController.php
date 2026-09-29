@@ -95,7 +95,7 @@ class SupportTicketController extends Controller
                 }
                 
                 if ($adminEmail) {
-                    \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\AdminSupportTicketMail($ticket, $user->name ?? 'Client'));
+                    \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\AdminSupportTicketMail($ticket, $user));
                 }
             } catch (\Exception $e) {
                 \Illuminate\Support\Facades\Log::error('Failed to send admin support ticket email: ' . $e->getMessage());

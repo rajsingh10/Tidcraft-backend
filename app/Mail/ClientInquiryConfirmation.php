@@ -18,6 +18,7 @@ class ClientInquiryConfirmation extends Mailable
     public $companyName;
     public $companyPhone;
     public $companyEmail;
+    public $companyWhatsapp;
 
     /**
      * Create a new message instance.
@@ -28,6 +29,7 @@ class ClientInquiryConfirmation extends Mailable
         $this->companyName = \App\Models\Setting::where('key', 'company_name')->value('value') ?? config('app.name', 'TidCraft');
         $this->companyPhone = \App\Models\Setting::where('key', 'company_phone')->value('value');
         $this->companyEmail = \App\Models\Setting::where('key', 'company_email')->value('value') ?? config('mail.from.address');
+        $this->companyWhatsapp = \App\Models\Setting::where('key', 'whatsapp_number')->value('value');
     }
 
     /**
