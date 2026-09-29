@@ -45,4 +45,9 @@ class Product extends Model
     {
         return $this->hasOne(ProductFirebaseProject::class);
     }
+
+    public function demos()
+    {
+        return $this->hasMany(ProductDemo::class);
+    }
 }
