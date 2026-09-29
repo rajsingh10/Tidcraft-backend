@@ -356,15 +356,32 @@ class ClientPurchaseController extends Controller
             DB::beginTransaction();
 
             // Update user profile with client name and logo if provided
-            if ($request->filled('client_name')) {
+            if ($request->filled('client_name') && empty($user->name)) {
                 $user->name = $request->client_name;
             }
-            if ($request->hasFile('company_logo')) {
-                $path = $request->file('company_logo')->store('profiles', 'public');
-                $user->profile_image = '/storage/' . $path;
-            } elseif ($request->filled('company_logo') && is_string($request->company_logo)) {
-                $user->profile_image = $request->company_logo;
+            if (empty($user->profile_image)) {
+                if ($request->hasFile('company_logo')) {
+                    $path = $request->file('company_logo')->store('profiles', 'public');
+                    $user->profile_image = '/storage/' . $path;
+                } elseif ($request->filled('company_logo') && is_string($request->company_logo)) {
+                    $user->profile_image = $request->company_logo;
+                }
             }
+
+            // Update user contact details if they are currently null
+            if ($request->filled('country_code') && empty($user->country_code)) {
+                $user->country_code = $request->country_code;
+            }
+            if ($request->filled('whatsapp_number') && empty($user->whatsapp_number)) {
+                $user->whatsapp_number = $request->whatsapp_number;
+            }
+            if ($request->filled('phone_number') && empty($user->phone_number)) {
+                $user->phone_number = $request->phone_number;
+            }
+            if ($request->filled('address') && empty($user->address)) {
+                $user->address = $request->address;
+            }
+
             $user->save();
 
             // Clean up any previously abandoned checkouts for this same product to prevent duplicate pending entries
