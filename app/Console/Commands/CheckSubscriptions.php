@@ -28,7 +28,7 @@ class CheckSubscriptions extends Command
         $today = \Carbon\Carbon::now()->startOfDay();
 
         $activeSubscriptions = \App\Models\Subscription::with('tenant')
-            ->where('status', 'active')
+            ->whereIn('status', ['active', 'past_due'])
             ->whereNotNull('end_date')
             ->get();
 
@@ -39,6 +39,9 @@ class CheckSubscriptions extends Command
             if (!$tenant) continue;
 
             $diffInDays = $today->diffInDays($endDate, false);
+            
+            // Dynamic grace period (default 45 days ~ 1.5 months)
+            $gracePeriodDays = (int) (\App\Models\Setting::where('key', 'suspension_grace_period_days')->value('value') ?? 45);
 
             if ($diffInDays <= 5 && $diffInDays > 0) {
                 $this->notifyClient(
@@ -46,16 +49,28 @@ class CheckSubscriptions extends Command
                     $diffInDays == 1 ? 'Urgent: Subscription Expiring Tomorrow' : 'Subscription Expiring Soon', 
                     "Your subscription will expire in {$diffInDays} day(s). Please renew to avoid service interruption."
                 );
-            } elseif ($diffInDays <= 0) {
-                // Subscription has expired
-                $subscription->update(['status' => 'expired']);
-                $tenant->update(['status' => 'expired']);
-                
-                \App\Services\TenantProvisionService::blockTenant($tenant);
+            } elseif ($diffInDays <= 0 && $diffInDays > -$gracePeriodDays) {
+                // Subscription is expired but within grace period
+                if ($subscription->status !== 'past_due') {
+                    $subscription->update(['status' => 'past_due']);
+                    $tenant->update(['status' => 'past_due']);
+                    
+                    $this->notifyClient($tenant, 'Subscription Past Due', "Your subscription has expired. You have a grace period of {$gracePeriodDays} days to clear your dues before your application is suspended.");
+                    
+                    $this->info("Tenant {$tenant->tenant_key} is past due (grace period).");
+                }
+            } elseif ($diffInDays <= -$gracePeriodDays) {
+                // Grace period has ended, block tenant
+                if ($subscription->status !== 'expired') {
+                    $subscription->update(['status' => 'expired']);
+                    $tenant->update(['status' => 'suspended']);
+                    
+                    \App\Services\TenantProvisionService::blockTenant($tenant);
 
-                $this->notifyClient($tenant, 'Subscription Expired', 'Your subscription has expired and your application has been blocked. Please renew to restore access.');
-                
-                $this->info("Tenant {$tenant->tenant_key} has been expired and blocked.");
+                    $this->notifyClient($tenant, 'Account Suspended', 'Your subscription is ' . abs($diffInDays) . ' days past due. Your application has been suspended. Please renew to restore access.');
+                    
+                    $this->info("Tenant {$tenant->tenant_key} has been suspended and blocked.");
+                }
             }
         }
     }
