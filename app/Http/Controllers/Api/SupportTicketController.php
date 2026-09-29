@@ -83,6 +83,23 @@ class SupportTicketController extends Controller
                 'client_name' => $user->name ?? 'Client',
                 'is_read' => false,
             ]);
+
+            try {
+                $adminEmail = \App\Models\Setting::where('key', 'company_email')->value('value');
+                if (!$adminEmail) {
+                    $superAdmin = \App\Models\User::role('SuperAdmin')->first();
+                    $adminEmail = $superAdmin ? $superAdmin->email : null;
+                }
+                if (!$adminEmail) {
+                    $adminEmail = config('mail.from.address') ?? 'admin@example.com';
+                }
+                
+                if ($adminEmail) {
+                    \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\AdminSupportTicketMail($ticket, $user->name ?? 'Client'));
+                }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to send admin support ticket email: ' . $e->getMessage());
+            }
         }
 
         return response()->json([

@@ -27,6 +27,8 @@ class User extends Authenticatable
         'company_name',
         'profile_image',
         'phone_number',
+        'whatsapp_number',
+        'country_code',
         'address',
         'status',
         'otp',
