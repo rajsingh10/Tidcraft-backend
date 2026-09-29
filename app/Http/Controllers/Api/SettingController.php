@@ -164,6 +164,7 @@ class SettingController extends Controller
             'company_address',
             'company_gst',
             'company_tagline',
+            'whatsapp_number',
             'admin_login_mail_send'
         ];
         
@@ -192,7 +193,8 @@ class SettingController extends Controller
             'company_email',
             'company_address',
             'company_gst',
-            'company_tagline'
+            'company_tagline',
+            'whatsapp_number'
         ];
         
         $settings = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
@@ -222,6 +224,7 @@ class SettingController extends Controller
             'company_address' => 'nullable|string',
             'company_gst' => 'nullable|string',
             'company_tagline' => 'nullable|string',
+            'whatsapp_number' => 'nullable|string',
             'admin_login_mail_send' => 'nullable|boolean',
         ];
         
