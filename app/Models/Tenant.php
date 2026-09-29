@@ -30,9 +30,14 @@ class Tenant extends Model
         'product_id',
         'plan_id',
         'status',
+        'is_demo',
         'create_by',
         'update_by',
         'delete_by',
+    ];
+
+    protected $casts = [
+        'is_demo' => 'boolean',
     ];
 
     public function client()
