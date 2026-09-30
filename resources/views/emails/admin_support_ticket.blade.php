@@ -59,7 +59,7 @@
     </table>
     
     <p style="margin-top: 30px;">
-        <a href="{{ config('app.url') }}/admin/support-tickets/{{ $ticket->id }}" style="background-color: #007bff; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px;">View Ticket in Admin</a>
+        <a href="{{ config('app.url') }}/super-admin/support-tickets" style="background-color: #007bff; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px;">View Ticket in Admin</a>
     </p>
     
     <p style="margin-top: 30px; font-size: 12px; color: #777;">
