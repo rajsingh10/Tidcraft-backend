@@ -69,12 +69,19 @@ class DeployFoodAppCloudFunction extends Command
             ? $_SERVER['HOME']
             : $tempDir;
 
+        // Use a user-scoped subdirectory under /tmp so config dirs are always
+        // owned by the current process user — /tmp/.config may be owned by root.
+        $currentUser = get_current_user() ?: (getenv('USER') ?: 'foodapp-deploy');
+        $userTmpDir = rtrim($tempDir, '/') . '/' . preg_replace('/[^a-zA-Z0-9_-]/', '_', $currentUser);
+        @mkdir($userTmpDir . '/.config', 0755, true);
+        @mkdir($userTmpDir . '/.cache', 0755, true);
+
         $env = [
             'TARGET_TENANT_DB' => $cleanDb,
             'PATH' => (getenv('PATH') ?: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') . ':/usr/local/bin:/usr/bin:/bin',
             'HOME' => $writableHome,
-            'XDG_CONFIG_HOME' => rtrim($writableHome, '/\\') . '/.config',
-            'XDG_CACHE_HOME' => rtrim($writableHome, '/\\') . '/.cache',
+            'XDG_CONFIG_HOME' => $userTmpDir . '/.config',
+            'XDG_CACHE_HOME'  => $userTmpDir . '/.cache',
             'CI' => 'true',
         ];
         if (getenv('USERPROFILE')) {
