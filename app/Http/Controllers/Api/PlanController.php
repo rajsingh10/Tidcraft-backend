@@ -12,9 +12,16 @@ class PlanController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $plans = Plan::with(['prices.currency', 'currency'])->get();
+        $query = Plan::with(['prices.currency', 'currency']);
+        
+        if ($request->filled('product_id')) {
+            $query->where('product_id', $request->product_id);
+        }
+
+        $plans = $query->get();
+
         return response()->json([
             'status' => 'success',
             'data' => $plans
@@ -43,15 +50,25 @@ class PlanController extends Controller
             'is_popular' => 'nullable|boolean',
             'max_users' => 'nullable|integer',
             'max_users_annual' => 'nullable|integer',
+            'max_locations' => 'nullable|integer',
             'max_orders' => 'nullable|integer',
             'max_orders_monthly' => 'nullable|integer',
+            'max_bookings' => 'nullable|integer',
+            'max_bookings_monthly' => 'nullable|integer',
             'additional_order_price' => 'nullable|numeric|min:0',
+            'additional_booking_price' => 'nullable|numeric|min:0',
             'store_configuration' => 'nullable|string',
             'has_hybrid_customer_app' => 'nullable|boolean',
             'has_hybrid_customer_merchant_app' => 'nullable|boolean',
             'has_unlimited_users_listings' => 'nullable|boolean',
             'has_white_labeled_solution' => 'nullable|boolean',
             'has_white_labeled_dashboard' => 'nullable|boolean',
+            'has_customer_app' => 'nullable|boolean',
+            'has_merchant_app' => 'nullable|boolean',
+            'has_rider_app' => 'nullable|boolean',
+            'has_white_labeled_rider_app' => 'nullable|boolean',
+            'has_watchman_app' => 'nullable|boolean',
+            'has_owner_app' => 'nullable|boolean',
             'storage_gb' => 'nullable|integer',
             'storage_gb_annual' => 'nullable|integer',
             'duration_days' => 'nullable|integer',
@@ -153,15 +170,25 @@ class PlanController extends Controller
             'is_popular' => 'nullable|boolean',
             'max_users' => 'nullable|integer',
             'max_users_annual' => 'nullable|integer',
+            'max_locations' => 'nullable|integer',
             'max_orders' => 'nullable|integer',
             'max_orders_monthly' => 'nullable|integer',
+            'max_bookings' => 'nullable|integer',
+            'max_bookings_monthly' => 'nullable|integer',
             'additional_order_price' => 'nullable|numeric|min:0',
+            'additional_booking_price' => 'nullable|numeric|min:0',
             'store_configuration' => 'nullable|string',
             'has_hybrid_customer_app' => 'nullable|boolean',
             'has_hybrid_customer_merchant_app' => 'nullable|boolean',
             'has_unlimited_users_listings' => 'nullable|boolean',
             'has_white_labeled_solution' => 'nullable|boolean',
             'has_white_labeled_dashboard' => 'nullable|boolean',
+            'has_customer_app' => 'nullable|boolean',
+            'has_merchant_app' => 'nullable|boolean',
+            'has_rider_app' => 'nullable|boolean',
+            'has_white_labeled_rider_app' => 'nullable|boolean',
+            'has_watchman_app' => 'nullable|boolean',
+            'has_owner_app' => 'nullable|boolean',
             'storage_gb' => 'nullable|integer',
             'storage_gb_annual' => 'nullable|integer',
             'duration_days' => 'nullable|integer',
