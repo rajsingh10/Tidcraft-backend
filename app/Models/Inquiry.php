@@ -20,6 +20,7 @@ class Inquiry extends Model
         'whatsapp_number',
         'country_code',
         'project_id',
+        'plan_name',
         'description',
         'status',
         'create_by',
