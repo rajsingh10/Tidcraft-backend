@@ -68,7 +68,7 @@ class TenantPlanStatusController extends Controller
                     'has_customer_app' => (bool) $plan->has_customer_app,
                     'has_merchant_app' => (bool) $plan->has_merchant_app,
                     'has_rider_app' => (bool) $plan->has_rider_app,
-                    'has_white_labeled_rider_app' => (bool) $plan->has_white_labeled_rider_app,
+                    'has_white_labeled_app' => is_string($plan->has_white_labeled_app) ? json_decode($plan->has_white_labeled_app, true) : ($plan->has_white_labeled_app ?? []),
                     'has_watchman_app' => (bool) $plan->has_watchman_app,
                     'has_owner_app' => (bool) $plan->has_owner_app,
                     'features' => is_string($plan->features) ? json_decode($plan->features, true) : ($plan->features ?? []),
