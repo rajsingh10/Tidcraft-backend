@@ -52,6 +52,7 @@ class TenantPlanStatusController extends Controller
                     'description' => $plan->description,
                     'monthly_price' => $plan->monthly_price,
                     'annual_price' => $plan->annual_price,
+                    'onboarding_fee' => $plan->onboarding_fee,
                     'max_orders' => $maxOrders,
                     'max_locations' => $plan->max_locations,
                     'max_bookings' => $plan->max_bookings,
