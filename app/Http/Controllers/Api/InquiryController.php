@@ -31,6 +31,7 @@ class InquiryController extends Controller
             'whatsapp_number' => 'nullable|string|max:20',
             'country_code' => 'nullable|string|max:10',
             'project_id' => 'nullable|max:255',
+            'plan_name' => 'nullable|string|max:255',
             'description' => 'nullable|string',
         ]);
 
@@ -101,6 +102,8 @@ class InquiryController extends Controller
                 '{{country_code}}' => $inquiry->country_code ?? 'N/A',
                 '{project_id}' => $rawProjectId ?? $inquiry->project_id ?? 'N/A',
                 '{{project_id}}' => $rawProjectId ?? $inquiry->project_id ?? 'N/A',
+                '{plan_name}' => $inquiry->plan_name ?? 'N/A',
+                '{{plan_name}}' => $inquiry->plan_name ?? 'N/A',
                 '{service}' => $rawProjectId ?? $inquiry->project_id ?? 'N/A',
                 '{{service}}' => $rawProjectId ?? $inquiry->project_id ?? 'N/A',
                 '{description}' => $inquiry->description ?? 'N/A',
@@ -203,6 +206,7 @@ class InquiryController extends Controller
             'whatsapp_number' => 'nullable|string|max:20',
             'country_code' => 'nullable|string|max:10',
             'project_id' => 'nullable|string|max:255',
+            'plan_name' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'status' => 'nullable|in:new,in_review,resolved',
         ]);
