@@ -21,6 +21,7 @@ class Plan extends Model
         'description',
         'monthly_price',
         'annual_price',
+        'onboarding_fee',
         'is_active',
         'features',
         'integrations',
