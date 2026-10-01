@@ -154,7 +154,20 @@ class SupportTicketController extends Controller
             'sla_deadline' => 'nullable|date',
         ]);
 
+        $originalStatus = $ticket->status;
         $ticket->update($validated);
+
+        if (isset($validated['status']) && $validated['status'] === 'Resolved' && $originalStatus !== 'Resolved') {
+            try {
+                $ticket->load('tenant.client');
+                $client = $ticket->tenant->client ?? null;
+                if ($client && $client->email) {
+                    \Illuminate\Support\Facades\Mail::to($client->email)->send(new \App\Mail\TicketResolvedMail($ticket, $client));
+                }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to send ticket resolved email: ' . $e->getMessage());
+            }
+        }
 
         if (!$user->hasRole('SuperAdmin')) {
             \App\Models\AdminNotification::create([
@@ -215,7 +228,20 @@ class SupportTicketController extends Controller
             'status' => 'required|string|in:In Progress,Open,Resolved',
         ]);
 
+        $originalStatus = $ticket->status;
         $ticket->update(['status' => $validated['status']]);
+
+        if ($validated['status'] === 'Resolved' && $originalStatus !== 'Resolved') {
+            try {
+                $ticket->load('tenant.client');
+                $client = $ticket->tenant->client ?? null;
+                if ($client && $client->email) {
+                    \Illuminate\Support\Facades\Mail::to($client->email)->send(new \App\Mail\TicketResolvedMail($ticket, $client));
+                }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to send ticket resolved email: ' . $e->getMessage());
+            }
+        }
 
         if (!$user->hasRole('SuperAdmin')) {
             \App\Models\AdminNotification::create([
