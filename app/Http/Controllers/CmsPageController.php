@@ -175,6 +175,9 @@ class CmsPageController extends Controller
         $validated['status']    = $validated['status']    ?? 'published';
         $validated['is_active'] = $validated['is_active'] ?? true;
 
+        // Extract base64 images and save to disk
+        $validated['content'] = $this->processBase64Images($validated['content']);
+
         // Composite upsert key (matches the unique index)
         $upsertKey = [
             'slug'       => $validated['slug'],
@@ -227,5 +230,30 @@ class CmsPageController extends Controller
         $cmsPage->delete();
 
         return response()->json(['message' => 'CMS Page deleted successfully']);
+    }
+
+    /**
+     * Recursively process content array to extract base64 images, save them,
+     * and replace the base64 string with the URL.
+     */
+    private function processBase64Images(array $content): array
+    {
+        foreach ($content as $key => $value) {
+            if (is_array($value)) {
+                $content[$key] = $this->processBase64Images($value);
+            } elseif (is_string($value) && preg_match('/^data:image\/(\w+);base64,/', $value, $matches)) {
+                $data = substr($value, strpos($value, ',') + 1);
+                $type = strtolower($matches[1]);
+                $type = $type === 'jpeg' ? 'jpg' : $type;
+                
+                $data = base64_decode($data);
+                if ($data !== false) {
+                    $fileName = 'cms_images/' . \Illuminate\Support\Str::random(40) . '.' . $type;
+                    \Illuminate\Support\Facades\Storage::disk('public')->put($fileName, $data);
+                    $content[$key] = \Illuminate\Support\Facades\Storage::url($fileName);
+                }
+            }
+        }
+        return $content;
     }
 }
