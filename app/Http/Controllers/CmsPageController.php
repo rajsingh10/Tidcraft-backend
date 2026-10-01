@@ -34,7 +34,7 @@ class CmsPageController extends Controller
                 $query->where('page_type', 'home')->whereNull('product_id');
             }
 
-            return $query->firstOrFail();
+            return $query->firstOrFail()->toArray();
         });
 
         return response()->json($cmsPage);
@@ -51,7 +51,8 @@ class CmsPageController extends Controller
                             ->where('is_active', true)
                             ->where('status', 'published')
                             ->orderBy('sort_order')
-                            ->get();
+                            ->get()
+                            ->toArray();
         });
 
         return response()->json($pages);
@@ -66,11 +67,15 @@ class CmsPageController extends Controller
         // Validate product exists
         Product::findOrFail($productId);
 
-        $pages = CmsPage::forProduct($productId)
-                        ->where('is_active', true)
-                        ->where('status', 'published')
-                        ->orderBy('sort_order')
-                        ->get();
+        $cacheKey = "cms_pages_product_{$productId}";
+        $pages = \Illuminate\Support\Facades\Cache::remember($cacheKey, 3600, function () use ($productId) {
+            return CmsPage::forProduct($productId)
+                            ->where('is_active', true)
+                            ->where('status', 'published')
+                            ->orderBy('sort_order')
+                            ->get()
+                            ->toArray();
+        });
 
         return response()->json($pages);
     }
@@ -184,6 +189,8 @@ class CmsPageController extends Controller
         \Illuminate\Support\Facades\Cache::forget($cacheKey);
         if (($cmsPage->page_type ?? 'home') === 'home') {
             \Illuminate\Support\Facades\Cache::forget('cms_pages_home');
+        } else {
+            \Illuminate\Support\Facades\Cache::forget("cms_pages_product_{$cmsPage->product_id}");
         }
 
         return response()->json($cmsPage, 200);
@@ -213,6 +220,8 @@ class CmsPageController extends Controller
         \Illuminate\Support\Facades\Cache::forget($cacheKey);
         if (($cmsPage->page_type ?? 'home') === 'home') {
             \Illuminate\Support\Facades\Cache::forget('cms_pages_home');
+        } else {
+            \Illuminate\Support\Facades\Cache::forget("cms_pages_product_{$cmsPage->product_id}");
         }
 
         $cmsPage->delete();
