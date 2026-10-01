@@ -362,7 +362,7 @@
             </div>
 
             <div style="margin-top: 30px;">
-                <a href="{{ config('app.url') }}/support/tickets/{{ $ticket->ticket_id ?? '' }}" class="btn">View Ticket Details</a>
+                <a href="{{ config('app.url') }}" class="btn" style="color: #ffffff !important;">View Ticket Details</a>
             </div>
 
             <div class="automated-text">
