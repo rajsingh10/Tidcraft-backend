@@ -43,7 +43,7 @@ class Plan extends Model
         'has_customer_app',
         'has_merchant_app',
         'has_rider_app',
-        'has_white_labeled_rider_app',
+        'has_white_labeled_app',
         'has_watchman_app',
         'has_owner_app',
         'storage_gb',
@@ -67,7 +67,7 @@ class Plan extends Model
         'has_customer_app' => 'boolean',
         'has_merchant_app' => 'boolean',
         'has_rider_app' => 'boolean',
-        'has_white_labeled_rider_app' => 'boolean',
+        'has_white_labeled_app' => 'array',
         'has_watchman_app' => 'boolean',
         'has_owner_app' => 'boolean',
     ];

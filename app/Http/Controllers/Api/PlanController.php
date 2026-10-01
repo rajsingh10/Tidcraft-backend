@@ -66,7 +66,12 @@ class PlanController extends Controller
             'has_customer_app' => 'nullable|boolean',
             'has_merchant_app' => 'nullable|boolean',
             'has_rider_app' => 'nullable|boolean',
-            'has_white_labeled_rider_app' => 'nullable|boolean',
+            'has_white_labeled_app' => 'nullable|array',
+            'has_white_labeled_app.rider_app' => 'nullable|boolean',
+            'has_white_labeled_app.customer_app' => 'nullable|boolean',
+            'has_white_labeled_app.merchant_app' => 'nullable|boolean',
+            'has_white_labeled_app.owner_app' => 'nullable|boolean',
+            'has_white_labeled_app.watchman_app' => 'nullable|boolean',
             'has_watchman_app' => 'nullable|boolean',
             'has_owner_app' => 'nullable|boolean',
             'storage_gb' => 'nullable|integer',
@@ -186,7 +191,12 @@ class PlanController extends Controller
             'has_customer_app' => 'nullable|boolean',
             'has_merchant_app' => 'nullable|boolean',
             'has_rider_app' => 'nullable|boolean',
-            'has_white_labeled_rider_app' => 'nullable|boolean',
+            'has_white_labeled_app' => 'nullable|array',
+            'has_white_labeled_app.rider_app' => 'nullable|boolean',
+            'has_white_labeled_app.customer_app' => 'nullable|boolean',
+            'has_white_labeled_app.merchant_app' => 'nullable|boolean',
+            'has_white_labeled_app.owner_app' => 'nullable|boolean',
+            'has_white_labeled_app.watchman_app' => 'nullable|boolean',
             'has_watchman_app' => 'nullable|boolean',
             'has_owner_app' => 'nullable|boolean',
             'storage_gb' => 'nullable|integer',
@@ -273,6 +283,20 @@ class PlanController extends Controller
             $decoded = json_decode($request->integrations, true);
             if (is_array($decoded)) {
                 $request->merge(['integrations' => $decoded]);
+            }
+        }
+
+        if (is_string($request->has_white_labeled_app)) {
+            $decoded = json_decode($request->has_white_labeled_app, true);
+            if (is_array($decoded)) {
+                $request->merge(['has_white_labeled_app' => $decoded]);
+            }
+        }
+
+        if (is_string($request->has_white_labeled_app)) {
+            $decoded = json_decode($request->has_white_labeled_app, true);
+            if (is_array($decoded)) {
+                $request->merge(['has_white_labeled_app' => $decoded]);
             }
         }
 
