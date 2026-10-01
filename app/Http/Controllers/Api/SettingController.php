@@ -184,26 +184,30 @@ class SettingController extends Controller
 
     public function publicGeneral()
     {
-        $keys = [
-            'company_name',
-            'company_favicon',
-            'company_short_logo',
-            'company_logo',
-            'company_phone',
-            'company_email',
-            'company_address',
-            'company_gst',
-            'company_tagline',
-            'whatsapp_number'
-        ];
-        
-        $settings = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
+        $settings = \Illuminate\Support\Facades\Cache::remember('public_settings', 3600, function () {
+            $keys = [
+                'company_name',
+                'company_favicon',
+                'company_short_logo',
+                'company_logo',
+                'company_phone',
+                'company_email',
+                'company_address',
+                'company_gst',
+                'company_tagline',
+                'whatsapp_number'
+            ];
+            
+            $settingsData = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
 
-        foreach (['company_favicon', 'company_short_logo', 'company_logo'] as $fileField) {
-            if (isset($settings[$fileField]) && !empty($settings[$fileField])) {
-                $settings[$fileField] = \App\Helpers\UrlHelper::getStorageUrl($settings[$fileField]);
+            foreach (['company_favicon', 'company_short_logo', 'company_logo'] as $fileField) {
+                if (isset($settingsData[$fileField]) && !empty($settingsData[$fileField])) {
+                    $settingsData[$fileField] = \App\Helpers\UrlHelper::getStorageUrl($settingsData[$fileField]);
+                }
             }
-        }
+            
+            return $settingsData;
+        });
 
         return response()->json([
             'status' => 'success',
@@ -303,6 +307,8 @@ class SettingController extends Controller
         if (!empty($newValues)) {
             AuditLogger::log('Settings Changed', 'System Settings Changed', 'Admin updated General settings.', $oldValues, $newValues);
         }
+        
+        \Illuminate\Support\Facades\Cache::forget('public_settings');
 
         return response()->json([
             'status' => 'success',
