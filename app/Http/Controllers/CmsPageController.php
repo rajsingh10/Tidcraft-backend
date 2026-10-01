@@ -19,18 +19,23 @@ class CmsPageController extends Controller
      */
     public function showBySlug(Request $request, $slug)
     {
-        $query = CmsPage::where('slug', $slug)
-                        ->where('is_active', true)
-                        ->where('status', 'published');
+        $productId = $request->input('product_id');
+        $cacheKey = "cms_page_{$slug}_product_" . ($productId ?? 'home');
 
-        if ($request->filled('product_id')) {
-            $query->where('page_type', 'product')
-                  ->where('product_id', $request->product_id);
-        } else {
-            $query->where('page_type', 'home')->whereNull('product_id');
-        }
+        $cmsPage = \Illuminate\Support\Facades\Cache::remember($cacheKey, 3600, function () use ($slug, $productId) {
+            $query = CmsPage::where('slug', $slug)
+                            ->where('is_active', true)
+                            ->where('status', 'published');
 
-        $cmsPage = $query->firstOrFail();
+            if ($productId) {
+                $query->where('page_type', 'product')
+                      ->where('product_id', $productId);
+            } else {
+                $query->where('page_type', 'home')->whereNull('product_id');
+            }
+
+            return $query->firstOrFail();
+        });
 
         return response()->json($cmsPage);
     }
@@ -41,11 +46,13 @@ class CmsPageController extends Controller
      */
     public function homePage()
     {
-        $pages = CmsPage::homePage()
-                        ->where('is_active', true)
-                        ->where('status', 'published')
-                        ->orderBy('sort_order')
-                        ->get();
+        $pages = \Illuminate\Support\Facades\Cache::remember('cms_pages_home', 3600, function () {
+            return CmsPage::homePage()
+                            ->where('is_active', true)
+                            ->where('status', 'published')
+                            ->orderBy('sort_order')
+                            ->get();
+        });
 
         return response()->json($pages);
     }
@@ -172,6 +179,13 @@ class CmsPageController extends Controller
 
         $cmsPage = CmsPage::updateOrCreate($upsertKey, $validated);
 
+        // Clear cache
+        $cacheKey = "cms_page_{$cmsPage->slug}_product_" . ($cmsPage->product_id ?? 'home');
+        \Illuminate\Support\Facades\Cache::forget($cacheKey);
+        if (($cmsPage->page_type ?? 'home') === 'home') {
+            \Illuminate\Support\Facades\Cache::forget('cms_pages_home');
+        }
+
         return response()->json($cmsPage, 200);
     }
 
@@ -193,6 +207,14 @@ class CmsPageController extends Controller
         }
 
         $cmsPage = $query->firstOrFail();
+        
+        // Clear cache
+        $cacheKey = "cms_page_{$cmsPage->slug}_product_" . ($cmsPage->product_id ?? 'home');
+        \Illuminate\Support\Facades\Cache::forget($cacheKey);
+        if (($cmsPage->page_type ?? 'home') === 'home') {
+            \Illuminate\Support\Facades\Cache::forget('cms_pages_home');
+        }
+
         $cmsPage->delete();
 
         return response()->json(['message' => 'CMS Page deleted successfully']);
