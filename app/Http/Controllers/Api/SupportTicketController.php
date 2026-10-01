@@ -18,7 +18,10 @@ class SupportTicketController extends Controller
 
         if (!$user->hasRole('SuperAdmin')) {
             $tenantIds = \App\Models\Tenant::where('create_by', $user->id)->pluck('id');
-            $query->whereIn('tenant_id', $tenantIds);
+            $query->where(function($q) use ($tenantIds, $user) {
+                $q->whereIn('tenant_id', $tenantIds)
+                  ->orWhere('create_by', $user->id);
+            });
         }
 
         return response()->json([
@@ -47,23 +50,26 @@ class SupportTicketController extends Controller
 
         if (!$isSuperAdmin) {
             $tenantId = $request->input('tenant_id');
+            
+            // Auto-assign the user's first tenant if none is provided
             if (!$tenantId) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'You must provide a tenant_id for the support ticket.'
-                ], 422);
-            }
-
-            $ownsTenant = \App\Models\Tenant::where('id', $tenantId)->where('create_by', $user->id)->exists();
-            if (!$ownsTenant) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'You do not have permission to create a ticket for this tenant.'
-                ], 403);
+                $firstTenant = \App\Models\Tenant::where('create_by', $user->id)->first();
+                if ($firstTenant) {
+                    $tenantId = $firstTenant->id;
+                }
+            } else {
+                $ownsTenant = \App\Models\Tenant::where('id', $tenantId)->where('create_by', $user->id)->exists();
+                if (!$ownsTenant) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'You do not have permission to create a ticket for this tenant.'
+                    ], 403);
+                }
             }
 
             $validated['tenant_id'] = $tenantId;
             $validated['status'] = 'Open';
+            $validated['create_by'] = $user->id;
         }
 
         if (!isset($validated['priority'])) {
@@ -119,7 +125,10 @@ class SupportTicketController extends Controller
 
         if (!$user->hasRole('SuperAdmin')) {
             $tenantIds = \App\Models\Tenant::where('create_by', $user->id)->pluck('id');
-            $query->whereIn('tenant_id', $tenantIds);
+            $query->where(function($q) use ($tenantIds, $user) {
+                $q->whereIn('tenant_id', $tenantIds)
+                  ->orWhere('create_by', $user->id);
+            });
         }
 
         $ticket = $query->findOrFail($id);
@@ -140,7 +149,10 @@ class SupportTicketController extends Controller
 
         if (!$user->hasRole('SuperAdmin')) {
             $tenantIds = \App\Models\Tenant::where('create_by', $user->id)->pluck('id');
-            $query->whereIn('tenant_id', $tenantIds);
+            $query->where(function($q) use ($tenantIds, $user) {
+                $q->whereIn('tenant_id', $tenantIds)
+                  ->orWhere('create_by', $user->id);
+            });
         }
 
         $ticket = $query->findOrFail($id);
@@ -161,8 +173,19 @@ class SupportTicketController extends Controller
             try {
                 $ticket->load('tenant.client');
                 $client = $ticket->tenant->client ?? null;
+                
+                if (!$client && $ticket->tenant && $ticket->tenant->create_by) {
+                    $client = \App\Models\User::find($ticket->tenant->create_by);
+                }
+                
+                if (!$client && $ticket->create_by) {
+                    $client = \App\Models\User::find($ticket->create_by);
+                }
+
                 if ($client && $client->email) {
                     \Illuminate\Support\Facades\Mail::to($client->email)->send(new \App\Mail\TicketResolvedMail($ticket, $client));
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('Could not find client to send ticket resolved email for ticket ID: ' . $ticket->id);
                 }
             } catch (\Exception $e) {
                 \Illuminate\Support\Facades\Log::error('Failed to send ticket resolved email: ' . $e->getMessage());
@@ -197,7 +220,10 @@ class SupportTicketController extends Controller
 
         if (!$user->hasRole('SuperAdmin')) {
             $tenantIds = \App\Models\Tenant::where('create_by', $user->id)->pluck('id');
-            $query->whereIn('tenant_id', $tenantIds);
+            $query->where(function($q) use ($tenantIds, $user) {
+                $q->whereIn('tenant_id', $tenantIds)
+                  ->orWhere('create_by', $user->id);
+            });
         }
 
         $ticket = $query->findOrFail($id);
@@ -219,7 +245,10 @@ class SupportTicketController extends Controller
 
         if (!$user->hasRole('SuperAdmin')) {
             $tenantIds = \App\Models\Tenant::where('create_by', $user->id)->pluck('id');
-            $query->whereIn('tenant_id', $tenantIds);
+            $query->where(function($q) use ($tenantIds, $user) {
+                $q->whereIn('tenant_id', $tenantIds)
+                  ->orWhere('create_by', $user->id);
+            });
         }
 
         $ticket = $query->findOrFail($id);
@@ -235,8 +264,19 @@ class SupportTicketController extends Controller
             try {
                 $ticket->load('tenant.client');
                 $client = $ticket->tenant->client ?? null;
+                
+                if (!$client && $ticket->tenant && $ticket->tenant->create_by) {
+                    $client = \App\Models\User::find($ticket->tenant->create_by);
+                }
+                
+                if (!$client && $ticket->create_by) {
+                    $client = \App\Models\User::find($ticket->create_by);
+                }
+
                 if ($client && $client->email) {
                     \Illuminate\Support\Facades\Mail::to($client->email)->send(new \App\Mail\TicketResolvedMail($ticket, $client));
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('Could not find client to send ticket resolved email for ticket ID: ' . $ticket->id);
                 }
             } catch (\Exception $e) {
                 \Illuminate\Support\Facades\Log::error('Failed to send ticket resolved email: ' . $e->getMessage());
