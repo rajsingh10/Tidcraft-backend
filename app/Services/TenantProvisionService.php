@@ -285,6 +285,12 @@ class TenantProvisionService
             $adminEmail = $tenant->primary_contact_email ?? ($tenant->client ? $tenant->client->email : 'admin@' . ($tenant->domains()->first()?->domain ?? 'tidcraft.com'));
             $baseName = trim($tenant->name ?: $tenant->business_name);
             $adminPassword = empty($baseName) ? 'tidcraft' : str_replace(' ', '', strtolower($baseName)) . '-tidcraft';
+
+            $tenant->update([
+                'admin_email' => $adminEmail,
+                'admin_password' => $adminPassword,
+            ]);
+
             $domainObj = $tenant->domains()->first();
             $domainUrl = 'https://' . ($domainObj ? $domainObj->domain : 'tidcraft.com');
             $adminUrl = rtrim($domainUrl, '/') . '/admin_panel';
