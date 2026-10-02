@@ -31,6 +31,8 @@ class Tenant extends Model
         'plan_id',
         'status',
         'is_demo',
+        'admin_email',
+        'admin_password',
         'create_by',
         'update_by',
         'delete_by',
