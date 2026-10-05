@@ -144,6 +144,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('products/{product}/demos/{demo}/screenshots/delete', [\App\Http\Controllers\Api\ProductDemoController::class, 'deleteScreenshot']);
     
     Route::post('products/{product}', [ProductController::class, 'update']);
+    Route::get('apps', [TenantAppController::class, 'getAllApps']);
+    Route::get('products/{product}/apps', [TenantAppController::class, 'getByProduct']);
     Route::apiResource('products', ProductController::class);
 
     Route::post('cms-pages/save', [CmsPageController::class, 'save']);

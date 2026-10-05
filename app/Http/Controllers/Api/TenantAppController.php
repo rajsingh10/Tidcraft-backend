@@ -30,6 +30,37 @@ class TenantAppController extends Controller
     }
 
     /**
+     * GET /api/apps
+     * List all apps across all tenants with their tenant details.
+     */
+    public function getAllApps()
+    {
+        // Load the apps with their associated tenant and product details
+        $apps = TenantApp::with(['tenant:id,uuid,business_name,tenant_key,product_id', 'tenant.product:id,name'])->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $apps
+        ]);
+    }
+
+    /**
+     * GET /api/products/{productId}/apps
+     * List all apps across all tenants that belong to a specific product.
+     */
+    public function getByProduct($productId)
+    {
+        $apps = TenantApp::whereHas('tenant', function ($query) use ($productId) {
+            $query->where('product_id', $productId);
+        })->with('tenant:id,uuid,business_name,tenant_key')->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $apps
+        ]);
+    }
+
+    /**
      * POST /api/tenants/{uuid}/apps
      * Store new apps for an existing tenant.
      */
