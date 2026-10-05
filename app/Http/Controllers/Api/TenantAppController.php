@@ -75,16 +75,29 @@ class TenantAppController extends Controller
             'apps.*.email' => 'nullable|email',
             'apps.*.password' => 'nullable|string',
             'apps.*.apk_url' => 'nullable|array',
-            'apps.*.apk_url.*' => 'url',
             'apps.*.web_url' => 'nullable|array',
-            'apps.*.web_url.*' => 'url',
+            'apps.*.web_url.*' => 'nullable|url',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['status' => 'error', 'message' => 'Validation Error', 'errors' => $validator->errors()], 422);
         }
 
-        $tenant->apps()->createMany($request->apps);
+        $appsData = $request->all()['apps'] ?? [];
+
+        // Handle file uploads if apk_url contains files
+        foreach ($appsData as &$appData) {
+            if (isset($appData['apk_url']) && is_array($appData['apk_url'])) {
+                foreach ($appData['apk_url'] as $key => $value) {
+                    if ($value instanceof \Illuminate\Http\UploadedFile) {
+                        $path = $value->store("apk_files/{$uuid}", 'public');
+                        $appData['apk_url'][$key] = url('storage/' . $path);
+                    }
+                }
+            }
+        }
+
+        $tenant->apps()->createMany($appsData);
 
         return response()->json([
             'status' => 'success',
@@ -128,18 +141,34 @@ class TenantAppController extends Controller
             'email' => 'nullable|email',
             'password' => 'nullable|string',
             'apk_url' => 'nullable|array',
-            'apk_url.*' => 'url',
             'web_url' => 'nullable|array',
-            'web_url.*' => 'url',
+            'web_url.*' => 'nullable|url',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['status' => 'error', 'message' => 'Validation Error', 'errors' => $validator->errors()], 422);
         }
 
+        $updateData = $request->all();
+
+        // Handle file uploads for apk_url update
+        if (isset($updateData['apk_url']) && is_array($updateData['apk_url'])) {
+            $currentApkUrl = is_array($app->apk_url) ? $app->apk_url : [];
+            
+            foreach ($updateData['apk_url'] as $key => $value) {
+                if ($value instanceof \Illuminate\Http\UploadedFile) {
+                    $path = $value->store("apk_files/{$uuid}", 'public');
+                    $currentApkUrl[$key] = url('storage/' . $path);
+                } elseif (is_string($value) && !empty($value)) {
+                    $currentApkUrl[$key] = $value;
+                }
+            }
+            $updateData['apk_url'] = $currentApkUrl;
+        }
+
         $oldEmail = $app->email;
         
-        $app->update($request->all());
+        $app->update($updateData);
 
         // Sync to Firebase if credentials were changed
         if (($request->filled('password') || $request->filled('email')) && $app->email) {
