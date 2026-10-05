@@ -113,6 +113,11 @@ class Tenant extends Model
         return $this->hasMany(TenantBackup::class);
     }
 
+    public function apps()
+    {
+        return $this->hasMany(TenantApp::class);
+    }
+
     /**
      * Subdomain prefix from the first domain, e.g. "abc" from "abc.tidcraft.app".
      */

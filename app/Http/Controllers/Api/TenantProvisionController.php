@@ -138,6 +138,16 @@ class TenantProvisionController extends Controller
             // Add-ons
             'add_ons' => 'nullable|array',
             'add_ons.*' => 'exists:add_ons,id',
+
+            // Apps
+            'apps' => 'nullable|array',
+            'apps.*.app_name' => 'required|string',
+            'apps.*.email' => 'nullable|email',
+            'apps.*.password' => 'nullable|string',
+            'apps.*.apk_url' => 'nullable|array',
+            'apps.*.apk_url.*' => 'url',
+            'apps.*.web_url' => 'nullable|array',
+            'apps.*.web_url.*' => 'url',
         ]);
 
         if ($validator->fails()) {
@@ -189,6 +199,11 @@ class TenantProvisionController extends Controller
             // Attach Add-ons if any
             if ($request->has('add_ons') && is_array($request->add_ons)) {
                 $tenant->addOns()->attach($request->add_ons);
+            }
+
+            // Create Tenant Apps if any
+            if ($request->has('apps') && is_array($request->apps)) {
+                $tenant->apps()->createMany($request->apps);
             }
 
                 // Create Subscription
@@ -495,6 +510,21 @@ class TenantProvisionController extends Controller
                 \Illuminate\Support\Facades\Log::error('Failed to send dynamic subscription expiry email: ' . $e->getMessage());
             }
         }
+    }
+
+    /**
+     * Display a listing of demo tenants.
+     */
+    public function demoTenants()
+    {
+        $tenants = \App\Models\Tenant::with(['client', 'product', 'plan', 'domains', 'firebaseProject', 'database', 'addOns', 'subscriptions', 'payments'])
+            ->where('is_demo', true)
+            ->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $tenants
+        ]);
     }
 
     /**

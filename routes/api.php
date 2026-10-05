@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\AddOnController;
 use App\Http\Controllers\Api\InquiryController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\TenantAppController;
 use App\Http\Controllers\Api\client\ClientAuthController;
 use App\Http\Controllers\Api\client\ClientPurchaseController;
 use App\Http\Controllers\Admin\ClientController;
@@ -180,6 +181,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tenant-provision', [TenantProvisionController::class, 'store']);
     Route::post('/tenant-provision/{uuid}/verify-payment', [TenantProvisionController::class, 'verifyPayment']);
     Route::post('/tenant-provision/payment-status-change', [TenantProvisionController::class, 'paymentstatuschnage']);
+    Route::get('/tenants/demos', [TenantProvisionController::class, 'demoTenants']);
     Route::get('/tenants', [TenantProvisionController::class, 'index']);
     Route::get('/tenants/backups', [TenantProvisionController::class, 'listAllBackups']);
     Route::get('/tenants/{uuid}', [TenantProvisionController::class, 'show']);
@@ -191,6 +193,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/tenants/{uuid}', [TenantProvisionController::class, 'update']);
     Route::put('/tenants/{uuid}', [TenantProvisionController::class, 'update']);
     Route::delete('/tenants/{uuid}', [TenantProvisionController::class, 'destroy']);
+    
+    // Manage apps independently
+    Route::get('/tenants/{uuid}/apps', [TenantAppController::class, 'index']);
+    Route::post('/tenants/{uuid}/apps', [TenantAppController::class, 'store']);
+    Route::get('/tenants/{uuid}/apps/{appId}', [TenantAppController::class, 'show']);
+    Route::put('/tenants/{uuid}/apps/{appId}', [TenantAppController::class, 'update']);
+    Route::delete('/tenants/{uuid}/apps/{appId}', [TenantAppController::class, 'destroy']);
     Route::post('/tenants/{uuid}/renew', [TenantProvisionController::class, 'renewClient']);
     Route::post('/tenants/{uuid}/renew-manual', [TenantProvisionController::class, 'renewManual']);
     Route::post('/tenants/{uuid}/upgrade', [TenantProvisionController::class, 'upgrade']);
