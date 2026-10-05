@@ -30,6 +30,8 @@ Route::post('newsletter/subscribe', [\App\Http\Controllers\Api\NewsletterControl
 Route::get('products/client', [ProductController::class, 'publicIndex']);
 Route::get('products/{product}/demos', [\App\Http\Controllers\Api\ProductDemoController::class, 'index']);
 Route::get('products/{product}/demos/{demo}', [\App\Http\Controllers\Api\ProductDemoController::class, 'show']);
+Route::get('apps', [TenantAppController::class, 'getAllApps']);
+Route::get('products/{product}/apps', [TenantAppController::class, 'getByProduct']);
 Route::get('settings/client', [SettingController::class, 'publicGeneral']);
 Route::get('cms-pages/slug/{slug}', [CmsPageController::class, 'showBySlug']); // ?product_id=<id> for product pages
 Route::get('cms-pages/home', [CmsPageController::class, 'homePage']);         // All published home sections
@@ -144,8 +146,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('products/{product}/demos/{demo}/screenshots/delete', [\App\Http\Controllers\Api\ProductDemoController::class, 'deleteScreenshot']);
     
     Route::post('products/{product}', [ProductController::class, 'update']);
-    Route::get('apps', [TenantAppController::class, 'getAllApps']);
-    Route::get('products/{product}/apps', [TenantAppController::class, 'getByProduct']);
     Route::apiResource('products', ProductController::class);
 
     Route::post('cms-pages/save', [CmsPageController::class, 'save']);
