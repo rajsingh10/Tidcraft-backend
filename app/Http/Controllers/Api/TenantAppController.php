@@ -129,10 +129,19 @@ class TenantAppController extends Controller
         }
 
         // Sync to Firebase for the created apps (if credentials exist)
-        if ($adminEmail || $adminPassword) {
-            foreach ($createdApps as $app) {
-                if ($app->email) {
-                    $this->updateFirebaseCredentials($tenant, $app->email, $app->email, $app->password);
+        foreach ($createdApps as $app) {
+            if ($app->email) {
+                $this->updateFirebaseCredentials($tenant, $app->email, $app->email, $app->password);
+            }
+            
+            // Sync all panels inside web_url
+            if (is_array($app->web_url)) {
+                foreach ($app->web_url as $panelName => $panelData) {
+                    $panelEmail = $panelData['email'] ?? null;
+                    // Avoid duplicating the main app email if it's the same
+                    if ($panelEmail && $panelEmail !== $app->email) {
+                        $this->updateFirebaseCredentials($tenant, $panelEmail, $panelEmail, $panelData['password'] ?? null);
+                    }
                 }
             }
         }
@@ -214,11 +223,12 @@ class TenantAppController extends Controller
             $updateData['apk_url'] = $currentApkUrl;
         }
 
+        $oldWebUrl = is_array($app->web_url) ? $app->web_url : [];
         $oldEmail = $app->email;
         
         $app->update($updateData);
 
-        // Sync to Firebase if credentials were changed
+        // Sync main credentials if changed
         $hasPasswordUpdate = !empty($updateData['password']) || !empty($adminPassword);
         $hasEmailUpdate = !empty($updateData['email']) || !empty($adminEmail);
 
@@ -233,6 +243,21 @@ class TenantAppController extends Controller
             }
             if (!empty($tenantUpdateData)) {
                 $tenant->update($tenantUpdateData);
+            }
+        }
+
+        // Sync all other panel credentials if they changed
+        $newWebUrl = is_array($app->web_url) ? $app->web_url : [];
+        foreach ($newWebUrl as $panelName => $panelData) {
+            $panelOldEmail = $oldWebUrl[$panelName]['email'] ?? ($panelData['email'] ?? null);
+            $panelNewEmail = $panelData['email'] ?? null;
+            $panelNewPassword = $panelData['password'] ?? null;
+            $panelOldPassword = $oldWebUrl[$panelName]['password'] ?? null;
+
+            if ($panelNewEmail && $panelNewEmail !== $app->email) {
+                if ($panelOldEmail !== $panelNewEmail || $panelOldPassword !== $panelNewPassword) {
+                    $this->updateFirebaseCredentials($tenant, $panelOldEmail, $panelNewEmail, $panelNewPassword);
+                }
             }
         }
 
