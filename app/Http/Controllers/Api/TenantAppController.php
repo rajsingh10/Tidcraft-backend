@@ -107,7 +107,9 @@ class TenantAppController extends Controller
             if (isset($appData['apk_url']) && is_array($appData['apk_url'])) {
                 foreach ($appData['apk_url'] as $key => $value) {
                     if ($value instanceof \Illuminate\Http\UploadedFile) {
-                        $path = $value->store("apk_files/{$uuid}", 'public');
+                        $extension = $value->getClientOriginalExtension();
+                        $filename = \Illuminate\Support\Str::random(40) . '.' . $extension;
+                        $path = $value->storeAs("apk_files/{$uuid}", $filename, 'public');
                         $appData['apk_url'][$key] = url('storage/' . $path);
                     }
                 }
@@ -201,7 +203,9 @@ class TenantAppController extends Controller
             
             foreach ($updateData['apk_url'] as $key => $value) {
                 if ($value instanceof \Illuminate\Http\UploadedFile) {
-                    $path = $value->store("apk_files/{$uuid}", 'public');
+                    $extension = $value->getClientOriginalExtension();
+                    $filename = \Illuminate\Support\Str::random(40) . '.' . $extension;
+                    $path = $value->storeAs("apk_files/{$uuid}", $filename, 'public');
                     $currentApkUrl[$key] = url('storage/' . $path);
                 } elseif (is_string($value) && !empty($value)) {
                     $currentApkUrl[$key] = $value;
