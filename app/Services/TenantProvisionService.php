@@ -119,6 +119,50 @@ class TenantProvisionService
                         \Illuminate\Support\Facades\Log::warning("Could not auto-insert admin user into Firestore: " . $fEx->getMessage());
                     }
 
+                    // Auto-sync plan settings & feature flags to Firestore settings/plan_settings for mobile apps
+                    try {
+                        $plan = $tenant->plan;
+                        $featuresList = is_string($plan?->features ?? '') ? json_decode($plan->features, true) : ($plan?->features ?? []);
+                        $featuresList = is_array($featuresList) ? $featuresList : [];
+                        $planName = strtolower($plan?->name ?? '');
+                        $isGrowth = str_contains($planName, 'growth') || str_contains($planName, 'enterprise') || str_contains($planName, 'pro');
+                        $hasFeature = function($kw) use ($featuresList) {
+                            foreach ($featuresList as $f) {
+                                if (is_string($f) && stripos($f, $kw) !== false) return true;
+                            }
+                            return false;
+                        };
+                        $whiteLabeledApp = is_string($plan?->has_white_labeled_app ?? '') ? json_decode($plan->has_white_labeled_app, true) : ($plan?->has_white_labeled_app ?? []);
+
+                        $planSettingsData = [
+                            'plan_id' => $plan?->id,
+                            'plan_name' => $plan?->name ?? 'Default',
+                            'max_locations' => $plan && isset($plan->max_locations) && (int)$plan->max_locations > 0 ? (int)$plan->max_locations : -1,
+                            'max_bookings' => $plan && isset($plan->max_bookings_monthly) && (int)$plan->max_bookings_monthly > 0 ? (int)$plan->max_bookings_monthly : ($plan && (int)($plan->max_bookings ?? 0) > 0 ? (int)$plan->max_bookings : -1),
+                            'owner_wallet_enabled' => $isGrowth || $hasFeature('wallet') || $hasFeature('earnings'),
+                            'watchman_enabled' => $isGrowth || $hasFeature('watchman management') || $hasFeature('slot assignment') || (bool)($plan?->has_watchman_app ?? false),
+                            'ev_charging_enabled' => $isGrowth || $hasFeature('ev charging') || $hasFeature('ev'),
+                            'owner_commission_enabled' => $isGrowth || $hasFeature('commission settings') || $hasFeature('owner-wise commission'),
+                            'white_label' => [
+                                'customer_app' => true,
+                                'owner_app' => $isGrowth || !empty($whiteLabeledApp['owner_app']) || $hasFeature('white-labeled owner app'),
+                                'watchman_app' => $isGrowth || !empty($whiteLabeledApp['watchman_app']) || $hasFeature('white-labeled watchman app'),
+                            ],
+                            'is_subscription_active' => true,
+                            'updated_at' => date('Y-m-d H:i:s')
+                        ];
+
+                        $importer->import([
+                            '__collections__' => [
+                                'settings' => [
+                                    'plan_settings' => $planSettingsData
+                                ]
+                            ]
+                        ]);
+                    } catch (\Throwable $pEx) {
+                        \Illuminate\Support\Facades\Log::warning("Could not sync plan_settings into Firestore: " . $pEx->getMessage());
+                    }
+
                     self::logProgress($tenant, 'firebase_auth_admin', 'success', "Admin user created in Auth & Firestore: Email: {$adminEmail}, Password: {$adminPassword}");
                 } catch (\Throwable $e) {
                     self::logProgress($tenant, 'firebase_auth_admin', 'failed', 'Admin user creation failed', $e->getMessage());
@@ -472,6 +516,69 @@ class TenantProvisionService
         }
 
         self::toggleFirebaseTenant($tenant, true);
+    }
+
+    /**
+     * Synchronize tenant plan settings and feature flags into Firestore settings/plan_settings document.
+     * Can be invoked during provisioning, plan upgrade, or manually via Artisan.
+     */
+    public static function syncPlanSettingsToFirestore(Tenant $tenant, ?\App\Models\Plan $plan = null): bool
+    {
+        try {
+            $tenant->loadMissing(['firebaseProject', 'plan']);
+            $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+            $serviceAccount = $productFirebase ? (json_decode($productFirebase->service_account_json, true) ?? []) : [];
+
+            if (empty($serviceAccount) || !$tenant->firebaseProject) {
+                return false;
+            }
+
+            $plan = $plan ?? $tenant->plan;
+            $featuresList = is_string($plan?->features ?? '') ? json_decode($plan->features, true) : ($plan?->features ?? []);
+            $featuresList = is_array($featuresList) ? $featuresList : [];
+            $planName = strtolower($plan?->name ?? '');
+            $isGrowth = str_contains($planName, 'growth') || str_contains($planName, 'enterprise') || str_contains($planName, 'pro');
+            $hasFeature = function($kw) use ($featuresList) {
+                foreach ($featuresList as $f) {
+                    if (is_string($f) && stripos($f, $kw) !== false) return true;
+                }
+                return false;
+            };
+            $whiteLabeledApp = is_string($plan?->has_white_labeled_app ?? '') ? json_decode($plan->has_white_labeled_app, true) : ($plan?->has_white_labeled_app ?? []);
+
+            $planSettingsData = [
+                'plan_id' => $plan?->id,
+                'plan_name' => $plan?->name ?? 'Default',
+                'max_locations' => $plan && isset($plan->max_locations) && (int)$plan->max_locations > 0 ? (int)$plan->max_locations : -1,
+                'max_bookings' => $plan && isset($plan->max_bookings_monthly) && (int)$plan->max_bookings_monthly > 0 ? (int)$plan->max_bookings_monthly : ($plan && (int)($plan->max_bookings ?? 0) > 0 ? (int)$plan->max_bookings : -1),
+                'owner_wallet_enabled' => $isGrowth || $hasFeature('wallet') || $hasFeature('earnings'),
+                'watchman_enabled' => $isGrowth || $hasFeature('watchman management') || $hasFeature('slot assignment') || (bool)($plan?->has_watchman_app ?? false),
+                'ev_charging_enabled' => $isGrowth || $hasFeature('ev charging') || $hasFeature('ev'),
+                'owner_commission_enabled' => $isGrowth || $hasFeature('commission settings') || $hasFeature('owner-wise commission'),
+                'white_label' => [
+                    'customer_app' => true,
+                    'owner_app' => $isGrowth || !empty($whiteLabeledApp['owner_app']) || $hasFeature('white-labeled owner app'),
+                    'watchman_app' => $isGrowth || !empty($whiteLabeledApp['watchman_app']) || $hasFeature('white-labeled watchman app'),
+                ],
+                'is_subscription_active' => $tenant->hasActiveSubscription() && $tenant->status === 'active',
+                'updated_at' => date('Y-m-d H:i:s')
+            ];
+
+            $importer = new \App\Services\FirestoreImporter($serviceAccount, $tenant->firebaseProject->firebase_database_id);
+            $importer->import([
+                '__collections__' => [
+                    'settings' => [
+                        'plan_settings' => $planSettingsData
+                    ]
+                ]
+            ]);
+
+            \Illuminate\Support\Facades\Log::info("Synced plan_settings into Firestore for tenant {$tenant->id} ({$tenant->name})");
+            return true;
+        } catch (\Throwable $pEx) {
+            \Illuminate\Support\Facades\Log::warning("Could not sync plan_settings into Firestore for tenant {$tenant->id}: " . $pEx->getMessage());
+            return false;
+        }
     }
 
     private static function toggleFirebaseTenant(Tenant $tenant, bool $isEnabled)

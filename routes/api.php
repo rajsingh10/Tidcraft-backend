@@ -43,6 +43,9 @@ Route::apiResource('plans', PlanController::class)->only(['index', 'show']);
 Route::apiResource('add-ons', AddOnController::class)->only(['index', 'show']);
 Route::get('tenant/plan-status', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'show']);
 Route::get('tenant/check-quota', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'checkQuota']);
+Route::get('tenant/app-config', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'appConfig']);
+Route::post('tenant/sync-order-usage', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'syncOrderUsage']);
+Route::get('tenant/overage-status', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'overageStatus']);
 Route::post('/tenant-provision/{uuid}/verify-dns', [TenantProvisionController::class, 'verifyDns']);
 Route::post('/tenant-provision/demo', [TenantProvisionController::class, 'provisionDemo']);
 
