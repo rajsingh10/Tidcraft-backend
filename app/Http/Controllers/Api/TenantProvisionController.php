@@ -139,10 +139,6 @@ class TenantProvisionController extends Controller
             'add_ons' => 'nullable|array',
             'add_ons.*' => 'exists:add_ons,id',
 
-            // Admin Credentials (for apps)
-            'admin_email' => 'nullable|email',
-            'admin_password' => 'nullable|string',
-
             // Apps
             'apps' => 'nullable|array',
             'apps.*.app_name' => 'required|string',
@@ -208,8 +204,15 @@ class TenantProvisionController extends Controller
             // Create Tenant Apps if any
             if ($request->has('apps') && is_array($request->apps)) {
                 $appsData = $request->apps;
-                $adminEmail = $request->input('admin_email');
-                $adminPassword = $request->input('admin_password');
+                $adminEmail = null;
+                $adminPassword = null;
+
+                foreach ($appsData as $appData) {
+                    if (isset($appData['web_url']['admin_panel'])) {
+                        $adminEmail = $adminEmail ?: ($appData['web_url']['admin_panel']['email'] ?? null);
+                        $adminPassword = $adminPassword ?: ($appData['web_url']['admin_panel']['password'] ?? null);
+                    }
+                }
 
                 foreach ($appsData as &$appData) {
                     if (!isset($appData['email']) && $adminEmail) {
