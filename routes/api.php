@@ -46,6 +46,7 @@ Route::get('tenant/check-quota', [\App\Http\Controllers\Api\TenantPlanStatusCont
 Route::get('tenant/app-config', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'appConfig']);
 Route::post('tenant/sync-order-usage', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'syncOrderUsage']);
 Route::get('tenant/overage-status', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'overageStatus']);
+Route::post('tenant/pay-overage', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'payOverage']);
 Route::post('/tenant-provision/{uuid}/verify-dns', [TenantProvisionController::class, 'verifyDns']);
 Route::post('/tenant-provision/demo', [TenantProvisionController::class, 'provisionDemo']);
 
@@ -76,6 +77,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/purchases', [ClientPurchaseController::class, 'index']);
         Route::post('/purchases', [ClientPurchaseController::class, 'store']);
         Route::get('/purchases/{uuid}', [ClientPurchaseController::class, 'show']);
+        Route::get('/purchases/{uuid}/invoices', [ClientPurchaseController::class, 'getInvoices']);
+        Route::get('/purchases/{uuid}/overage-invoices', [ClientPurchaseController::class, 'getOverageInvoices']);
+        Route::post('/purchases/{uuid}/pay-overage', [ClientPurchaseController::class, 'payOverage']);
         Route::get('/purchases/{uuid}/provisioning-status', [ClientPurchaseController::class, 'provisioningStatus']);
         Route::get('/purchases/{uuid}/backups', [ClientPurchaseController::class, 'listBackups']);
         Route::get('/purchases/{uuid}/backup/firebase', [ClientPurchaseController::class, 'backupFirebase']);

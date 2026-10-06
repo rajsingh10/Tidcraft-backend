@@ -692,6 +692,190 @@ class ClientPurchaseController extends Controller
         ]);
     }
 
+    /**
+     * Get all invoices for a specific client purchase (tenant),
+     * including subscriptions, renewals, upgrades, and post-paid overage bills.
+     */
+    public function getInvoices(Request $request, $uuid)
+    {
+        $user = $request->user();
+        $tenant = Tenant::where('uuid', $uuid)->where(function($q) use ($user) {
+            $q->where('client_id', $user->id)->orWhere('create_by', $user->id);
+        })->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        $payments = $tenant->payments()
+            ->orderBy('id', 'desc')
+            ->get()
+            ->map(function ($p) {
+                $createdDate = $p->create_at ?? $p->created_at ?? now();
+                $meta = !empty($p->metadata) ? (is_array($p->metadata) ? $p->metadata : json_decode($p->metadata, true)) : [];
+                return [
+                    'id' => $p->id,
+                    'invoice_number' => $p->invoice_number,
+                    'type' => $p->type,
+                    'type_label' => match($p->type) {
+                        'overage_orders' => 'Additional Orders Overage',
+                        'renewal' => 'Subscription Renewal',
+                        'upgrade' => 'Plan Upgrade',
+                        default => 'Subscription Activation'
+                    },
+                    'amount' => (float) $p->amount,
+                    'currency' => $p->currency ?? 'INR',
+                    'billing_cycle' => $p->billing_cycle ?? 'monthly',
+                    'payment_method' => $p->payment_method ?? 'razorpay',
+                    'status' => $p->status,
+                    'is_paid' => in_array(strtolower($p->status), ['success', 'paid']),
+                    'date' => \Carbon\Carbon::parse($createdDate)->format('M d, Y'),
+                    'metadata' => $meta,
+                    'payment_link' => $meta['payment_link'] ?? null,
+                ];
+            });
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'tenant' => [
+                    'id' => $tenant->id,
+                    'uuid' => $tenant->uuid,
+                    'business_name' => $tenant->business_name,
+                    'plan_name' => $tenant->plan?->name ?? 'Default',
+                ],
+                'summary' => [
+                    'total_invoices' => $payments->count(),
+                    'total_paid' => round($payments->where('is_paid', true)->sum('amount'), 2),
+                    'total_pending' => round($payments->where('is_paid', false)->sum('amount'), 2),
+                    'pending_count' => $payments->where('is_paid', false)->count(),
+                ],
+                'invoices' => $payments,
+            ]
+        ]);
+    }
+
+    /**
+     * Get overage / overplan billing invoices specifically for this purchased tenant.
+     */
+    public function getOverageInvoices(Request $request, $uuid)
+    {
+        $user = $request->user();
+        $tenant = Tenant::where('uuid', $uuid)->where(function($q) use ($user) {
+            $q->where('client_id', $user->id)->orWhere('create_by', $user->id);
+        })->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        $plan = $tenant->plan;
+        $overagePayments = $tenant->payments()
+            ->where('type', 'overage_orders')
+            ->orderBy('id', 'desc')
+            ->get()
+            ->map(function ($p) {
+                $createdDate = $p->create_at ?? $p->created_at ?? now();
+                $meta = !empty($p->metadata) ? (is_array($p->metadata) ? $p->metadata : json_decode($p->metadata, true)) : [];
+                return [
+                    'id' => $p->id,
+                    'invoice_number' => $p->invoice_number,
+                    'amount' => (float) $p->amount,
+                    'currency' => $p->currency ?? 'INR',
+                    'status' => $p->status,
+                    'is_paid' => in_array(strtolower($p->status), ['success', 'paid']),
+                    'date' => \Carbon\Carbon::parse($createdDate)->format('M d, Y'),
+                    'period_label' => $meta['period_label'] ?? \Carbon\Carbon::parse($createdDate)->format('M Y'),
+                    'included_orders' => $meta['included_orders'] ?? 0,
+                    'total_orders' => $meta['total_orders'] ?? 0,
+                    'overage_orders' => $meta['overage_orders'] ?? 0,
+                    'rate_per_order' => $meta['rate_per_order'] ?? (float)($plan->additional_order_price ?? 0),
+                    'description' => $meta['description'] ?? null,
+                    'payment_link' => $meta['payment_link'] ?? null,
+                ];
+            });
+
+        $pendingInvoice = $overagePayments->firstWhere('is_paid', false);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'tenant_uuid' => $tenant->uuid,
+                'plan_name' => $plan?->name,
+                'rate_per_order' => (float) ($plan?->additional_order_price ?? 0),
+                'included_orders_annual' => (int) ($plan?->max_orders ?? -1),
+                'included_orders_monthly' => (int) ($plan?->max_orders_monthly ?? -1),
+                'total_overage_invoices' => $overagePayments->count(),
+                'total_overage_pending' => round($overagePayments->where('is_paid', false)->sum('amount'), 2),
+                'pending_invoice' => $pendingInvoice,
+                'invoices' => $overagePayments,
+            ]
+        ]);
+    }
+
+    /**
+     * Initiate or generate payment link for a pending overage / additional orders bill.
+     */
+    public function payOverage(Request $request, $uuid)
+    {
+        $user = $request->user();
+        $tenant = Tenant::where('uuid', $uuid)->where(function($q) use ($user) {
+            $q->where('client_id', $user->id)->orWhere('create_by', $user->id);
+        })->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        // Find specific payment by id or pick the latest pending overage invoice
+        $payment = null;
+        if ($request->filled('payment_id')) {
+            $payment = $tenant->payments()->where('id', $request->payment_id)->first();
+        } else {
+            $payment = $tenant->payments()
+                ->where('type', 'overage_orders')
+                ->where('status', 'pending')
+                ->latest('id')
+                ->first();
+        }
+
+        if (!$payment) {
+            return response()->json(['status' => 'error', 'message' => 'No pending overage invoice found to pay.'], 404);
+        }
+
+        if (in_array(strtolower($payment->status), ['success', 'paid'])) {
+            return response()->json(['status' => 'error', 'message' => 'This invoice has already been paid.'], 400);
+        }
+
+        $meta = !empty($payment->metadata) ? (is_array($payment->metadata) ? $payment->metadata : json_decode($payment->metadata, true)) : [];
+        $extraOrders = $meta['overage_orders'] ?? 0;
+        $description = "Payment for Additional Orders Overage: Invoice #{$payment->invoice_number} ({$extraOrders} extra orders)";
+
+        // Generate Razorpay payment link or order
+        $paymentLink = $this->generateRazorpayLink($tenant, (float)$payment->amount, $description);
+
+        if ($paymentLink) {
+            $meta['payment_link'] = $paymentLink;
+            $payment->metadata = $meta;
+            $payment->save();
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Overage invoice payment initiated.',
+            'data' => [
+                'tenant_uuid' => $tenant->uuid,
+                'payment_id' => $payment->id,
+                'invoice_number' => $payment->invoice_number,
+                'amount' => (float) $payment->amount,
+                'currency' => $payment->currency ?? 'INR',
+                'status' => $payment->status,
+                'extra_orders' => $extraOrders,
+                'payment_link' => $paymentLink ?? ($meta['payment_link'] ?? null),
+            ]
+        ]);
+    }
+
     private function generateRazorpayLink($tenant, $amount, $description)
     {
         $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
@@ -955,6 +1139,14 @@ class ClientPurchaseController extends Controller
                         $tenant->save();
                         \App\Services\TenantProvisionService::unblockTenant($tenant);
                     }
+                } elseif ($paymentType === 'overage_orders') {
+                    // Post-Paid Overage bill paid: Keep current subscription active, unblock if past due or suspended
+                    if (in_array($tenant->status, ['expired', 'past_due', 'suspended', 'pending'])) {
+                        $tenant->status = 'active';
+                        $tenant->save();
+                        \App\Services\TenantProvisionService::unblockTenant($tenant);
+                    }
+                    AuditLogger::log($tenant->id, 'overage_bill_paid', "Post-paid overage invoice #{$payment->invoice_number} paid successfully (Amount: ₹{$payment->amount}).");
                 } else {
                     // Initial Client Purchase: Activate subscription, keep tenant status 'pending'
                     if ($subscription) {
@@ -965,8 +1157,8 @@ class ClientPurchaseController extends Controller
                     $tenant->save();
                 }
             } elseif (in_array($paymentStatus, ['failed', 'canceled', 'cancelled'])) {
-                // If payment was for renewal or upgrade, do NOT cancel an active subscription or demote an active tenant to pending!
-                if ($payment && in_array($payment->type, ['renewal', 'upgrade'])) {
+                // If payment was for renewal, upgrade, or overage, do NOT cancel an active subscription or demote an active tenant to pending!
+                if ($payment && in_array($payment->type, ['renewal', 'upgrade', 'overage_orders'])) {
                     // Keep subscription and tenant in their current active state; only payment record is marked failed/canceled
                 } else {
                     if ($subscription) {
