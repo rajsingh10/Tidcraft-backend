@@ -223,10 +223,25 @@ class TenantProvisionController extends Controller
                     }
                 }
 
-                $tenant->apps()->createMany($appsData);
+                $createdApps = $tenant->apps()->createMany($appsData);
+
+                // Sync to Firebase for the created apps
+                foreach ($createdApps as $app) {
+                    if ($app->email) {
+                        $this->updateFirebaseCredentials($tenant, $app->email, $app->email, $app->password);
+                    }
+                    if (is_array($app->web_url)) {
+                        foreach ($app->web_url as $panelName => $panelData) {
+                            $panelEmail = $panelData['email'] ?? null;
+                            if ($panelEmail && $panelEmail !== $app->email) {
+                                $this->updateFirebaseCredentials($tenant, $panelEmail, $panelEmail, $panelData['password'] ?? null);
+                            }
+                        }
+                    }
+                }
             }
 
-                // Create Subscription
+            // Create Subscription
             $plan = \App\Models\Plan::find($request->plan_id);
             $billingCycle = $request->billing_cycle ?? 'monthly';
 
@@ -2328,9 +2343,75 @@ class TenantProvisionController extends Controller
             ]);
         }
 
-        return response()->json([
-            'status' => 'error',
-            'message' => 'Failed to send DNS instructions email. Please check contact email configuration.'
-        ], 500);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send DNS instructions email. Please check contact email configuration.', ['error' => $e->getMessage()]);
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to send DNS instructions email. Please check contact email configuration.'
+            ], 500);
+        }
+    }
+
+    /**
+     * Helper to update Firebase auth credentials.
+     */
+    protected function updateFirebaseCredentials(Tenant $tenant, string $oldEmail, string $newEmail, ?string $newPassword)
+    {
+        try {
+            $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+            if (!$productFirebase || empty($productFirebase->service_account_json)) {
+                return; // Firebase not configured
+            }
+
+            $serviceAccount = json_decode($productFirebase->service_account_json, true);
+            if (!$serviceAccount) return;
+
+            $adminClient = new \App\Services\FirebaseAdminClient();
+            
+            $projectId = $serviceAccount['project_id'] ?? null;
+            if (!$projectId) return;
+
+            $accessToken = $adminClient->accessToken($serviceAccount, [
+                'https://www.googleapis.com/auth/identitytoolkit',
+                'https://www.googleapis.com/auth/cloud-platform',
+            ]);
+
+            // Lookup the user by old email
+            $lookupUrl = 'https://identitytoolkit.googleapis.com/v1/projects/' . rawurlencode($projectId) . '/accounts:lookup';
+            $lookupResponse = \Illuminate\Support\Facades\Http::withToken($accessToken)
+                ->post($lookupUrl, ['email' => [$oldEmail]]);
+                
+            $users = $lookupResponse->json('users');
+
+            if (empty($users)) {
+                // User doesn't exist, create them if we have a password
+                if ($newPassword) {
+                    $adminClient->createAuthUser($serviceAccount, $newEmail, $newPassword);
+                }
+                return;
+            }
+
+            $localId = $users[0]['localId'];
+            
+            // Update the user
+            $updateData = ['localId' => $localId];
+            if ($newEmail !== $oldEmail) {
+                $updateData['email'] = $newEmail;
+            }
+            if ($newPassword) {
+                $updateData['password'] = $newPassword;
+            }
+
+            $updateUrl = 'https://identitytoolkit.googleapis.com/v1/projects/' . rawurlencode($projectId) . '/accounts:update';
+            
+            $updateResponse = \Illuminate\Support\Facades\Http::withToken($accessToken)->post($updateUrl, $updateData);
+            
+            if (!$updateResponse->successful()) {
+                \Illuminate\Support\Facades\Log::warning("Firebase account update failed for $newEmail: " . $updateResponse->body());
+            }
+
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Failed to sync Firebase credentials: " . $e->getMessage());
+        }
     }
 }
