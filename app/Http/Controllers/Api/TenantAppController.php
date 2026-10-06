@@ -70,15 +70,14 @@ class TenantAppController extends Controller
         if (!$tenant) return response()->json(['status' => 'error', 'message' => 'Tenant not found'], 404);
 
         $validator = Validator::make($request->all(), [
-            'admin_email' => 'nullable|email',
-            'admin_password' => 'nullable|string',
             'apps' => 'required|array',
             'apps.*.app_name' => 'required|string',
-            'apps.*.email' => 'nullable|email',
-            'apps.*.password' => 'nullable|string',
+
             'apps.*.apk_url' => 'nullable|array',
             'apps.*.web_url' => 'nullable|array',
-            'apps.*.web_url.*' => 'nullable|url',
+            'apps.*.web_url.*.url' => 'nullable|url',
+            'apps.*.web_url.*.email' => 'nullable|email',
+            'apps.*.web_url.*.password' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -86,8 +85,15 @@ class TenantAppController extends Controller
         }
 
         $appsData = $request->all()['apps'] ?? [];
-        $adminEmail = $request->input('admin_email');
-        $adminPassword = $request->input('admin_password');
+        $adminEmail = null;
+        $adminPassword = null;
+
+        foreach ($appsData as $appData) {
+            if (isset($appData['web_url']['admin_panel'])) {
+                $adminEmail = $adminEmail ?: ($appData['web_url']['admin_panel']['email'] ?? null);
+                $adminPassword = $adminPassword ?: ($appData['web_url']['admin_panel']['password'] ?? null);
+            }
+        }
 
         // Handle file uploads if apk_url contains files
         foreach ($appsData as &$appData) {
@@ -113,10 +119,8 @@ class TenantAppController extends Controller
         // Update the tenant's admin credentials and sync with Firebase
         $tenantUpdateData = [];
         if ($adminEmail) {
-            $tenantUpdateData['admin_email'] = $adminEmail;
             $tenantUpdateData['primary_contact_email'] = $adminEmail;
         }
-        if ($adminPassword) $tenantUpdateData['admin_password'] = $adminPassword;
 
         if (!empty($tenantUpdateData)) {
             $tenant->update($tenantUpdateData);
@@ -170,13 +174,12 @@ class TenantAppController extends Controller
 
         $validator = Validator::make($request->all(), [
             'app_name' => 'sometimes|required|string',
-            'admin_email' => 'nullable|email',
-            'admin_password' => 'nullable|string',
-            'email' => 'nullable|email',
-            'password' => 'nullable|string',
+
             'apk_url' => 'nullable|array',
             'web_url' => 'nullable|array',
-            'web_url.*' => 'nullable|url',
+            'web_url.*.url' => 'nullable|url',
+            'web_url.*.email' => 'nullable|email',
+            'web_url.*.password' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -184,18 +187,12 @@ class TenantAppController extends Controller
         }
 
         $updateData = $request->all();
+        $adminEmail = null;
+        $adminPassword = null;
 
-        // Map admin credentials to app credentials if they are provided
-        if ($request->filled('admin_email') && empty($updateData['email'])) {
-            $updateData['email'] = $request->input('admin_email');
-        }
-        if ($request->filled('admin_password') && empty($updateData['password'])) {
-            $updateData['password'] = $request->input('admin_password');
-            // Ensure the password check later picks this up
-            $request->merge(['password' => $updateData['password']]);
-        }
-        if ($request->filled('admin_email')) {
-             $request->merge(['email' => $updateData['email']]);
+        if (isset($updateData['web_url']['admin_panel'])) {
+            $adminEmail = $updateData['web_url']['admin_panel']['email'] ?? null;
+            $adminPassword = $updateData['web_url']['admin_panel']['password'] ?? null;
         }
 
         // Handle file uploads for apk_url update
@@ -218,17 +215,17 @@ class TenantAppController extends Controller
         $app->update($updateData);
 
         // Sync to Firebase if credentials were changed
-        if (($request->filled('password') || $request->filled('email')) && $app->email) {
-            $this->updateFirebaseCredentials($tenant, $oldEmail ?: $app->email, $app->email, $request->input('password'));
+        $hasPasswordUpdate = !empty($updateData['password']) || !empty($adminPassword);
+        $hasEmailUpdate = !empty($updateData['email']) || !empty($adminEmail);
+
+        if (($hasPasswordUpdate || $hasEmailUpdate) && $app->email) {
+            $newPassword = $updateData['password'] ?? $adminPassword ?? null;
+            $this->updateFirebaseCredentials($tenant, $oldEmail ?: $app->email, $app->email, $newPassword);
             
-            // Also update the tenant's admin credentials
+            // Also update the tenant's primary contact email
             $tenantUpdateData = [];
-            if ($request->filled('email') || $request->filled('admin_email')) {
-                $tenantUpdateData['admin_email'] = $app->email;
+            if ($hasEmailUpdate) {
                 $tenantUpdateData['primary_contact_email'] = $app->email;
-            }
-            if ($request->filled('password') || $request->filled('admin_password')) {
-                $tenantUpdateData['admin_password'] = $app->password;
             }
             if (!empty($tenantUpdateData)) {
                 $tenant->update($tenantUpdateData);
