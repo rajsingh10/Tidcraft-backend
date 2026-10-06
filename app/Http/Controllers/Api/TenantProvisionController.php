@@ -130,6 +130,7 @@ class TenantProvisionController extends Controller
             'product_id' => 'required|exists:products,id',
             'plan_id' => 'required|exists:plans,id',
             'billing_cycle' => 'nullable|in:monthly,yearly',
+            'onboard' => 'nullable|boolean',
 
             // Step 4: Domain Setup
             'domain_type' => 'nullable|in:subdomain,shared,custom',
@@ -194,6 +195,7 @@ class TenantProvisionController extends Controller
                 'product_id' => $request->product_id,
                 'plan_id' => $request->plan_id,
                 'status' => 'provisioning',
+                'onboard' => $request->boolean('onboard'),
             ]);
 
             // Attach Add-ons if any
@@ -1153,6 +1155,7 @@ class TenantProvisionController extends Controller
             'razorpay_payment_link_status' => 'nullable|string',
             'razorpay_signature' => 'nullable|string', // frontend might not send signature if it's a simple flow
             'status' => 'nullable|string', // fallback for custom status
+            'onboard' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -1354,6 +1357,12 @@ class TenantProvisionController extends Controller
                 if ($payment && in_array($payment->type, ['renewal', 'upgrade'])) {
                     // Keep subscription and tenant in their current active state
                 }
+            }
+
+            // Update onboard status if provided
+            if ($request->has('onboard')) {
+                $tenant->onboard = $request->boolean('onboard');
+                $tenant->save();
             }
 
             DB::commit();
@@ -2322,7 +2331,8 @@ class TenantProvisionController extends Controller
      */
     public function sendDnsEmail(Request $request, $uuid)
     {
-        $tenant = Tenant::where('uuid', $uuid)->first();
+        try {
+            $tenant = Tenant::where('uuid', $uuid)->first();
         if (!$tenant) {
             return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
         }

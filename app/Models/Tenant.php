@@ -31,6 +31,7 @@ class Tenant extends Model
         'plan_id',
         'status',
         'is_demo',
+        'onboard',
         'create_by',
         'update_by',
         'delete_by',
@@ -38,6 +39,7 @@ class Tenant extends Model
 
     protected $casts = [
         'is_demo' => 'boolean',
+        'onboard' => 'boolean',
     ];
 
     public function client()
