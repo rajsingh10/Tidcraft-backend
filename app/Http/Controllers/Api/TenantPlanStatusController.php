@@ -73,6 +73,7 @@ class TenantPlanStatusController extends Controller
                     'has_watchman_app' => (bool) $plan->has_watchman_app,
                     'has_owner_app' => (bool) $plan->has_owner_app,
                     'features' => is_string($plan->features) ? json_decode($plan->features, true) : ($plan->features ?? []),
+                    'feature_flags' => $this->resolveFeatureFlags($plan),
                 ] : null,
                 'subscription' => $subscription ? [
                     'id' => $subscription->id,
@@ -87,6 +88,8 @@ class TenantPlanStatusController extends Controller
                 'quotas' => [
                     'max_orders' => $maxOrders,
                     'max_users' => $maxUsers,
+                    'max_locations' => $plan?->max_locations,
+                    'max_bookings' => $plan?->max_bookings,
                     'storage_gb' => $storageGb,
                     'can_place_order' => $canPerformAction,
                     'can_create_user' => $canPerformAction,
@@ -101,9 +104,87 @@ class TenantPlanStatusController extends Controller
     }
 
     /**
-     * Check if a specific action (order placement, user creation, store creation)
+     * Unified app config endpoint for Customer App, Owner App, and Watchman App.
+     */
+    public function appConfig(Request $request)
+    {
+        $tenant = $this->findTenantFromRequest($request);
+
+        if (!$tenant) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Tenant not found for the given domain, key, or uuid.'
+            ], 404);
+        }
+
+        $plan = $tenant->plan;
+        $isActive = $tenant->hasActiveSubscription() && $tenant->status === 'active';
+        $appType = strtolower($request->query('app_type', 'all')); // 'customer', 'owner', 'watchman', 'all'
+        $clientAppUrl = config('app.url', 'https://tidcraft.com');
+        $upgradeUrl = rtrim($clientAppUrl, '/') . '/client/purchases/' . $tenant->uuid . '/upgrade';
+
+        $featureFlags = $this->resolveFeatureFlags($plan);
+        $maxLocations = $plan && isset($plan->max_locations) && (int)$plan->max_locations > 0 ? (int)$plan->max_locations : -1;
+        $maxBookings = $plan && isset($plan->max_bookings_monthly) && (int)$plan->max_bookings_monthly > 0 ? (int)$plan->max_bookings_monthly : ($plan && (int)($plan->max_bookings ?? 0) > 0 ? (int)$plan->max_bookings : -1);
+
+        $response = [
+            'status' => 'success',
+            'app_type' => $appType,
+            'tenant' => [
+                'id' => $tenant->id,
+                'uuid' => $tenant->uuid,
+                'name' => $tenant->name,
+                'business_name' => $tenant->business_name,
+                'tenant_key' => $tenant->tenant_key,
+                'status' => $tenant->status,
+                'is_subscription_active' => $isActive,
+                'remaining_days' => $tenant->remaining_days,
+                'expiry_date' => $tenant->expiry_date,
+            ],
+            'plan' => [
+                'id' => $plan?->id,
+                'name' => $plan?->name ?? 'Default',
+                'max_locations' => $maxLocations,
+                'max_bookings' => $maxBookings,
+                'feature_flags' => $featureFlags,
+            ],
+            'billing' => [
+                'upgrade_url' => $upgradeUrl,
+            ]
+        ];
+
+        if ($appType === 'watchman') {
+            $allowed = $isActive && ($featureFlags['watchman_management'] || (bool)($plan?->has_watchman_app ?? false));
+            $response['access'] = [
+                'allowed' => $allowed,
+                'reason' => $allowed ? 'OK' : (!$isActive ? 'SUBSCRIPTION_INACTIVE' : 'WATCHMAN_APP_NOT_INCLUDED'),
+                'message' => $allowed ? 'Access granted.' : (!$isActive ? 'Subscription is inactive. Please contact your organization administrator.' : 'Watchman app access is not included in your organization\'s current plan. Please upgrade to the Growth plan.'),
+                'upgrade_url' => $upgradeUrl,
+            ];
+        } elseif ($appType === 'owner') {
+            $response['owner_config'] = [
+                'max_locations' => $maxLocations,
+                'wallet_enabled' => $featureFlags['owner_wallet'],
+                'watchman_management_enabled' => $featureFlags['watchman_management'],
+                'ev_charging_enabled' => $featureFlags['ev_charging'],
+                'owner_wise_commission_enabled' => $featureFlags['owner_wise_commission'],
+                'is_white_labeled' => $featureFlags['white_label_owner_app'],
+            ];
+        } elseif ($appType === 'customer') {
+            $response['customer_config'] = [
+                'can_book' => $isActive,
+                'ev_charging_filter' => $featureFlags['ev_charging'],
+                'is_white_labeled' => true,
+            ];
+        }
+
+        return response()->json($response);
+    }
+
+    /**
+     * Check if a specific action (order placement, user creation, store creation, location creation, watchman, booking)
      * is permitted under the tenant's current plan and quota.
-     * Can be called by Customer App, Restaurant App, Driver App, or Admin Panels.
+     * Can be called by Customer App, Owner App, Watchman App, Restaurant App, Driver App, or Admin Panels.
      */
     public function checkQuota(Request $request)
     {
@@ -155,14 +236,35 @@ class TenantPlanStatusController extends Controller
         $storageGb = $tenant->getStorageLimitGb();
         $storeConfig = $plan ? $plan->store_configuration : 'single';
 
-        $action = $request->query('action', 'general'); // 'order', 'user', 'store', 'general'
+        $action = $request->query('action', 'general'); // 'location', 'watchman', 'booking', 'order', 'user', 'store', 'general'
         $currentCount = $request->has('current_count') ? (int) $request->query('current_count') : null;
 
         $allowed = true;
         $reason = 'OK';
         $message = 'Action permitted under current plan.';
 
-        if ($action === 'order') {
+        if ($action === 'location') {
+            $maxLocations = $plan && isset($plan->max_locations) && (int)$plan->max_locations > 0 ? (int)$plan->max_locations : -1;
+            if ($maxLocations > 0 && $currentCount !== null && $currentCount >= $maxLocations) {
+                $allowed = false;
+                $reason = 'LOCATION_LIMIT_REACHED';
+                $message = "Parking location limit reached ({$currentCount}/{$maxLocations}). Please upgrade your plan to register additional parking locations.";
+            }
+        } elseif ($action === 'watchman') {
+            $featureFlags = $this->resolveFeatureFlags($plan);
+            if (!$featureFlags['watchman_management'] && empty($plan?->has_watchman_app)) {
+                $allowed = false;
+                $reason = 'WATCHMAN_FEATURE_NOT_INCLUDED';
+                $message = "Watchman management is not included in your current plan. Please upgrade to the Growth plan.";
+            }
+        } elseif ($action === 'booking') {
+            $maxBookings = $plan && isset($plan->max_bookings_monthly) && (int)$plan->max_bookings_monthly > 0 ? (int)$plan->max_bookings_monthly : ($plan && (int)($plan->max_bookings ?? 0) > 0 ? (int)$plan->max_bookings : -1);
+            if ($maxBookings > 0 && $currentCount !== null && $currentCount >= $maxBookings) {
+                $allowed = false;
+                $reason = 'BOOKING_LIMIT_REACHED';
+                $message = "Monthly booking limit reached ({$currentCount}/{$maxBookings}). Please upgrade your plan or contact support.";
+            }
+        } elseif ($action === 'order') {
             if ($maxOrders > 0 && $currentCount !== null && $currentCount >= $maxOrders) {
                 $allowed = false;
                 $reason = 'ORDER_LIMIT_REACHED';
@@ -193,6 +295,8 @@ class TenantPlanStatusController extends Controller
                 'plan_name' => $plan?->name ?? 'Default',
                 'action' => $action,
                 'current_count' => $currentCount,
+                'max_locations' => $plan?->max_locations,
+                'max_bookings' => $plan?->max_bookings,
                 'max_orders' => $maxOrders,
                 'max_users' => $maxUsers,
                 'storage_gb' => $storageGb,
@@ -202,6 +306,143 @@ class TenantPlanStatusController extends Controller
                 'expiry_date' => $tenant->expiry_date,
             ]
         ]);
+    }
+
+    /**
+     * Report live order count from FoodApp / Firestore, calculate additional order overage,
+     * and automatically sync or generate post-paid overage invoice.
+     */
+    public function syncOrderUsage(Request $request)
+    {
+        $tenant = $this->findTenantFromRequest($request);
+
+        if (!$tenant) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Tenant not found.'
+            ], 404);
+        }
+
+        $orderCount = (int) $request->input('order_count', 0);
+        $overageData = \App\Services\OverageBillingService::calculateOverage($tenant, $orderCount);
+
+        $pendingInvoice = null;
+        if ($overageData['is_exceeded'] && $overageData['overage_orders'] > 0 && $overageData['rate_per_order'] > 0) {
+            $payment = \App\Services\OverageBillingService::syncOverageInvoice($tenant, $orderCount);
+            if ($payment) {
+                $pendingInvoice = [
+                    'id' => $payment->id,
+                    'invoice_number' => $payment->invoice_number,
+                    'amount' => $payment->amount,
+                    'currency' => $payment->currency ?? 'INR',
+                    'status' => $payment->status,
+                    'status_label' => 'Pending (Pay Later)',
+                    'type' => $payment->type,
+                    'metadata' => $payment->metadata,
+                    'payment_link' => $payment->metadata['payment_link'] ?? null,
+                    'created_at' => $payment->created_at?->format('M d, Y'),
+                ];
+            }
+        }
+
+        $clientAppUrl = config('app.url', 'https://tidcraft.com');
+        $upgradeUrl = rtrim($clientAppUrl, '/') . '/client/purchases/' . $tenant->uuid . '/upgrade';
+
+        return response()->json([
+            'status' => 'success',
+            'tenant' => [
+                'id' => $tenant->id,
+                'name' => $tenant->name,
+                'uuid' => $tenant->uuid,
+            ],
+            'overage' => $overageData,
+            'pending_invoice' => $pendingInvoice,
+            'upgrade_url' => $upgradeUrl,
+        ]);
+    }
+
+    /**
+     * Get tenant overage billing status and invoice history.
+     */
+    public function overageStatus(Request $request)
+    {
+        $tenant = $this->findTenantFromRequest($request);
+
+        if (!$tenant) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Tenant not found.'
+            ], 404);
+        }
+
+        $invoices = \App\Models\Payment::where('tenant_id', $tenant->id)
+            ->where('type', 'overage_orders')
+            ->orderBy('id', 'desc')
+            ->get()
+            ->map(function ($p) {
+                return [
+                    'id' => $p->id,
+                    'invoice_number' => $p->invoice_number,
+                    'amount' => $p->amount,
+                    'currency' => $p->currency ?? 'INR',
+                    'status' => $p->status,
+                    'type' => $p->type,
+                    'metadata' => $p->metadata,
+                    'payment_link' => $p->metadata['payment_link'] ?? null,
+                    'created_at' => $p->created_at?->format('M d, Y'),
+                ];
+            });
+
+        $plan = $tenant->plan;
+        return response()->json([
+            'status' => 'success',
+            'rate_per_order' => (float) ($plan?->additional_order_price ?? 0),
+            'max_orders_monthly' => (int) ($plan?->max_orders_monthly ?? 0),
+            'max_orders_annual' => (int) ($plan?->max_orders ?? 0),
+            'invoices' => $invoices,
+        ]);
+    }
+
+    /**
+     * Resolve feature flags based on plan name, explicit features array, and white-label settings.
+     */
+    protected function resolveFeatureFlags(?\App\Models\Plan $plan): array
+    {
+        if (!$plan) {
+            return [
+                'owner_wallet' => true,
+                'watchman_management' => true,
+                'ev_charging' => true,
+                'owner_wise_commission' => true,
+                'white_label_customer_app' => true,
+                'white_label_owner_app' => true,
+                'white_label_watchman_app' => true,
+            ];
+        }
+
+        $featuresList = is_string($plan->features) ? json_decode($plan->features, true) : ($plan->features ?? []);
+        $featuresList = is_array($featuresList) ? $featuresList : [];
+        $planName = strtolower($plan->name ?? '');
+        $isGrowthOrHigher = str_contains($planName, 'growth') || str_contains($planName, 'enterprise') || str_contains($planName, 'pro');
+
+        $hasFeature = function($keyword) use ($featuresList) {
+            foreach ($featuresList as $f) {
+                if (is_string($f) && stripos($f, $keyword) !== false) return true;
+            }
+            return false;
+        };
+
+        $whiteLabeledApp = is_string($plan->has_white_labeled_app) ? json_decode($plan->has_white_labeled_app, true) : ($plan->has_white_labeled_app ?? []);
+
+        return [
+            'owner_wallet' => $isGrowthOrHigher || $hasFeature('wallet') || $hasFeature('earnings'),
+            'watchman_management' => $isGrowthOrHigher || $hasFeature('watchman management') || $hasFeature('slot assignment'),
+            'ev_charging' => $isGrowthOrHigher || $hasFeature('ev charging') || $hasFeature('ev'),
+            'owner_wise_commission' => $isGrowthOrHigher || $hasFeature('commission settings') || $hasFeature('owner-wise commission'),
+            'white_label_customer_app' => true,
+            'white_label_owner_app' => $isGrowthOrHigher || !empty($whiteLabeledApp['owner_app']) || $hasFeature('white-labeled owner app'),
+            'white_label_watchman_app' => $isGrowthOrHigher || !empty($whiteLabeledApp['watchman_app']) || $hasFeature('white-labeled watchman app'),
+        ];
     }
 
     /**

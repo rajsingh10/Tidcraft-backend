@@ -1319,6 +1319,8 @@ class TenantProvisionController extends Controller
                     }
                     if ($newPlanId) {
                         $tenant->plan_id = $newPlanId;
+                        $tenant->save();
+                        \App\Services\TenantProvisionService::syncPlanSettingsToFirestore($tenant);
                     }
                     if (in_array($tenant->status, ['expired', 'past_due', 'pending'])) {
                         $tenant->status = 'active';
@@ -1744,6 +1746,7 @@ class TenantProvisionController extends Controller
             $tenant->status = 'active';
             $tenant->save();
             \App\Services\TenantProvisionService::unblockTenant($tenant);
+            \App\Services\TenantProvisionService::syncPlanSettingsToFirestore($tenant, $newPlan ?? $tenant->plan);
 
             // Calculate amount based on plan
             $plan = $subscription->plan ?? $tenant->plan;
@@ -1835,6 +1838,7 @@ class TenantProvisionController extends Controller
             $tenant->status = 'active';
             $tenant->save();
             \App\Services\TenantProvisionService::unblockTenant($tenant);
+            \App\Services\TenantProvisionService::syncPlanSettingsToFirestore($tenant, $newPlan);
 
             $paymentAmount = ($billingCycle === 'yearly' || $billingCycle === 'annual') ? (float) $newPlan->annual_price : (float) $newPlan->monthly_price;
 
