@@ -108,12 +108,33 @@ class TenantAppController extends Controller
             }
         }
 
-        $tenant->apps()->createMany($appsData);
+        $createdApps = $tenant->apps()->createMany($appsData);
+
+        // Update the tenant's admin credentials and sync with Firebase
+        $tenantUpdateData = [];
+        if ($adminEmail) {
+            $tenantUpdateData['admin_email'] = $adminEmail;
+            $tenantUpdateData['primary_contact_email'] = $adminEmail;
+        }
+        if ($adminPassword) $tenantUpdateData['admin_password'] = $adminPassword;
+
+        if (!empty($tenantUpdateData)) {
+            $tenant->update($tenantUpdateData);
+        }
+
+        // Sync to Firebase for the created apps (if credentials exist)
+        if ($adminEmail || $adminPassword) {
+            foreach ($createdApps as $app) {
+                if ($app->email) {
+                    $this->updateFirebaseCredentials($tenant, $app->email, $app->email, $app->password);
+                }
+            }
+        }
 
         return response()->json([
             'status' => 'success',
             'message' => 'Tenant apps saved successfully.',
-            'data' => $tenant->apps()->get()
+            'data' => $createdApps
         ], 201);
     }
 
@@ -199,6 +220,19 @@ class TenantAppController extends Controller
         // Sync to Firebase if credentials were changed
         if (($request->filled('password') || $request->filled('email')) && $app->email) {
             $this->updateFirebaseCredentials($tenant, $oldEmail ?: $app->email, $app->email, $request->input('password'));
+            
+            // Also update the tenant's admin credentials
+            $tenantUpdateData = [];
+            if ($request->filled('email') || $request->filled('admin_email')) {
+                $tenantUpdateData['admin_email'] = $app->email;
+                $tenantUpdateData['primary_contact_email'] = $app->email;
+            }
+            if ($request->filled('password') || $request->filled('admin_password')) {
+                $tenantUpdateData['admin_password'] = $app->password;
+            }
+            if (!empty($tenantUpdateData)) {
+                $tenant->update($tenantUpdateData);
+            }
         }
 
         return response()->json([
