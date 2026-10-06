@@ -112,6 +112,8 @@ class PlanController extends Controller
             $data['currency_code'] = 'INR';
         }
 
+        $data['onboard'] = $request->input('onboard', false);
+
         $plan = Plan::create($data);
 
         // Store prices array
@@ -231,6 +233,8 @@ class PlanController extends Controller
             $data['currency_id'] = $currencyModel->id;
             $data['currency_code'] = $currencyModel->code;
         }
+
+        $data['onboard'] = $request->input('onboard', $plan->onboard ?? false);
 
         $plan->update($data);
 
