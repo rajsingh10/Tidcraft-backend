@@ -922,6 +922,7 @@ class ClientPurchaseController extends Controller
             'razorpay_payment_link_status' => 'nullable|string',
             'razorpay_signature' => 'nullable|string', // frontend might not send signature if it's a simple flow
             'status' => 'nullable|string', // fallback for custom status ('success', 'failed', 'pending', 'canceled')
+            'onboard' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -1168,6 +1169,12 @@ class ClientPurchaseController extends Controller
                     $tenant->status = 'pending';
                     $tenant->save();
                 }
+            }
+
+            // Update onboard status if provided
+            if ($request->has('onboard')) {
+                $tenant->onboard = $request->boolean('onboard');
+                $tenant->save();
             }
 
             DB::commit();
