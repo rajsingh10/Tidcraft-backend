@@ -70,6 +70,8 @@ class TenantAppController extends Controller
         if (!$tenant) return response()->json(['status' => 'error', 'message' => 'Tenant not found'], 404);
 
         $validator = Validator::make($request->all(), [
+            'admin_email' => 'nullable|email',
+            'admin_password' => 'nullable|string',
             'apps' => 'required|array',
             'apps.*.app_name' => 'required|string',
             'apps.*.email' => 'nullable|email',
@@ -84,9 +86,18 @@ class TenantAppController extends Controller
         }
 
         $appsData = $request->all()['apps'] ?? [];
+        $adminEmail = $request->input('admin_email');
+        $adminPassword = $request->input('admin_password');
 
         // Handle file uploads if apk_url contains files
         foreach ($appsData as &$appData) {
+            if (!isset($appData['email']) && $adminEmail) {
+                $appData['email'] = $adminEmail;
+            }
+            if (!isset($appData['password']) && $adminPassword) {
+                $appData['password'] = $adminPassword;
+            }
+
             if (isset($appData['apk_url']) && is_array($appData['apk_url'])) {
                 foreach ($appData['apk_url'] as $key => $value) {
                     if ($value instanceof \Illuminate\Http\UploadedFile) {
