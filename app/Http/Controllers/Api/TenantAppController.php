@@ -149,6 +149,8 @@ class TenantAppController extends Controller
 
         $validator = Validator::make($request->all(), [
             'app_name' => 'sometimes|required|string',
+            'admin_email' => 'nullable|email',
+            'admin_password' => 'nullable|string',
             'email' => 'nullable|email',
             'password' => 'nullable|string',
             'apk_url' => 'nullable|array',
@@ -161,6 +163,19 @@ class TenantAppController extends Controller
         }
 
         $updateData = $request->all();
+
+        // Map admin credentials to app credentials if they are provided
+        if ($request->filled('admin_email') && empty($updateData['email'])) {
+            $updateData['email'] = $request->input('admin_email');
+        }
+        if ($request->filled('admin_password') && empty($updateData['password'])) {
+            $updateData['password'] = $request->input('admin_password');
+            // Ensure the password check later picks this up
+            $request->merge(['password' => $updateData['password']]);
+        }
+        if ($request->filled('admin_email')) {
+             $request->merge(['email' => $updateData['email']]);
+        }
 
         // Handle file uploads for apk_url update
         if (isset($updateData['apk_url']) && is_array($updateData['apk_url'])) {
