@@ -404,6 +404,63 @@ class TenantPlanStatusController extends Controller
     }
 
     /**
+     * Initiate or generate payment link for a pending overage bill directly for a tenant.
+     */
+    public function payOverage(Request $request)
+    {
+        $tenant = $this->findTenantFromRequest($request);
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $payment = null;
+        if ($request->filled('payment_id')) {
+            $payment = \App\Models\Payment::where('tenant_id', $tenant->id)->where('id', $request->payment_id)->first();
+        } else {
+            $payment = \App\Models\Payment::where('tenant_id', $tenant->id)
+                ->where('type', 'overage_orders')
+                ->where('status', 'pending')
+                ->latest('id')
+                ->first();
+        }
+
+        if (!$payment) {
+            return response()->json(['status' => 'error', 'message' => 'No pending overage invoice found for this store.'], 404);
+        }
+
+        if (in_array(strtolower($payment->status), ['success', 'paid'])) {
+            return response()->json(['status' => 'error', 'message' => 'This invoice has already been paid.'], 400);
+        }
+
+        $link = \App\Services\OverageBillingService::generatePaymentLink($tenant, $payment);
+        if ($link) {
+            $meta = $payment->metadata ?? [];
+            $meta['payment_link'] = $link;
+            $payment->metadata = $meta;
+            $payment->save();
+        }
+
+        $saasAppUrl = config('app.url', 'https://tidcraft.com');
+        $portalPayUrl = rtrim($saasAppUrl, '/') . '/client/purchases/' . $tenant->uuid . '/renew';
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Overage invoice payment link generated.',
+            'data' => [
+                'tenant_id' => $tenant->id,
+                'tenant_uuid' => $tenant->uuid,
+                'payment_id' => $payment->id,
+                'invoice_number' => $payment->invoice_number,
+                'amount' => (float) $payment->amount,
+                'currency' => $payment->currency ?? 'INR',
+                'status' => $payment->status,
+                'payment_link' => $link ?? ($payment->metadata['payment_link'] ?? $portalPayUrl),
+            ]
+        ]);
+    }
+
+    /**
      * Resolve feature flags based on plan name, explicit features array, and white-label settings.
      */
     protected function resolveFeatureFlags(?\App\Models\Plan $plan): array
@@ -450,9 +507,9 @@ class TenantPlanStatusController extends Controller
      */
     protected function findTenantFromRequest(Request $request): ?Tenant
     {
-        $domain = $request->query('domain') ?? $request->header('X-Tenant-Domain');
-        $tenantKey = $request->query('tenant_key');
-        $uuid = $request->query('uuid');
+        $domain = $request->input('domain') ?? $request->query('domain') ?? $request->header('X-Tenant-Domain');
+        $tenantKey = $request->input('tenant_key') ?? $request->query('tenant_key');
+        $uuid = $request->input('uuid') ?? $request->query('uuid');
 
         $tenant = null;
 

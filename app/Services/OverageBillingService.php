@@ -29,10 +29,13 @@ class OverageBillingService
 
         $ratePerOrder = (float) ($plan->additional_order_price ?? 0);
 
-        if ($includedOrders <= 0) {
-            // Unlimited orders
+        $isDemo = (bool) ($tenant->is_demo ?? false) || stripos($plan?->name ?? '', 'demo') !== false;
+
+        if ($isDemo || $includedOrders <= 0 || $ratePerOrder <= 0) {
+            // Unlimited orders or demo tenant or no additional order rate configured
             return [
                 'has_limit' => false,
+                'is_demo' => $isDemo,
                 'included_orders' => -1,
                 'current_orders' => $currentOrdersCount,
                 'overage_orders' => 0,
