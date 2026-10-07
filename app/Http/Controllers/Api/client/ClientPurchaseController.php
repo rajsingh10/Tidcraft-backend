@@ -1225,17 +1225,27 @@ class ClientPurchaseController extends Controller
                         if (isset($metadata['billing_cycle'])) {
                             $subscription->billing_cycle = $metadata['billing_cycle'];
                         }
+
+                        // Calculate remaining days from current subscription
+                        $remainingDays = 0;
+                        if ($subscription->end_date) {
+                            $currentEndDate = \Carbon\Carbon::parse($subscription->end_date);
+                            if ($currentEndDate->isFuture()) {
+                                $remainingDays = (int) now()->diffInDays($currentEndDate);
+                            }
+                        }
+
                         $subscription->start_date = now();
                         
                         $plan = \App\Models\Plan::find($newPlanId);
                         $billingCycle = $subscription->billing_cycle ?? 'monthly';
                         
                         if ($billingCycle === 'yearly' || $billingCycle === 'annual') {
-                            $subscription->end_date = now()->addYear();
+                            $subscription->end_date = now()->addYear()->addDays($remainingDays);
                         } else if ($plan && $plan->duration_days) {
-                            $subscription->end_date = now()->addDays($plan->duration_days);
+                            $subscription->end_date = now()->addDays($plan->duration_days + $remainingDays);
                         } else {
-                            $subscription->end_date = now()->addMonth();
+                            $subscription->end_date = now()->addMonth()->addDays($remainingDays);
                         }
                         
                         $subscription->status = 'active';
