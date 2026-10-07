@@ -83,6 +83,8 @@ class PlanController extends Controller
             'prices.*.currency_id' => 'required_with:prices|exists:currencies,id',
             'prices.*.monthly_price' => 'required_with:prices|numeric|min:0',
             'prices.*.annual_price' => 'required_with:prices|numeric|min:0',
+            'prices.*.onboarding_fee' => 'nullable|numeric|min:0',
+            'prices.*.onboard' => 'nullable|boolean',
         ]);
 
         $data = $request->except('prices');
@@ -124,6 +126,8 @@ class PlanController extends Controller
                         'currency_id' => (int) $p['currency_id'],
                         'monthly_price' => (float) ($p['monthly_price'] ?? 0),
                         'annual_price' => (float) ($p['annual_price'] ?? 0),
+                        'onboarding_fee' => isset($p['onboarding_fee']) ? (float) $p['onboarding_fee'] : null,
+                        'onboard' => isset($p['onboard']) ? filter_var($p['onboard'], FILTER_VALIDATE_BOOLEAN) : false,
                     ]);
                 }
             }
@@ -133,6 +137,8 @@ class PlanController extends Controller
                 'currency_id' => $plan->currency_id,
                 'monthly_price' => (float) ($plan->monthly_price ?? 0),
                 'annual_price' => (float) ($plan->annual_price ?? 0),
+                'onboarding_fee' => isset($plan->onboarding_fee) ? (float) $plan->onboarding_fee : null,
+                'onboard' => $plan->onboard ?? false,
             ]);
         }
 
@@ -212,6 +218,8 @@ class PlanController extends Controller
             'prices.*.currency_id' => 'required_with:prices|exists:currencies,id',
             'prices.*.monthly_price' => 'required_with:prices|numeric|min:0',
             'prices.*.annual_price' => 'required_with:prices|numeric|min:0',
+            'prices.*.onboarding_fee' => 'nullable|numeric|min:0',
+            'prices.*.onboard' => 'nullable|boolean',
         ]);
 
         $data = $request->except('prices');
@@ -250,6 +258,8 @@ class PlanController extends Controller
                         [
                             'monthly_price' => (float) ($p['monthly_price'] ?? 0),
                             'annual_price' => (float) ($p['annual_price'] ?? 0),
+                            'onboarding_fee' => isset($p['onboarding_fee']) ? (float) $p['onboarding_fee'] : null,
+                            'onboard' => isset($p['onboard']) ? filter_var($p['onboard'], FILTER_VALIDATE_BOOLEAN) : false,
                         ]
                     );
                 }
