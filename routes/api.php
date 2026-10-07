@@ -195,6 +195,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/tenants/backups', [TenantProvisionController::class, 'listAllBackups']);
     Route::get('/tenants/{uuid}', [TenantProvisionController::class, 'show']);
     Route::get('/tenants/{uuid}/provisioning-status', [TenantProvisionController::class, 'provisioningStatus']);
+    Route::get('/tenants/{uuid}/onboard-status', [TenantProvisionController::class, 'onboardStatus']);
     Route::get('/tenants/{uuid}/backups', [TenantProvisionController::class, 'listBackups']);
     Route::get('/tenants/{uuid}/backup/firebase', [TenantProvisionController::class, 'backupFirebase']);
     Route::post('/tenants/{uuid}/backup/{backupId}/restore', [TenantProvisionController::class, 'restoreBackup']);
