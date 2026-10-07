@@ -26,6 +26,7 @@ class Payment extends Model
         'customer_details',
         'type',
         'metadata',
+        'overage_bill_id',
         'create_by',
         'update_by',
         'delete_by',
@@ -60,4 +61,10 @@ class Payment extends Model
     {
         return $this->belongsTo(Tenant::class);
     }
+
+    public function overageBill()
+    {
+        return $this->belongsTo(TenantOverageBill::class, 'overage_bill_id');
+    }
 }
+

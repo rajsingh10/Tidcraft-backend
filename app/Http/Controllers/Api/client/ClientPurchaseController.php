@@ -23,7 +23,7 @@ class ClientPurchaseController extends Controller
         $user = $request->user();
 
         // Fetch tenants linked to this user
-        $tenants = Tenant::with(['product', 'plan', 'domains', 'subscriptions', 'payments'])
+        $tenants = Tenant::with(['product', 'plan', 'domains', 'subscriptions', 'payments', 'overageBills'])
             ->where(function ($q) use ($user) {
                 $q->where('create_by', $user->id)
                   ->orWhere('client_id', $user->id);
@@ -44,7 +44,7 @@ class ClientPurchaseController extends Controller
         $user = $request->user();
 
         // Fetch the specific tenant ensuring it belongs to this client
-        $tenant = Tenant::with(['product', 'plan', 'domains', 'firebaseProject', 'addOns', 'subscriptions', 'provisioningLogs', 'payments'])
+        $tenant = Tenant::with(['product', 'plan', 'domains', 'firebaseProject', 'addOns', 'subscriptions', 'provisioningLogs', 'payments', 'overageBills'])
             ->where('uuid', $uuid)
             ->where(function ($q) use ($user) {
                 $q->where('create_by', $user->id)
@@ -776,39 +776,85 @@ class ClientPurchaseController extends Controller
 
         $plan = $tenant->plan;
         $ratePerUnit = (float) ($plan->additional_booking_price ?? $plan->additional_order_price ?? 0);
-        $overagePayments = $tenant->payments()
-            ->whereIn('type', ['overage_orders', 'overage_bookings'])
+
+        // 1. Primary: query dedicated tenant_overage_bills table
+        $bills = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)
             ->orderBy('id', 'desc')
-            ->get()
-            ->map(function ($p) use ($plan, $ratePerUnit) {
-                $createdDate = $p->create_at ?? $p->created_at ?? now();
-                $meta = !empty($p->metadata) ? (is_array($p->metadata) ? $p->metadata : json_decode($p->metadata, true)) : [];
-                $isBooking = ($p->type === 'overage_bookings');
+            ->get();
+
+        if ($bills->isNotEmpty()) {
+            $overageInvoices = $bills->map(function ($b) use ($plan, $ratePerUnit) {
                 return [
-                    'id' => $p->id,
-                    'type' => $p->type,
-                    'invoice_number' => $p->invoice_number,
-                    'amount' => (float) $p->amount,
-                    'currency' => $p->currency ?? 'INR',
-                    'status' => $p->status,
-                    'is_paid' => in_array(strtolower($p->status), ['success', 'paid']),
-                    'date' => \Carbon\Carbon::parse($createdDate)->format('M d, Y'),
-                    'period_label' => $meta['period_label'] ?? \Carbon\Carbon::parse($createdDate)->format('M Y'),
-                    'included_units' => $meta['included_bookings'] ?? $meta['included_orders'] ?? 0,
-                    'total_units' => $meta['total_bookings'] ?? $meta['total_orders'] ?? 0,
-                    'overage_units' => $meta['overage_bookings'] ?? $meta['overage_orders'] ?? 0,
-                    'rate_per_unit' => $meta['rate_per_booking'] ?? $meta['rate_per_order'] ?? $ratePerUnit,
+                    'id' => $b->id,
+                    'bill_id' => $b->id,
+                    'type' => $b->bill_type === 'bookings' ? 'overage_bookings' : 'overage_orders',
+                    'bill_type' => $b->bill_type,
+                    'invoice_number' => $b->bill_number,
+                    'bill_number' => $b->bill_number,
+                    'amount' => (float) $b->total_amount,
+                    'subtotal' => (float) $b->subtotal,
+                    'currency' => $b->currency ?? 'INR',
+                    'status' => $b->status,
+                    'is_paid' => $b->isPaid(),
+                    'date' => $b->created_at?->format('M d, Y'),
+                    'period_label' => $b->period_label,
+                    'included_units' => $b->included_quota,
+                    'total_units' => $b->total_usage,
+                    'overage_units' => $b->overage_units,
+                    'rate_per_unit' => (float) $b->rate_per_unit,
                     // Backward compatible aliases
-                    'included_orders' => $meta['included_bookings'] ?? $meta['included_orders'] ?? 0,
-                    'total_orders' => $meta['total_bookings'] ?? $meta['total_orders'] ?? 0,
-                    'overage_orders' => $meta['overage_bookings'] ?? $meta['overage_orders'] ?? 0,
-                    'rate_per_order' => $meta['rate_per_booking'] ?? $meta['rate_per_order'] ?? $ratePerUnit,
-                    'description' => $meta['description'] ?? null,
-                    'payment_link' => $meta['payment_link'] ?? null,
+                    'included_orders' => $b->included_quota,
+                    'total_orders' => $b->total_usage,
+                    'overage_orders' => $b->overage_units,
+                    'rate_per_order' => (float) $b->rate_per_unit,
+                    'description' => $b->metadata['description'] ?? null,
+                    'payment_link' => $b->payment_link,
+                    'paid_at' => $b->paid_at?->format('M d, Y'),
+                    'due_date' => $b->due_date?->format('M d, Y'),
                 ];
             });
+        } else {
+            // 2. Fallback to payments table
+            $overageInvoices = $tenant->payments()
+                ->whereIn('type', ['overage_orders', 'overage_bookings'])
+                ->orderBy('id', 'desc')
+                ->get()
+                ->map(function ($p) use ($plan, $ratePerUnit) {
+                    $createdDate = $p->create_at ?? $p->created_at ?? now();
+                    $meta = !empty($p->metadata) ? (is_array($p->metadata) ? $p->metadata : json_decode($p->metadata, true)) : [];
+                    $isBooking = ($p->type === 'overage_bookings');
+                    return [
+                        'id' => $p->id,
+                        'bill_id' => $p->overage_bill_id ?? $p->id,
+                        'type' => $p->type,
+                        'bill_type' => $isBooking ? 'bookings' : 'orders',
+                        'invoice_number' => $p->invoice_number,
+                        'bill_number' => $p->invoice_number,
+                        'amount' => (float) $p->amount,
+                        'subtotal' => (float) $p->amount,
+                        'currency' => $p->currency ?? 'INR',
+                        'status' => $p->status,
+                        'is_paid' => in_array(strtolower($p->status), ['success', 'paid']),
+                        'date' => \Carbon\Carbon::parse($createdDate)->format('M d, Y'),
+                        'period_label' => $meta['period_label'] ?? \Carbon\Carbon::parse($createdDate)->format('M Y'),
+                        'included_units' => $meta['included_bookings'] ?? $meta['included_orders'] ?? 0,
+                        'total_units' => $meta['total_bookings'] ?? $meta['total_orders'] ?? 0,
+                        'overage_units' => $meta['overage_bookings'] ?? $meta['overage_orders'] ?? 0,
+                        'rate_per_unit' => $meta['rate_per_booking'] ?? $meta['rate_per_order'] ?? $ratePerUnit,
+                        // Backward compatible aliases
+                        'included_orders' => $meta['included_bookings'] ?? $meta['included_orders'] ?? 0,
+                        'total_orders' => $meta['total_bookings'] ?? $meta['total_orders'] ?? 0,
+                        'overage_orders' => $meta['overage_bookings'] ?? $meta['overage_orders'] ?? 0,
+                        'rate_per_order' => $meta['rate_per_booking'] ?? $meta['rate_per_order'] ?? $ratePerUnit,
+                        'description' => $meta['description'] ?? null,
+                        'payment_link' => $meta['payment_link'] ?? null,
+                        'paid_at' => null,
+                        'due_date' => null,
+                    ];
+                });
+        }
 
-        $pendingInvoice = $overagePayments->firstWhere('is_paid', false);
+        $pendingInvoice = $overageInvoices->firstWhere('is_paid', false);
 
         return response()->json([
             'status' => 'success',
@@ -822,10 +868,10 @@ class ClientPurchaseController extends Controller
                 'included_orders_monthly' => (int) ($plan?->max_orders_monthly ?? -1),
                 'included_bookings_annual' => (int) ($plan?->max_bookings ?? -1),
                 'included_bookings_monthly' => (int) ($plan?->max_bookings_monthly ?? -1),
-                'total_overage_invoices' => $overagePayments->count(),
-                'total_overage_pending' => round($overagePayments->where('is_paid', false)->sum('amount'), 2),
+                'total_overage_invoices' => $overageInvoices->count(),
+                'total_overage_pending' => round($overageInvoices->where('is_paid', false)->sum('amount'), 2),
                 'pending_invoice' => $pendingInvoice,
-                'invoices' => $overagePayments,
+                'invoices' => $overageInvoices,
             ]
         ]);
     }
@@ -844,53 +890,97 @@ class ClientPurchaseController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
         }
 
-        // Find specific payment by id or pick the latest pending overage invoice
-        $payment = null;
-        if ($request->filled('payment_id')) {
-            $payment = $tenant->payments()->where('id', $request->payment_id)->first();
-        } else {
-            $payment = $tenant->payments()
-                ->whereIn('type', ['overage_orders', 'overage_bookings'])
+        // Look up bill from tenant_overage_bills first
+        $bill = null;
+        if ($request->filled('bill_id')) {
+            $bill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)->where('id', $request->bill_id)->first();
+        } elseif ($request->filled('bill_number')) {
+            $bill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)->where('bill_number', $request->bill_number)->first();
+        } elseif ($request->filled('payment_id')) {
+            $bill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)
+                ->whereHas('payments', function ($pq) use ($request) {
+                    $pq->where('id', $request->payment_id);
+                })
+                ->first();
+        }
+
+        if (!$bill) {
+            $bill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)
                 ->where('status', 'pending')
                 ->latest('id')
                 ->first();
         }
 
+        if ($bill && $bill->isPaid()) {
+            return response()->json(['status' => 'error', 'message' => 'This bill has already been paid.'], 400);
+        }
+
+        // Find corresponding payment
+        $payment = null;
+        if ($bill) {
+            $payment = $tenant->payments()->where('overage_bill_id', $bill->id)->latest('id')->first();
+        }
         if (!$payment) {
+            if ($request->filled('payment_id')) {
+                $payment = $tenant->payments()->where('id', $request->payment_id)->first();
+            } else {
+                $payment = $tenant->payments()
+                    ->whereIn('type', ['overage_orders', 'overage_bookings'])
+                    ->where('status', 'pending')
+                    ->latest('id')
+                    ->first();
+            }
+        }
+
+        if (!$bill && !$payment) {
             return response()->json(['status' => 'error', 'message' => 'No pending overage invoice found to pay.'], 404);
         }
 
-        if (in_array(strtolower($payment->status), ['success', 'paid'])) {
+        if ($payment && in_array(strtolower($payment->status), ['success', 'paid'])) {
             return response()->json(['status' => 'error', 'message' => 'This invoice has already been paid.'], 400);
         }
 
-        $meta = !empty($payment->metadata) ? (is_array($payment->metadata) ? $payment->metadata : json_decode($payment->metadata, true)) : [];
-        $extraUnits = $meta['overage_bookings'] ?? $meta['overage_orders'] ?? 0;
-        $unitLabel = ($payment->type === 'overage_bookings') ? 'Bookings' : 'Orders';
-        $description = "Payment for Additional {$unitLabel} Overage: Invoice #{$payment->invoice_number} ({$extraUnits} extra {$unitLabel})";
+        $meta = !empty($payment?->metadata) ? (is_array($payment->metadata) ? $payment->metadata : json_decode($payment->metadata, true)) : ($bill?->metadata ?? []);
+        $extraUnits = $bill?->overage_units ?? ($meta['overage_bookings'] ?? $meta['overage_orders'] ?? 0);
+        $billType = $bill?->bill_type ?? (($payment?->type === 'overage_bookings') ? 'bookings' : 'orders');
+        $unitLabel = ($billType === 'bookings') ? 'Bookings' : 'Orders';
+        $invoiceNum = $bill?->bill_number ?? $payment?->invoice_number;
+        $amount = (float) ($bill?->total_amount ?? $payment?->amount);
 
+        $description = "Payment for Additional {$unitLabel} Overage: Invoice #{$invoiceNum} ({$extraUnits} extra {$unitLabel})";
 
-        // Generate Razorpay payment link or order
-        $paymentLink = $this->generateRazorpayLink($tenant, (float)$payment->amount, $description);
+        // Generate Razorpay payment link
+        $paymentLink = $this->generateRazorpayLink($tenant, $amount, $description);
 
         if ($paymentLink) {
-            $meta['payment_link'] = $paymentLink;
-            $payment->metadata = $meta;
-            $payment->save();
+            if ($bill) {
+                $bill->payment_link = $paymentLink;
+                $bill->save();
+            }
+            if ($payment) {
+                $meta['payment_link'] = $paymentLink;
+                $payment->metadata = $meta;
+                $payment->save();
+            }
         }
+
+        $finalLink = $paymentLink ?? ($bill?->payment_link ?? ($meta['payment_link'] ?? null));
 
         return response()->json([
             'status' => 'success',
             'message' => 'Overage invoice payment initiated.',
             'data' => [
                 'tenant_uuid' => $tenant->uuid,
-                'payment_id' => $payment->id,
-                'invoice_number' => $payment->invoice_number,
-                'amount' => (float) $payment->amount,
-                'currency' => $payment->currency ?? 'INR',
-                'status' => $payment->status,
-                'extra_orders' => $extraOrders,
-                'payment_link' => $paymentLink ?? ($meta['payment_link'] ?? null),
+                'bill_id' => $bill?->id,
+                'bill_number' => $bill?->bill_number,
+                'payment_id' => $payment?->id,
+                'invoice_number' => $invoiceNum,
+                'amount' => $amount,
+                'currency' => $bill?->currency ?? $payment?->currency ?? 'INR',
+                'status' => $bill?->status ?? $payment?->status,
+                'extra_units' => $extraUnits,
+                'extra_orders' => $extraUnits,
+                'payment_link' => $finalLink,
             ]
         ]);
     }
@@ -1159,13 +1249,35 @@ class ClientPurchaseController extends Controller
                         $tenant->save();
                         \App\Services\TenantProvisionService::unblockTenant($tenant);
                     }
-                } elseif ($paymentType === 'overage_orders') {
+                } elseif ($paymentType === 'overage_orders' || $paymentType === 'overage_bookings') {
                     // Post-Paid Overage bill paid: Keep current subscription active, unblock if past due or suspended
                     if (in_array($tenant->status, ['expired', 'past_due', 'suspended', 'pending'])) {
                         $tenant->status = 'active';
                         $tenant->save();
                         \App\Services\TenantProvisionService::unblockTenant($tenant);
                     }
+
+                    // Mark linked TenantOverageBill as paid
+                    $bill = null;
+                    if ($payment->overage_bill_id) {
+                        $bill = \App\Models\TenantOverageBill::find($payment->overage_bill_id);
+                    }
+                    if (!$bill) {
+                        $billType = ($paymentType === 'overage_bookings') ? 'bookings' : 'orders';
+                        $bill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)
+                            ->where('bill_type', $billType)
+                            ->where('status', 'pending')
+                            ->latest('id')
+                            ->first();
+                    }
+
+                    if ($bill) {
+                        $bill->markAsPaid($payment->transaction_id, $paymentMethodStr);
+                        if (!$payment->overage_bill_id) {
+                            $payment->update(['overage_bill_id' => $bill->id]);
+                        }
+                    }
+
                     AuditLogger::log($tenant->id, 'overage_bill_paid', "Post-paid overage invoice #{$payment->invoice_number} paid successfully (Amount: ₹{$payment->amount}).");
                 } else {
                     // Initial Client Purchase: Activate subscription, keep tenant status 'pending'
@@ -1178,7 +1290,7 @@ class ClientPurchaseController extends Controller
                 }
             } elseif (in_array($paymentStatus, ['failed', 'canceled', 'cancelled'])) {
                 // If payment was for renewal, upgrade, or overage, do NOT cancel an active subscription or demote an active tenant to pending!
-                if ($payment && in_array($payment->type, ['renewal', 'upgrade', 'overage_orders'])) {
+                if ($payment && in_array($payment->type, ['renewal', 'upgrade', 'overage_orders', 'overage_bookings'])) {
                     // Keep subscription and tenant in their current active state; only payment record is marked failed/canceled
                 } else {
                     if ($subscription) {

@@ -242,4 +242,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('payments/{payment}', [PaymentController::class, 'update']);
     Route::apiResource('payments', PaymentController::class);
+
+    // Dedicated Overage Bills Management (Super Admin & Scoped Client)
+    Route::get('/tenant-overage-bills', [\App\Http\Controllers\Api\TenantOverageBillController::class, 'index']);
+    Route::get('/tenant-overage-bills/{id}', [\App\Http\Controllers\Api\TenantOverageBillController::class, 'show']);
+    Route::post('/tenant-overage-bills/{id}/mark-paid', [\App\Http\Controllers\Api\TenantOverageBillController::class, 'markPaid']);
 });
