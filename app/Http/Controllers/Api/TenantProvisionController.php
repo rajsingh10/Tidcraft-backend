@@ -195,7 +195,7 @@ class TenantProvisionController extends Controller
                 'product_id' => $request->product_id,
                 'plan_id' => $request->plan_id,
                 'status' => 'provisioning',
-                'onboard' => $request->boolean('onboard'),
+                'onboard' => $request->boolean('onboard', false),
             ]);
 
             // Attach Add-ons if any
@@ -669,6 +669,24 @@ class TenantProvisionController extends Controller
             'data' => $tenant
         ]);
     }
+
+    /**
+     * Check if a tenant has been onboarded.
+     */
+    public function onboardStatus($uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)
+            ->orWhere('tenant_key', $uuid)
+            ->firstOrFail();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'onboard' => (bool) $tenant->onboard,
+            ],
+        ]);
+    }
+
 
     /**
      * Display the provisioning status steps for a specific tenant.
