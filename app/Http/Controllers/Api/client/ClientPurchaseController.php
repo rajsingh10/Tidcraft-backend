@@ -434,9 +434,8 @@ class ClientPurchaseController extends Controller
             
             $paymentAmount = 0;
             if ($plan) {
-                $isOnboard = filter_var($request->input('onboard', false), FILTER_VALIDATE_BOOLEAN);
-                if ($isOnboard) {
-                    $paymentAmount = $billingCycle === 'yearly' ? (float) $plan->annual_price : (float) $plan->monthly_price;
+                if ($billingCycle === 'yearly' || $billingCycle === 'annual') {
+                    $paymentAmount = (float) $plan->annual_price + (float) ($plan->onboarding_fee ?? 0);
                 } else {
                     $paymentAmount = (float) ($plan->onboarding_fee ?? 0);
                 }
@@ -1753,9 +1752,8 @@ class ClientPurchaseController extends Controller
             
             $paymentAmount = 0;
             if ($plan) {
-                $isOnboard = filter_var($request->input('onboard', false), FILTER_VALIDATE_BOOLEAN);
-                if ($isOnboard) {
-                    $paymentAmount = $billingCycle === 'yearly' ? (float) $plan->annual_price : (float) $plan->monthly_price;
+                if ($billingCycle === 'yearly' || $billingCycle === 'annual') {
+                    $paymentAmount = (float) $plan->annual_price + (float) ($plan->onboarding_fee ?? 0);
                 } else {
                     $paymentAmount = (float) ($plan->onboarding_fee ?? 0);
                 }
