@@ -420,6 +420,7 @@ class ClientPurchaseController extends Controller
                 'product_id' => $request->product_id,
                 'plan_id' => $request->plan_id,
                 'status' => 'pending',
+                'onboard' => filter_var($request->input('onboard', false), FILTER_VALIDATE_BOOLEAN),
             ]);
 
             // Attach Add-ons if any
@@ -433,7 +434,12 @@ class ClientPurchaseController extends Controller
             
             $paymentAmount = 0;
             if ($plan) {
-                $paymentAmount = $billingCycle === 'yearly' ? (float) $plan->annual_price : (float) $plan->monthly_price;
+                $isOnboard = filter_var($request->input('onboard', false), FILTER_VALIDATE_BOOLEAN);
+                if ($isOnboard) {
+                    $paymentAmount = $billingCycle === 'yearly' ? (float) $plan->annual_price : (float) $plan->monthly_price;
+                } else {
+                    $paymentAmount = (float) ($plan->onboarding_fee ?? 0);
+                }
             }
             if ($request->has('add_ons') && is_array($request->add_ons)) {
                 $paymentAmount += (float) \App\Models\AddOn::whereIn('id', $request->add_ons)->sum('price');
@@ -1173,7 +1179,7 @@ class ClientPurchaseController extends Controller
 
             // Update onboard status if provided
             if ($request->has('onboard')) {
-                $tenant->onboard = $request->boolean('onboard');
+                $tenant->onboard = filter_var($request->input('onboard', false), FILTER_VALIDATE_BOOLEAN);
                 $tenant->save();
             }
 
@@ -1747,7 +1753,12 @@ class ClientPurchaseController extends Controller
             
             $paymentAmount = 0;
             if ($plan) {
-                $paymentAmount = $billingCycle === 'yearly' ? (float) $plan->annual_price : (float) $plan->monthly_price;
+                $isOnboard = filter_var($request->input('onboard', false), FILTER_VALIDATE_BOOLEAN);
+                if ($isOnboard) {
+                    $paymentAmount = $billingCycle === 'yearly' ? (float) $plan->annual_price : (float) $plan->monthly_price;
+                } else {
+                    $paymentAmount = (float) ($plan->onboarding_fee ?? 0);
+                }
             }
             if ($request->has('add_ons') && is_array($request->add_ons)) {
                 $paymentAmount += (float) \App\Models\AddOn::whereIn('id', $request->add_ons)->sum('price');
@@ -1780,6 +1791,7 @@ class ClientPurchaseController extends Controller
                 'product_id' => $request->product_id,
                 'plan_id' => $request->plan_id,
                 'status' => $initialStatus,
+                'onboard' => filter_var($request->input('onboard', false), FILTER_VALIDATE_BOOLEAN),
             ]);
 
             // Attach Add-ons if any
