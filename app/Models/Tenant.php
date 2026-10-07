@@ -98,6 +98,12 @@ class Tenant extends Model
         return $this->hasMany(Payment::class, 'tenant_id');
     }
 
+    public function overageBills()
+    {
+        return $this->hasMany(TenantOverageBill::class, 'tenant_id');
+    }
+
+
     public function database()
     {
         return $this->hasOne(TenantDatabase::class);
