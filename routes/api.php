@@ -45,6 +45,7 @@ Route::get('tenant/plan-status', [\App\Http\Controllers\Api\TenantPlanStatusCont
 Route::get('tenant/check-quota', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'checkQuota']);
 Route::get('tenant/app-config', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'appConfig']);
 Route::post('tenant/sync-order-usage', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'syncOrderUsage']);
+Route::post('tenant/sync-booking-usage', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'syncBookingUsage']);
 Route::get('tenant/overage-status', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'overageStatus']);
 Route::post('tenant/pay-overage', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'payOverage']);
 Route::post('/tenant-provision/{uuid}/verify-dns', [TenantProvisionController::class, 'verifyDns']);
