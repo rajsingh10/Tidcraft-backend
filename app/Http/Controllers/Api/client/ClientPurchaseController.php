@@ -775,15 +775,18 @@ class ClientPurchaseController extends Controller
         }
 
         $plan = $tenant->plan;
+        $ratePerUnit = (float) ($plan->additional_booking_price ?? $plan->additional_order_price ?? 0);
         $overagePayments = $tenant->payments()
-            ->where('type', 'overage_orders')
+            ->whereIn('type', ['overage_orders', 'overage_bookings'])
             ->orderBy('id', 'desc')
             ->get()
-            ->map(function ($p) {
+            ->map(function ($p) use ($plan, $ratePerUnit) {
                 $createdDate = $p->create_at ?? $p->created_at ?? now();
                 $meta = !empty($p->metadata) ? (is_array($p->metadata) ? $p->metadata : json_decode($p->metadata, true)) : [];
+                $isBooking = ($p->type === 'overage_bookings');
                 return [
                     'id' => $p->id,
+                    'type' => $p->type,
                     'invoice_number' => $p->invoice_number,
                     'amount' => (float) $p->amount,
                     'currency' => $p->currency ?? 'INR',
@@ -791,10 +794,15 @@ class ClientPurchaseController extends Controller
                     'is_paid' => in_array(strtolower($p->status), ['success', 'paid']),
                     'date' => \Carbon\Carbon::parse($createdDate)->format('M d, Y'),
                     'period_label' => $meta['period_label'] ?? \Carbon\Carbon::parse($createdDate)->format('M Y'),
-                    'included_orders' => $meta['included_orders'] ?? 0,
-                    'total_orders' => $meta['total_orders'] ?? 0,
-                    'overage_orders' => $meta['overage_orders'] ?? 0,
-                    'rate_per_order' => $meta['rate_per_order'] ?? (float)($plan->additional_order_price ?? 0),
+                    'included_units' => $meta['included_bookings'] ?? $meta['included_orders'] ?? 0,
+                    'total_units' => $meta['total_bookings'] ?? $meta['total_orders'] ?? 0,
+                    'overage_units' => $meta['overage_bookings'] ?? $meta['overage_orders'] ?? 0,
+                    'rate_per_unit' => $meta['rate_per_booking'] ?? $meta['rate_per_order'] ?? $ratePerUnit,
+                    // Backward compatible aliases
+                    'included_orders' => $meta['included_bookings'] ?? $meta['included_orders'] ?? 0,
+                    'total_orders' => $meta['total_bookings'] ?? $meta['total_orders'] ?? 0,
+                    'overage_orders' => $meta['overage_bookings'] ?? $meta['overage_orders'] ?? 0,
+                    'rate_per_order' => $meta['rate_per_booking'] ?? $meta['rate_per_order'] ?? $ratePerUnit,
                     'description' => $meta['description'] ?? null,
                     'payment_link' => $meta['payment_link'] ?? null,
                 ];
@@ -807,9 +815,13 @@ class ClientPurchaseController extends Controller
             'data' => [
                 'tenant_uuid' => $tenant->uuid,
                 'plan_name' => $plan?->name,
+                'rate_per_unit' => $ratePerUnit,
                 'rate_per_order' => (float) ($plan?->additional_order_price ?? 0),
+                'rate_per_booking' => (float) ($plan?->additional_booking_price ?? 0),
                 'included_orders_annual' => (int) ($plan?->max_orders ?? -1),
                 'included_orders_monthly' => (int) ($plan?->max_orders_monthly ?? -1),
+                'included_bookings_annual' => (int) ($plan?->max_bookings ?? -1),
+                'included_bookings_monthly' => (int) ($plan?->max_bookings_monthly ?? -1),
                 'total_overage_invoices' => $overagePayments->count(),
                 'total_overage_pending' => round($overagePayments->where('is_paid', false)->sum('amount'), 2),
                 'pending_invoice' => $pendingInvoice,
@@ -838,7 +850,7 @@ class ClientPurchaseController extends Controller
             $payment = $tenant->payments()->where('id', $request->payment_id)->first();
         } else {
             $payment = $tenant->payments()
-                ->where('type', 'overage_orders')
+                ->whereIn('type', ['overage_orders', 'overage_bookings'])
                 ->where('status', 'pending')
                 ->latest('id')
                 ->first();
@@ -853,8 +865,10 @@ class ClientPurchaseController extends Controller
         }
 
         $meta = !empty($payment->metadata) ? (is_array($payment->metadata) ? $payment->metadata : json_decode($payment->metadata, true)) : [];
-        $extraOrders = $meta['overage_orders'] ?? 0;
-        $description = "Payment for Additional Orders Overage: Invoice #{$payment->invoice_number} ({$extraOrders} extra orders)";
+        $extraUnits = $meta['overage_bookings'] ?? $meta['overage_orders'] ?? 0;
+        $unitLabel = ($payment->type === 'overage_bookings') ? 'Bookings' : 'Orders';
+        $description = "Payment for Additional {$unitLabel} Overage: Invoice #{$payment->invoice_number} ({$extraUnits} extra {$unitLabel})";
+
 
         // Generate Razorpay payment link or order
         $paymentLink = $this->generateRazorpayLink($tenant, (float)$payment->amount, $description);
