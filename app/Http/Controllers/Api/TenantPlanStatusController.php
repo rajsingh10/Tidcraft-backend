@@ -259,10 +259,17 @@ class TenantPlanStatusController extends Controller
             }
         } elseif ($action === 'booking') {
             $maxBookings = $plan && isset($plan->max_bookings_monthly) && (int)$plan->max_bookings_monthly > 0 ? (int)$plan->max_bookings_monthly : ($plan && (int)($plan->max_bookings ?? 0) > 0 ? (int)$plan->max_bookings : -1);
+            $additionalBookingPrice = (float) ($plan?->additional_booking_price ?? 0);
             if ($maxBookings > 0 && $currentCount !== null && $currentCount >= $maxBookings) {
-                $allowed = false;
-                $reason = 'BOOKING_LIMIT_REACHED';
-                $message = "Monthly booking limit reached ({$currentCount}/{$maxBookings}). Please upgrade your plan or contact support.";
+                if ($additionalBookingPrice > 0) {
+                    $allowed = true;
+                    $reason = 'BOOKING_OVERAGE_ACTIVE';
+                    $message = "Included booking limit reached ({$currentCount}/{$maxBookings}). Additional bookings are permitted and billed at ₹{$additionalBookingPrice}/booking.";
+                } else {
+                    $allowed = false;
+                    $reason = 'BOOKING_LIMIT_REACHED';
+                    $message = "Monthly booking limit reached ({$currentCount}/{$maxBookings}). Please upgrade your plan or contact support.";
+                }
             }
         } elseif ($action === 'order') {
             if ($maxOrders > 0 && $currentCount !== null && $currentCount >= $maxOrders) {
@@ -362,6 +369,59 @@ class TenantPlanStatusController extends Controller
     }
 
     /**
+     * Report live booking count from ParkMeApp / Firestore, calculate additional bookings overage,
+     * and automatically sync or generate post-paid overage invoice.
+     */
+    public function syncBookingUsage(Request $request)
+    {
+        $tenant = $this->findTenantFromRequest($request);
+
+        if (!$tenant) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Tenant not found.'
+            ], 404);
+        }
+
+        $bookingCount = (int) ($request->input('booking_count') ?? $request->input('order_count') ?? 0);
+        $overageData = \App\Services\OverageBillingService::calculateBookingOverage($tenant, $bookingCount);
+
+        $pendingInvoice = null;
+        if ($overageData['is_exceeded'] && $overageData['overage_bookings'] > 0 && $overageData['rate_per_booking'] > 0) {
+            $payment = \App\Services\OverageBillingService::syncBookingOverageInvoice($tenant, $bookingCount);
+            if ($payment) {
+                $pendingInvoice = [
+                    'id' => $payment->id,
+                    'invoice_number' => $payment->invoice_number,
+                    'amount' => $payment->amount,
+                    'currency' => $payment->currency ?? 'INR',
+                    'status' => $payment->status,
+                    'status_label' => 'Pending (Pay Later)',
+                    'type' => $payment->type,
+                    'metadata' => $payment->metadata,
+                    'payment_link' => $payment->metadata['payment_link'] ?? null,
+                    'created_at' => $payment->created_at?->format('M d, Y'),
+                ];
+            }
+        }
+
+        $clientAppUrl = config('app.url', 'https://tidcraft.com');
+        $upgradeUrl = rtrim($clientAppUrl, '/') . '/client/purchases/' . $tenant->uuid . '/upgrade';
+
+        return response()->json([
+            'status' => 'success',
+            'tenant' => [
+                'id' => $tenant->id,
+                'name' => $tenant->name,
+                'uuid' => $tenant->uuid,
+            ],
+            'overage' => $overageData,
+            'pending_invoice' => $pendingInvoice,
+            'upgrade_url' => $upgradeUrl,
+        ]);
+    }
+
+    /**
      * Get tenant overage billing status and invoice history.
      */
     public function overageStatus(Request $request)
@@ -376,7 +436,7 @@ class TenantPlanStatusController extends Controller
         }
 
         $invoices = \App\Models\Payment::where('tenant_id', $tenant->id)
-            ->where('type', 'overage_orders')
+            ->whereIn('type', ['overage_orders', 'overage_bookings'])
             ->orderBy('id', 'desc')
             ->get()
             ->map(function ($p) {
@@ -397,8 +457,11 @@ class TenantPlanStatusController extends Controller
         return response()->json([
             'status' => 'success',
             'rate_per_order' => (float) ($plan?->additional_order_price ?? 0),
+            'rate_per_booking' => (float) ($plan?->additional_booking_price ?? 0),
             'max_orders_monthly' => (int) ($plan?->max_orders_monthly ?? 0),
             'max_orders_annual' => (int) ($plan?->max_orders ?? 0),
+            'max_bookings_monthly' => (int) ($plan?->max_bookings_monthly ?? 0),
+            'max_bookings_annual' => (int) ($plan?->max_bookings ?? 0),
             'invoices' => $invoices,
         ]);
     }
@@ -419,7 +482,7 @@ class TenantPlanStatusController extends Controller
             $payment = \App\Models\Payment::where('tenant_id', $tenant->id)->where('id', $request->payment_id)->first();
         } else {
             $payment = \App\Models\Payment::where('tenant_id', $tenant->id)
-                ->where('type', 'overage_orders')
+                ->whereIn('type', ['overage_orders', 'overage_bookings'])
                 ->where('status', 'pending')
                 ->latest('id')
                 ->first();
