@@ -51,7 +51,22 @@ class OverageBillingService
             ];
         }
 
-        $overageOrders = max(0, $currentOrdersCount - $includedOrders);
+        if ($isAnnual) {
+            $paidOverageUnits = TenantOverageBill::where('tenant_id', $tenant->id)
+                ->where('bill_type', 'orders')
+                ->where('created_at', '>=', $subscription->start_date ?? now()->startOfYear())
+                ->whereIn('status', ['paid', 'success'])
+                ->sum('overage_units');
+        } else {
+            $periodLabel = date('M Y');
+            $paidOverageUnits = TenantOverageBill::where('tenant_id', $tenant->id)
+                ->where('bill_type', 'orders')
+                ->where('period_label', $periodLabel)
+                ->whereIn('status', ['paid', 'success'])
+                ->sum('overage_units');
+        }
+
+        $overageOrders = max(0, $currentOrdersCount - $includedOrders - $paidOverageUnits);
         $accruedAmount = round($overageOrders * $ratePerOrder, 2);
         $usagePercent = round(($currentOrdersCount / $includedOrders) * 100);
 
@@ -79,6 +94,16 @@ class OverageBillingService
         $overage = self::calculateOverage($tenant, $currentOrdersCount);
 
         if (!$overage['is_exceeded'] || $overage['overage_orders'] <= 0 || $overage['rate_per_order'] <= 0) {
+            // Waive existing pending invoices because they are no longer in overage (e.g., plan upgraded)
+            $pendingBills = TenantOverageBill::where('tenant_id', $tenant->id)
+                ->where('bill_type', 'orders')
+                ->where('status', 'pending')
+                ->get();
+            
+            foreach ($pendingBills as $pb) {
+                $pb->update(['status' => 'waived']);
+                Payment::where('overage_bill_id', $pb->id)->update(['status' => 'waived']);
+            }
             return null;
         }
 
@@ -282,7 +307,22 @@ class OverageBillingService
             ];
         }
 
-        $overageBookings = max(0, $currentBookingsCount - $includedBookings);
+        if ($isAnnual) {
+            $paidOverageUnits = TenantOverageBill::where('tenant_id', $tenant->id)
+                ->where('bill_type', 'bookings')
+                ->where('created_at', '>=', $subscription->start_date ?? now()->startOfYear())
+                ->whereIn('status', ['paid', 'success'])
+                ->sum('overage_units');
+        } else {
+            $periodLabel = date('M Y');
+            $paidOverageUnits = TenantOverageBill::where('tenant_id', $tenant->id)
+                ->where('bill_type', 'bookings')
+                ->where('period_label', $periodLabel)
+                ->whereIn('status', ['paid', 'success'])
+                ->sum('overage_units');
+        }
+
+        $overageBookings = max(0, $currentBookingsCount - $includedBookings - $paidOverageUnits);
         $accruedAmount = round($overageBookings * $ratePerBooking, 2);
         $usagePercent = round(($currentBookingsCount / $includedBookings) * 100);
 
@@ -309,6 +349,16 @@ class OverageBillingService
         $overage = self::calculateBookingOverage($tenant, $currentBookingsCount);
 
         if (!$overage['is_exceeded'] || $overage['overage_bookings'] <= 0 || $overage['rate_per_booking'] <= 0) {
+            // Waive existing pending invoices because they are no longer in overage (e.g., plan upgraded)
+            $pendingBills = TenantOverageBill::where('tenant_id', $tenant->id)
+                ->where('bill_type', 'bookings')
+                ->where('status', 'pending')
+                ->get();
+            
+            foreach ($pendingBills as $pb) {
+                $pb->update(['status' => 'waived']);
+                Payment::where('overage_bill_id', $pb->id)->update(['status' => 'waived']);
+            }
             return null;
         }
 
