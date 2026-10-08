@@ -69,16 +69,20 @@ class TenantOverageBillController extends Controller
         }
 
         $perPage = (int) $request->get('per_page', 15);
+        
+        // Clone the query BEFORE paginating so we can use it for accurate summaries
+        $summaryQuery = clone $query;
+        
         $bills = $query->latest('id')->paginate($perPage);
 
         return response()->json([
             'status' => 'success',
             'data' => $bills,
             'summary' => [
-                'total_bills' => TenantOverageBill::count(),
-                'total_paid_amount' => round((float) TenantOverageBill::whereIn('status', ['paid', 'success'])->sum('total_amount'), 2),
-                'total_pending_amount' => round((float) TenantOverageBill::where('status', 'pending')->sum('total_amount'), 2),
-                'pending_count' => TenantOverageBill::where('status', 'pending')->count(),
+                'total_bills' => $summaryQuery->count(),
+                'total_paid_amount' => round((float) (clone $summaryQuery)->whereIn('status', ['paid', 'success'])->sum('total_amount'), 2),
+                'total_pending_amount' => round((float) (clone $summaryQuery)->where('status', 'pending')->sum('total_amount'), 2),
+                'pending_count' => (clone $summaryQuery)->where('status', 'pending')->count(),
             ]
         ]);
     }
@@ -121,6 +125,11 @@ class TenantOverageBillController extends Controller
      */
     public function markPaid(Request $request, $id)
     {
+        $user = $request->user();
+        if ($user && $user->hasRole('Client')) {
+            return response()->json(['status' => 'error', 'message' => 'Unauthorized. Only admins can manually mark bills as paid.'], 403);
+        }
+
         $bill = is_numeric($id)
             ? TenantOverageBill::findOrFail($id)
             : TenantOverageBill::where('bill_number', $id)->firstOrFail();
@@ -154,7 +163,20 @@ class TenantOverageBillController extends Controller
             'status' => 'nullable|string',
         ]);
 
-        $bill = TenantOverageBill::findOrFail($id);
+        $user = $request->user();
+        $query = TenantOverageBill::query();
+
+        if ($user && $user->hasRole('Client')) {
+            $query->where(function ($q) use ($user) {
+                $q->where('client_id', $user->id)
+                  ->orWhereHas('tenant', function ($tq) use ($user) {
+                      $tq->where('client_id', $user->id)
+                         ->orWhere('create_by', $user->id);
+                  });
+            });
+        }
+
+        $bill = $query->where('id', $id)->firstOrFail();
 
         if ($bill->isPaid()) {
             return response()->json(['status' => 'error', 'message' => 'Bill is already paid.'], 400);
@@ -183,5 +205,34 @@ class TenantOverageBillController extends Controller
             'message' => 'Payment verified successfully. Overage bill paid.',
             'data' => $bill->fresh(['payments'])
         ]);
+    }
+
+    /**
+     * Manually trigger the overage billing generation command.
+     * Can be run via the admin panel.
+     */
+    public function generateAll(Request $request)
+    {
+        $user = $request->user();
+        if ($user && $user->hasRole('Client')) {
+            return response()->json(['status' => 'error', 'message' => 'Unauthorized. Only admins can trigger overage generation.'], 403);
+        }
+
+        try {
+            \Illuminate\Support\Facades\Artisan::call('tenants:generate-overage-billing', ['--all' => true]);
+            $output = \Illuminate\Support\Facades\Artisan::output();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Overage billing generation completed.',
+                'output' => trim($output),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to run overage billing generation.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }

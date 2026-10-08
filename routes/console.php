@@ -11,5 +11,8 @@ use Illuminate\Support\Facades\Schedule;
 
 Schedule::command('subscriptions:check-expiry')->daily();
 
+// Run overage billing evaluation daily
+Schedule::command('tenants:generate-overage-billing --all')->daily();
+
 // Fetch AWS and Firebase Bills on the 1st of every month at midnight
 Schedule::command('costs:fetch-cloud')->monthlyOn(1, '00:00');
