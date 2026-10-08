@@ -433,20 +433,32 @@ class OverageBillingService
     /**
      * Mark overage bill as paid and synchronize linked Payment records.
      */
-    public static function recordBillPayment(TenantOverageBill|int $bill, ?string $transactionId = null, ?string $paymentMethod = 'razorpay'): TenantOverageBill
+    public static function recordBillPayment(TenantOverageBill|int $bill, ?string $transactionId = null, ?string $paymentMethod = 'razorpay', array $extraData = []): TenantOverageBill
     {
         if (is_numeric($bill)) {
             $bill = TenantOverageBill::findOrFail($bill);
         }
 
         $bill->markAsPaid($transactionId, $paymentMethod);
+        
+        // Save extra razorpay data to bill metadata
+        if (!empty($extraData)) {
+            $billMeta = $bill->metadata ?? [];
+            $bill->metadata = array_merge($billMeta, $extraData);
+            $bill->save();
+        }
 
         // Synchronize linked Payment records
-        Payment::where('overage_bill_id', $bill->id)->update([
-            'status' => 'success',
-            'transaction_id' => $transactionId,
-            'payment_method' => $paymentMethod,
-        ]);
+        $payments = Payment::where('overage_bill_id', $bill->id)->get();
+        foreach ($payments as $payment) {
+            $paymentMeta = $payment->metadata ?? [];
+            $payment->update([
+                'status' => 'success',
+                'transaction_id' => $transactionId,
+                'payment_method' => $paymentMethod,
+                'metadata' => array_merge($paymentMeta, $extraData)
+            ]);
+        }
 
         return $bill;
     }
