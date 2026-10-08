@@ -247,4 +247,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/tenant-overage-bills', [\App\Http\Controllers\Api\TenantOverageBillController::class, 'index']);
     Route::get('/tenant-overage-bills/{id}', [\App\Http\Controllers\Api\TenantOverageBillController::class, 'show']);
     Route::post('/tenant-overage-bills/{id}/mark-paid', [\App\Http\Controllers\Api\TenantOverageBillController::class, 'markPaid']);
+    Route::post('/tenant-overage-bills/{id}/verify-payment', [\App\Http\Controllers\Api\TenantOverageBillController::class, 'verifyPayment']);
 });

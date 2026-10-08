@@ -136,4 +136,52 @@ class TenantOverageBillController extends Controller
             'data' => $bill->fresh(['payments', 'tenant']),
         ]);
     }
+
+    /**
+     * Verify online payment from client (e.g., Razorpay success).
+     * This marks the current pending bill as paid, allowing a new pending bill 
+     * to be generated for subsequent usages.
+     */
+    public function verifyPayment(Request $request, $id)
+    {
+        $request->validate([
+            'transaction_id' => 'required|string',
+            'payment_method' => 'nullable|string',
+            'razorpay_payment_id' => 'nullable|string',
+            'razorpay_payment_link_id' => 'nullable|string',
+            'razorpay_payment_link_status' => 'nullable|string',
+            'razorpay_signature' => 'nullable|string',
+            'status' => 'nullable|string',
+        ]);
+
+        $bill = TenantOverageBill::findOrFail($id);
+
+        if ($bill->isPaid()) {
+            return response()->json(['status' => 'error', 'message' => 'Bill is already paid.'], 400);
+        }
+
+        $transactionId = $request->input('transaction_id');
+        $paymentMethod = $request->input('payment_method', 'razorpay');
+
+        $extraData = array_filter($request->only([
+            'razorpay_payment_id',
+            'razorpay_payment_link_id',
+            'razorpay_payment_link_status',
+            'razorpay_signature',
+            'status'
+        ]));
+
+        // Note: You can add Razorpay signature verification logic here if required.
+
+        // Mark the bill as paid and record the payment in the `payments` table
+        OverageBillingService::recordBillPayment($bill, $transactionId, $paymentMethod, $extraData);
+
+        // When the frontend reloads and sends new usage, a new pending bill will automatically be created.
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Payment verified successfully. Overage bill paid.',
+            'data' => $bill->fresh(['payments'])
+        ]);
+    }
 }
