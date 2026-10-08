@@ -59,34 +59,54 @@ class GenerateOverageBillingCommand extends Command
                 continue;
             }
 
-            $rate = (float) ($plan->additional_order_price ?? 0);
-            if ($rate <= 0) {
-                continue;
-            }
-
             $evaluated++;
 
-            // Check if tenant has order count reported in metadata or we check current_orders
-            $currentOrders = (int) ($tenant->current_orders_count ?? 0);
+            // --- 1. Evaluate Orders Overage ---
+            $orderRate = (float) ($plan->additional_order_price ?? 0);
+            if ($orderRate > 0) {
+                $currentOrders = (int) ($tenant->current_orders_count ?? 0);
+                if ($currentOrders <= 0) {
+                    $lastPayment = \App\Models\Payment::where('tenant_id', $tenant->id)->where('type', 'overage_orders')->latest('id')->first() 
+                        ?? \App\Models\Payment::where('tenant_id', $tenant->id)->latest('id')->first();
+                    if ($lastPayment && isset($lastPayment->metadata['total_orders'])) {
+                        $currentOrders = (int) $lastPayment->metadata['total_orders'];
+                    }
+                }
 
-            if ($currentOrders <= 0) {
-                // Check if any recent payment metadata has total_orders recorded
-                $lastPayment = \App\Models\Payment::where('tenant_id', $tenant->id)->latest('id')->first();
-                if ($lastPayment && isset($lastPayment->metadata['total_orders'])) {
-                    $currentOrders = (int) $lastPayment->metadata['total_orders'];
+                $overage = OverageBillingService::calculateOverage($tenant, $currentOrders);
+                if ($overage['is_exceeded'] && $overage['overage_orders'] > 0) {
+                    $payment = OverageBillingService::syncOverageInvoice($tenant, $currentOrders);
+                    if ($payment) {
+                        $invoiced++;
+                        $this->info("  [✓] Tenant #{$tenant->id} ({$tenant->name}): Exceeded by {$overage['overage_orders']} orders. Invoiced ₹{$payment->amount}");
+                    }
+                } else {
+                    $this->line("  [-] Tenant #{$tenant->id} ({$tenant->name}): Within order quota ({$currentOrders}/{$overage['included_orders']}).");
                 }
             }
 
-            $overage = OverageBillingService::calculateOverage($tenant, $currentOrders);
-
-            if ($overage['is_exceeded'] && $overage['overage_orders'] > 0) {
-                $payment = OverageBillingService::syncOverageInvoice($tenant, $currentOrders);
-                if ($payment) {
-                    $invoiced++;
-                    $this->info("  [✓] Tenant #{$tenant->id} ({$tenant->name}): Exceeded by {$overage['overage_orders']} orders. Invoiced ₹{$payment->amount} (Invoice #{$payment->invoice_number})");
+            // --- 2. Evaluate Bookings Overage ---
+            $bookingRate = (float) ($plan->additional_booking_price ?? 0);
+            if ($bookingRate > 0) {
+                $currentBookings = (int) ($tenant->current_bookings_count ?? 0);
+                if ($currentBookings <= 0) {
+                    $lastPayment = \App\Models\Payment::where('tenant_id', $tenant->id)->where('type', 'overage_bookings')->latest('id')->first()
+                        ?? \App\Models\Payment::where('tenant_id', $tenant->id)->latest('id')->first();
+                    if ($lastPayment && isset($lastPayment->metadata['total_bookings'])) {
+                        $currentBookings = (int) $lastPayment->metadata['total_bookings'];
+                    }
                 }
-            } else {
-                $this->line("  [-] Tenant #{$tenant->id} ({$tenant->name}): Within quota ({$currentOrders}/{$overage['included_orders']}).");
+
+                $bookingOverage = OverageBillingService::calculateBookingOverage($tenant, $currentBookings);
+                if ($bookingOverage['is_exceeded'] && $bookingOverage['overage_bookings'] > 0) {
+                    $payment = OverageBillingService::syncBookingOverageInvoice($tenant, $currentBookings);
+                    if ($payment) {
+                        $invoiced++;
+                        $this->info("  [✓] Tenant #{$tenant->id} ({$tenant->name}): Exceeded by {$bookingOverage['overage_bookings']} bookings. Invoiced ₹{$payment->amount}");
+                    }
+                } else {
+                    $this->line("  [-] Tenant #{$tenant->id} ({$tenant->name}): Within booking quota ({$currentBookings}/{$bookingOverage['included_bookings']}).");
+                }
             }
         }
 
