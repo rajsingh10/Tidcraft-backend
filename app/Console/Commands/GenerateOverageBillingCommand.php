@@ -66,10 +66,15 @@ class GenerateOverageBillingCommand extends Command
             if ($orderRate > 0) {
                 $currentOrders = (int) ($tenant->current_orders_count ?? 0);
                 if ($currentOrders <= 0) {
-                    $lastPayment = \App\Models\Payment::where('tenant_id', $tenant->id)->where('type', 'overage_orders')->latest('id')->first() 
-                        ?? \App\Models\Payment::where('tenant_id', $tenant->id)->latest('id')->first();
-                    if ($lastPayment && isset($lastPayment->metadata['total_orders'])) {
-                        $currentOrders = (int) $lastPayment->metadata['total_orders'];
+                    $lastBill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)->where('bill_type', 'orders')->latest('id')->first();
+                    if ($lastBill && $lastBill->total_usage > 0) {
+                        $currentOrders = (int) $lastBill->total_usage;
+                    } else {
+                        $lastPayment = \App\Models\Payment::where('tenant_id', $tenant->id)->where('type', 'overage_orders')->latest('id')->first() 
+                            ?? \App\Models\Payment::where('tenant_id', $tenant->id)->latest('id')->first();
+                        if ($lastPayment && isset($lastPayment->metadata['total_orders'])) {
+                            $currentOrders = (int) $lastPayment->metadata['total_orders'];
+                        }
                     }
                 }
 
@@ -90,10 +95,15 @@ class GenerateOverageBillingCommand extends Command
             if ($bookingRate > 0) {
                 $currentBookings = (int) ($tenant->current_bookings_count ?? 0);
                 if ($currentBookings <= 0) {
-                    $lastPayment = \App\Models\Payment::where('tenant_id', $tenant->id)->where('type', 'overage_bookings')->latest('id')->first()
-                        ?? \App\Models\Payment::where('tenant_id', $tenant->id)->latest('id')->first();
-                    if ($lastPayment && isset($lastPayment->metadata['total_bookings'])) {
-                        $currentBookings = (int) $lastPayment->metadata['total_bookings'];
+                    $lastBill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)->where('bill_type', 'bookings')->latest('id')->first();
+                    if ($lastBill && $lastBill->total_usage > 0) {
+                        $currentBookings = (int) $lastBill->total_usage;
+                    } else {
+                        $lastPayment = \App\Models\Payment::where('tenant_id', $tenant->id)->where('type', 'overage_bookings')->latest('id')->first()
+                            ?? \App\Models\Payment::where('tenant_id', $tenant->id)->latest('id')->first();
+                        if ($lastPayment && isset($lastPayment->metadata['total_bookings'])) {
+                            $currentBookings = (int) $lastPayment->metadata['total_bookings'];
+                        }
                     }
                 }
 

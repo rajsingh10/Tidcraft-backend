@@ -105,6 +105,9 @@ class OverageBillingService
             'rate_per_order' => $rate,
             'billing_cycle' => $billingCycle,
             'period_label' => $periodLabel,
+            'locations_used' => (int) ($tenant->current_locations_count ?? 0),
+            'users_used' => (int) ($tenant->current_users_count ?? 0),
+            'storage_used_gb' => (float) ($tenant->current_storage_used ?? 0),
             'description' => "Post-paid Additional Orders: {$overageOrders} orders over {$overage['included_orders']} included limit at ₹{$rate}/order",
         ];
 
@@ -330,6 +333,9 @@ class OverageBillingService
             'rate_per_booking' => $rate,
             'billing_cycle' => $billingCycle,
             'period_label' => $periodLabel,
+            'locations_used' => (int) ($tenant->current_locations_count ?? 0),
+            'users_used' => (int) ($tenant->current_users_count ?? 0),
+            'storage_used_gb' => (float) ($tenant->current_storage_used ?? 0),
             'description' => "Post-paid Additional Bookings: {$overageBookings} bookings over {$overage['included_bookings']} included limit at ₹{$rate}/booking",
         ];
 
