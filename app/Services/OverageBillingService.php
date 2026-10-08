@@ -96,6 +96,8 @@ class OverageBillingService
             ->latest('id')
             ->first();
 
+        $existingMeta = $bill ? ($bill->metadata ?? []) : [];
+
         $metadata = [
             'plan_id' => $plan?->id,
             'plan_name' => $plan?->name ?? 'Default',
@@ -105,9 +107,9 @@ class OverageBillingService
             'rate_per_order' => $rate,
             'billing_cycle' => $billingCycle,
             'period_label' => $periodLabel,
-            'locations_used' => (int) ($tenant->current_locations_count ?? 0),
-            'users_used' => (int) ($tenant->current_users_count ?? 0),
-            'storage_used_gb' => (float) ($tenant->current_storage_used ?? 0),
+            'locations_used' => (int) ($tenant->current_locations_count ?? $existingMeta['locations_used'] ?? 0),
+            'users_used' => (int) ($tenant->current_users_count ?? $existingMeta['users_used'] ?? 0),
+            'storage_used_gb' => (float) ($tenant->current_storage_used ?? $existingMeta['storage_used_gb'] ?? 0),
             'description' => "Post-paid Additional Orders: {$overageOrders} orders over {$overage['included_orders']} included limit at ₹{$rate}/order",
         ];
 
@@ -324,6 +326,8 @@ class OverageBillingService
             ->latest('id')
             ->first();
 
+        $existingMeta = $bill ? ($bill->metadata ?? []) : [];
+
         $metadata = [
             'plan_id' => $plan?->id,
             'plan_name' => $plan?->name ?? 'Default',
@@ -333,9 +337,9 @@ class OverageBillingService
             'rate_per_booking' => $rate,
             'billing_cycle' => $billingCycle,
             'period_label' => $periodLabel,
-            'locations_used' => (int) ($tenant->current_locations_count ?? 0),
-            'users_used' => (int) ($tenant->current_users_count ?? 0),
-            'storage_used_gb' => (float) ($tenant->current_storage_used ?? 0),
+            'locations_used' => (int) ($tenant->current_locations_count ?? $existingMeta['locations_used'] ?? 0),
+            'users_used' => (int) ($tenant->current_users_count ?? $existingMeta['users_used'] ?? 0),
+            'storage_used_gb' => (float) ($tenant->current_storage_used ?? $existingMeta['storage_used_gb'] ?? 0),
             'description' => "Post-paid Additional Bookings: {$overageBookings} bookings over {$overage['included_bookings']} included limit at ₹{$rate}/booking",
         ];
 
