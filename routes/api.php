@@ -9,14 +9,47 @@ use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\TenantProvisionController;
-use App\Http\Controllers\Api\TenantController;
+use App\Http\Controllers\Api\SystemLogController;
 use App\Http\Controllers\Api\AddOnController;
 use App\Http\Controllers\Api\InquiryController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\TenantAppController;
 use App\Http\Controllers\Api\client\ClientAuthController;
 use App\Http\Controllers\Api\client\ClientPurchaseController;
+use App\Http\Controllers\Admin\ClientController;
+use App\Http\Controllers\CmsPageController;
+use App\Http\Controllers\Api\EmailTemplateController;
+use App\Http\Controllers\Api\CurrencyController;
+
 Route::post('/login', [AuthController::class, 'login']);
+
+// Public API Routes
+Route::post('inquiries', [InquiryController::class, 'store']);
+Route::post('newsletter/subscribe', [\App\Http\Controllers\Api\NewsletterController::class, 'subscribe']);
+Route::get('products/client', [ProductController::class, 'publicIndex']);
+Route::get('products/{product}/demos', [\App\Http\Controllers\Api\ProductDemoController::class, 'index']);
+Route::get('products/{product}/demos/{demo}', [\App\Http\Controllers\Api\ProductDemoController::class, 'show']);
+Route::get('apps', [TenantAppController::class, 'getAllApps']);
+Route::get('products/{product}/apps', [TenantAppController::class, 'getByProduct']);
+Route::get('settings/client', [SettingController::class, 'publicGeneral']);
+Route::get('cms-pages/slug/{slug}', [CmsPageController::class, 'showBySlug']); // ?product_id=<id> for product pages
+Route::get('cms-pages/home', [CmsPageController::class, 'homePage']);         // All published home sections
+Route::get('cms-pages/product/{productId}', [CmsPageController::class, 'productPage']); // All sections for a product
+
+Route::get('currencies', [CurrencyController::class, 'index']);
+Route::get('currencies/{currency}', [CurrencyController::class, 'show']);
+Route::apiResource('plans', PlanController::class)->only(['index', 'show']);
+Route::apiResource('add-ons', AddOnController::class)->only(['index', 'show']);
+Route::get('tenant/plan-status', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'show']);
+Route::get('tenant/check-quota', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'checkQuota']);
+Route::get('tenant/app-config', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'appConfig']);
+Route::post('tenant/sync-order-usage', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'syncOrderUsage']);
+Route::post('tenant/sync-booking-usage', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'syncBookingUsage']);
+Route::get('tenant/overage-status', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'overageStatus']);
+Route::post('tenant/pay-overage', [\App\Http\Controllers\Api\TenantPlanStatusController::class, 'payOverage']);
+Route::post('/tenant-provision/{uuid}/verify-dns', [TenantProvisionController::class, 'verifyDns']);
+Route::post('/tenant-provision/demo', [TenantProvisionController::class, 'provisionDemo']);
 
 // Client Public Routes
 Route::prefix('client')->group(function () {
@@ -45,12 +78,37 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/purchases', [ClientPurchaseController::class, 'index']);
         Route::post('/purchases', [ClientPurchaseController::class, 'store']);
         Route::get('/purchases/{uuid}', [ClientPurchaseController::class, 'show']);
+        Route::get('/purchases/{uuid}/invoices', [ClientPurchaseController::class, 'getInvoices']);
+        Route::get('/purchases/{uuid}/overage-invoices', [ClientPurchaseController::class, 'getOverageInvoices']);
+        Route::post('/purchases/{uuid}/pay-overage', [ClientPurchaseController::class, 'payOverage']);
+        Route::get('/purchases/{uuid}/provisioning-status', [ClientPurchaseController::class, 'provisioningStatus']);
+        Route::get('/purchases/{uuid}/backups', [ClientPurchaseController::class, 'listBackups']);
+        Route::get('/purchases/{uuid}/backup/firebase', [ClientPurchaseController::class, 'backupFirebase']);
+        Route::post('/purchases/{uuid}/backup/{backupId}/restore', [ClientPurchaseController::class, 'restoreBackup']);
+        Route::post('/purchases/{uuid}/verify-payment', [ClientPurchaseController::class, 'verifyPayment']);
+        Route::post('/purchases/{uuid}/cancel-payment', [ClientPurchaseController::class, 'cancelPayment']);
+        Route::post('/purchases/{uuid}/renew', [ClientPurchaseController::class, 'renew']);
+        Route::post('/purchases/{uuid}/upgrade', [ClientPurchaseController::class, 'upgrade']);
+        Route::post('/purchases/{uuid}/domain', [ClientPurchaseController::class, 'setupDomain']);
+        Route::post('/purchases/{uuid}/verify-dns', [ClientPurchaseController::class, 'verifyDns']);
+        Route::get('/purchases/{uuid}/dns-status', [ClientPurchaseController::class, 'dnsStatus']);
+        Route::post('/purchases/{uuid}/send-dns-email', [ClientPurchaseController::class, 'sendDnsEmail']);
         Route::get('/payments', [ClientPurchaseController::class, 'payments']);
+        Route::get('/invoices', [\App\Http\Controllers\Api\InvoiceController::class, 'index']);
+        Route::get('/invoices/{id}', [\App\Http\Controllers\Api\InvoiceController::class, 'show']);
+        Route::get('/invoices/{id}/pdf', [\App\Http\Controllers\Api\InvoiceController::class, 'downloadPdf']);
+        Route::post('/invoices/{id}/cancel', [\App\Http\Controllers\Api\InvoiceController::class, 'cancel']);
+        Route::get('/payment-methods', [SettingController::class, 'getClientPaymentMethods']);
     });
 
     // Custom POST route for update to bypass PHP's PUT/multipart limitation
     Route::post('product-categories/{product_category}', [ProductCategoryController::class, 'update']);
     Route::apiResource('product-categories', ProductCategoryController::class);
+
+    // Clients API (Admin Side)
+    Route::get('clients/{client}/tenants', [ClientController::class, 'getTenants']);
+    Route::post('clients/{client}', [ClientController::class, 'update']);
+    Route::apiResource('clients', ClientController::class);
     // Settings API
     Route::get('/settings', [SettingController::class, 'index']);
     Route::post('/settings', [SettingController::class, 'store']);
@@ -68,19 +126,58 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/settings/payment-methods', [SettingController::class, 'storePaymentMethods']);
 
     // Audit Logs API
+    Route::post('/audit-logs/bulk-delete', [AuditLogController::class, 'destroyBulk']);
+    Route::delete('/audit-logs/all', [AuditLogController::class, 'destroyAll']);
     Route::get('/audit-logs', [AuditLogController::class, 'index']);
 
-    Route::post('plans/{plan}', [PlanController::class, 'update']);
-    Route::apiResource('plans', PlanController::class);
+    // System Logs API
+    Route::get('/system-logs', [SystemLogController::class, 'index']);
+    Route::delete('/system-logs', [SystemLogController::class, 'destroy']);
 
+    Route::post('plans/{plan}', [PlanController::class, 'update']);
+    Route::apiResource('plans', PlanController::class)->except(['index', 'show']);
+
+    Route::post('currencies/{currency}', [CurrencyController::class, 'update']);
+    Route::apiResource('currencies', CurrencyController::class)->except(['index', 'show']);
+
+    Route::get('products/{product}/firebase', [ProductController::class, 'getFirebase']);
+    Route::post('products/{product}/firebase', [ProductController::class, 'updateFirebase']);
+    Route::get('products/{product}/attachments', [ProductController::class, 'getAttachments']);
+    Route::post('products/{product}/attachments', [ProductController::class, 'uploadAttachments']);
+    
+    // Product Demos Management
+    Route::post('products/{product}/demos', [\App\Http\Controllers\Api\ProductDemoController::class, 'store']);
+    Route::put('products/{product}/demos/{demo}', [\App\Http\Controllers\Api\ProductDemoController::class, 'update']);
+    Route::post('products/{product}/demos/{demo}', [\App\Http\Controllers\Api\ProductDemoController::class, 'update']);
+    Route::delete('products/{product}/demos/{demo}', [\App\Http\Controllers\Api\ProductDemoController::class, 'destroy']);
+    Route::post('products/{product}/demos/{demo}/screenshots', [\App\Http\Controllers\Api\ProductDemoController::class, 'uploadScreenshots']);
+    Route::post('products/{product}/demos/{demo}/screenshots/delete', [\App\Http\Controllers\Api\ProductDemoController::class, 'deleteScreenshot']);
+    
     Route::post('products/{product}', [ProductController::class, 'update']);
     Route::apiResource('products', ProductController::class);
 
+    Route::post('cms-pages/save', [CmsPageController::class, 'save']);
+    Route::get('cms-pages', [CmsPageController::class, 'index']);
+    Route::get('cms-pages/{slug}', [CmsPageController::class, 'showAdmin']);
+    Route::delete('cms-pages/{slug}', [CmsPageController::class, 'destroyAdmin']);
+
+    Route::post('email-templates/{email_template}', [EmailTemplateController::class, 'update']);
+    Route::apiResource('email-templates', EmailTemplateController::class);
+
     Route::post('add-ons/{add_on}', [AddOnController::class, 'update']);
-    Route::apiResource('add-ons', AddOnController::class);
+    Route::apiResource('add-ons', AddOnController::class)->except(['index', 'show']);
 
     Route::post('inquiries/{inquiry}', [InquiryController::class, 'update']);
-    Route::apiResource('inquiries', InquiryController::class);
+    Route::post('inquiries/{inquiry}/status', [InquiryController::class, 'changeStatus']);
+    Route::apiResource('inquiries', InquiryController::class)->except('store');
+
+    // Dashboard & Analytics APIs
+    Route::get('/dashboard', [\App\Http\Controllers\Api\DashboardController::class, 'index']);
+    Route::get('/usage-metering', [\App\Http\Controllers\Api\UsageMeteringController::class, 'index']);
+    Route::get('/revenue-analytics', [\App\Http\Controllers\Api\DashboardController::class, 'revenueAnalytics']);
+    Route::get('/profitability', [\App\Http\Controllers\Api\ProfitabilityController::class, 'index']);
+    Route::post('/profitability/costs', [\App\Http\Controllers\Api\ProfitabilityController::class, 'store']);
+    Route::post('/profitability/fetch-cloud', [\App\Http\Controllers\Api\ProfitabilityController::class, 'fetchCloudBillsManually']);
 
     // Admin Notifications API
     Route::get('/notifications', [\App\Http\Controllers\Api\AdminNotificationController::class, 'index']);
@@ -90,12 +187,54 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notifications/{id}/unread', [\App\Http\Controllers\Api\AdminNotificationController::class, 'markAsUnread']);
 
     // Tenant Provisioning API
+    Route::post('/tenant-provision/check-subdomain', [TenantProvisionController::class, 'checkSubdomain']);
     Route::post('/tenant-provision', [TenantProvisionController::class, 'store']);
     Route::post('/tenant-provision/{uuid}/verify-payment', [TenantProvisionController::class, 'verifyPayment']);
+    Route::post('/tenant-provision/payment-status-change', [TenantProvisionController::class, 'paymentstatuschnage']);
+    Route::get('/tenants/demos', [TenantProvisionController::class, 'demoTenants']);
     Route::get('/tenants', [TenantProvisionController::class, 'index']);
+    Route::get('/tenants/backups', [TenantProvisionController::class, 'listAllBackups']);
     Route::get('/tenants/{uuid}', [TenantProvisionController::class, 'show']);
+    Route::get('/tenants/{uuid}/provisioning-status', [TenantProvisionController::class, 'provisioningStatus']);
+    Route::get('/tenants/{uuid}/onboard-status', [TenantProvisionController::class, 'onboardStatus']);
+    Route::get('/tenants/{uuid}/backups', [TenantProvisionController::class, 'listBackups']);
+    Route::get('/tenants/{uuid}/backup/firebase', [TenantProvisionController::class, 'backupFirebase']);
+    Route::post('/tenants/{uuid}/backup/{backupId}/restore', [TenantProvisionController::class, 'restoreBackup']);
     Route::post('/tenants/{uuid}', [TenantProvisionController::class, 'update']); // Using POST for form data with files/nested data
+    Route::patch('/tenants/{uuid}', [TenantProvisionController::class, 'update']);
+    Route::put('/tenants/{uuid}', [TenantProvisionController::class, 'update']);
     Route::delete('/tenants/{uuid}', [TenantProvisionController::class, 'destroy']);
+    
+    // Manage apps independently
+    Route::get('/tenants/{uuid}/apps', [TenantAppController::class, 'index']);
+    Route::post('/tenants/{uuid}/apps', [TenantAppController::class, 'store']);
+    Route::get('/tenants/{uuid}/apps/{appId}', [TenantAppController::class, 'show']);
+    Route::put('/tenants/{uuid}/apps/{appId}', [TenantAppController::class, 'update']);
+    Route::delete('/tenants/{uuid}/apps/{appId}', [TenantAppController::class, 'destroy']);
+    Route::post('/tenants/{uuid}/renew', [TenantProvisionController::class, 'renewClient']);
+    Route::post('/tenants/{uuid}/renew-manual', [TenantProvisionController::class, 'renewManual']);
+    Route::post('/tenants/{uuid}/upgrade', [TenantProvisionController::class, 'upgrade']);
+    Route::post('/tenants/{uuid}/upgrade-manual', [TenantProvisionController::class, 'upgradeManual']);
+    Route::post('/tenants/{uuid}/verify-payment', [TenantProvisionController::class, 'verifyPayment']);
+    Route::post('/tenants/{uuid}/cancel-payment', [TenantProvisionController::class, 'cancelPayment']);
+    Route::post('/tenants/{uuid}/send-setup-email', [TenantProvisionController::class, 'sendSetupEmail']);
+    Route::post('/tenants/{uuid}/send-provisioned-email', [TenantProvisionController::class, 'sendProvisionedEmail']);
+    Route::post('/tenants/{uuid}/provision', [TenantProvisionController::class, 'manualProvision']);
+    Route::post('/tenants/{uuid}/check-subdomain', [TenantProvisionController::class, 'checkSubdomain']);
+    Route::post('/tenants/{uuid}/verify-dns', [TenantProvisionController::class, 'verifyDns']);
+    Route::post('/tenants/{uuid}/send-dns-email', [TenantProvisionController::class, 'sendDnsEmail']);
+
+    // Support Tickets API
+    Route::get('/support-tickets', [\App\Http\Controllers\Api\SupportTicketController::class, 'index']);
+    Route::get('/support-tickets/{id}', [\App\Http\Controllers\Api\SupportTicketController::class, 'show']);
+    Route::post('/support-tickets', [\App\Http\Controllers\Api\SupportTicketController::class, 'store']);
+    Route::post('/support-tickets/{id}', [\App\Http\Controllers\Api\SupportTicketController::class, 'update']);
+    Route::post('/support-tickets/{id}/status', [\App\Http\Controllers\Api\SupportTicketController::class, 'changeStatus']);
+    // Invoices API
+    Route::get('/invoices', [\App\Http\Controllers\Api\InvoiceController::class, 'index']);
+    Route::get('/invoices/{id}', [\App\Http\Controllers\Api\InvoiceController::class, 'show']);
+    Route::get('/invoices/{id}/pdf', [\App\Http\Controllers\Api\InvoiceController::class, 'downloadPdf']);
+    Route::post('/invoices/{id}/cancel', [\App\Http\Controllers\Api\InvoiceController::class, 'cancel']);
 
     // Dedicated APIs for Subscriptions and Payments
     Route::post('subscriptions/{subscription}', [SubscriptionController::class, 'update']);
@@ -103,4 +242,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('payments/{payment}', [PaymentController::class, 'update']);
     Route::apiResource('payments', PaymentController::class);
+
+    // Dedicated Overage Bills Management (Super Admin & Scoped Client)
+    Route::post('/tenant-overage-bills/generate', [\App\Http\Controllers\Api\TenantOverageBillController::class, 'generateAll']);
+    Route::get('/tenant-overage-bills', [\App\Http\Controllers\Api\TenantOverageBillController::class, 'index']);
+    Route::get('/tenant-overage-bills/{id}', [\App\Http\Controllers\Api\TenantOverageBillController::class, 'show']);
+    Route::post('/tenant-overage-bills/{id}/mark-paid', [\App\Http\Controllers\Api\TenantOverageBillController::class, 'markPaid']);
+    Route::post('/tenant-overage-bills/{id}/verify-payment', [\App\Http\Controllers\Api\TenantOverageBillController::class, 'verifyPayment']);
 });

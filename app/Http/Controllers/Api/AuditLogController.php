@@ -14,7 +14,7 @@ class AuditLogController extends Controller
      */
     public function index(Request $request)
     {
-        $query = AuditLog::with('user:id,name,email')->orderBy('created_at', 'desc');
+        $query = AuditLog::with('user:id,name,email')->orderBy('id', 'desc');
 
         // Filter by Date Range
         if ($request->filled('date_from')) {
@@ -58,6 +58,37 @@ class AuditLogController extends Controller
         return response()->json([
             'status' => 'success',
             'data' => $logs
+        ]);
+    }
+
+    /**
+     * Delete multiple audit logs by their IDs.
+     */
+    public function destroyBulk(Request $request)
+    {
+        $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'exists:audit_logs,id'
+        ]);
+
+        AuditLog::whereIn('id', $request->ids)->delete();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Selected audit logs deleted successfully.'
+        ]);
+    }
+
+    /**
+     * Delete all audit logs.
+     */
+    public function destroyAll()
+    {
+        AuditLog::truncate();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'All audit logs deleted successfully.'
         ]);
     }
 }

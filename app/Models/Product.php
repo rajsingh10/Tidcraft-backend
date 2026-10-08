@@ -20,13 +20,34 @@ class Product extends Model
         'starting_price',
         'badge',
         'description',
+        'frontend_path',
+        'images',
+        'source_code_zip',
+        'setup_document_pdf',
         'create_by',
         'update_by',
         'delete_by',
     ];
 
+    protected $casts = [
+        'images' => 'array',
+        'source_code_zip' => 'array',
+        'setup_document_pdf' => 'array',
+        'is_active' => 'boolean',
+    ];
+
     public function category()
     {
         return $this->belongsTo(ProductCategory::class, 'product_category_id');
+    }
+
+    public function productFirebaseProject()
+    {
+        return $this->hasOne(ProductFirebaseProject::class);
+    }
+
+    public function demos()
+    {
+        return $this->hasMany(ProductDemo::class);
     }
 }

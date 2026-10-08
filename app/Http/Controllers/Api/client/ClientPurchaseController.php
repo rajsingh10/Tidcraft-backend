@@ -9,7 +9,7 @@ use App\Models\Payment;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use App\Models\TenantDomain;
+use App\Models\Domain;
 use App\Models\TenantFirebaseConfig;
 use App\Services\AuditLogger;
 
@@ -22,9 +22,12 @@ class ClientPurchaseController extends Controller
     {
         $user = $request->user();
 
-        // Fetch tenants linked to this user's email
-        $tenants = Tenant::with(['product', 'plan', 'domain', 'subscriptions'])
-            ->where('create_by', $user->id)
+        // Fetch tenants linked to this user
+        $tenants = Tenant::with(['product', 'plan', 'domains', 'subscriptions', 'payments', 'overageBills'])
+            ->where(function ($q) use ($user) {
+                $q->where('create_by', $user->id)
+                  ->orWhere('client_id', $user->id);
+            })
             ->get();
 
         return response()->json([
@@ -41,9 +44,12 @@ class ClientPurchaseController extends Controller
         $user = $request->user();
 
         // Fetch the specific tenant ensuring it belongs to this client
-        $tenant = Tenant::with(['product', 'plan', 'domain', 'firebaseConfig', 'addOns', 'subscriptions'])
+        $tenant = Tenant::with(['product', 'plan', 'domains', 'firebaseProject', 'addOns', 'subscriptions', 'provisioningLogs', 'payments', 'overageBills'])
             ->where('uuid', $uuid)
-            ->where('create_by', $user->id)
+            ->where(function ($q) use ($user) {
+                $q->where('create_by', $user->id)
+                  ->orWhere('client_id', $user->id);
+            })
             ->first();
 
         if (!$tenant) {
@@ -60,6 +66,184 @@ class ClientPurchaseController extends Controller
     }
 
     /**
+     * Display the provisioning status steps for a specific purchase.
+     */
+    public function provisioningStatus(Request $request, $uuid)
+    {
+        $user = $request->user();
+
+        $tenant = Tenant::where('uuid', $uuid)
+            ->where(function ($q) use ($user) {
+                $q->where('create_by', $user->id)
+                  ->orWhere('client_id', $user->id);
+            })
+            ->first();
+
+        if (!$tenant) {
+            return response()->json([
+                'status' => 'error', 
+                'message' => 'Purchase not found or you do not have permission to view it.'
+            ], 404);
+        }
+
+        $logs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)
+            ->orderBy('id', 'asc')
+            ->get();
+
+        $isFullyProvisioned = $logs->where('step', 'activation')->where('status', 'success')->isNotEmpty()
+            && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id);
+
+        if (!$isFullyProvisioned) {
+            $hasDomain = $tenant->domains()->whereNotNull('domain')->where('domain', '!=', '')->exists();
+            $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+
+            if ($hasDomain && $productFirebase && !empty($productFirebase->firebase_project_id)) {
+                if ($tenant->status !== 'provisioning') {
+                    $tenant->update(['status' => 'provisioning']);
+                }
+
+                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                \App\Helpers\QueueRunner::runBackground();
+
+                if ($logs->isEmpty()) {
+                    usleep(300000);
+                    $logs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)
+                        ->orderBy('id', 'asc')
+                        ->get();
+                }
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'tenant_status' => 'provisioning',
+                'data' => $logs
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'tenant_status' => 'active',
+            'data' => $logs
+        ]);
+    }
+
+    /**
+     * Download a JSON backup of the Firebase Firestore DB for this purchase.
+     */
+    public function backupFirebase(Request $request, $uuid)
+    {
+        $user = $request->user();
+
+        $tenant = Tenant::where('uuid', $uuid)
+            ->where('create_by', $user->id)
+            ->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+        
+        if (!$productFirebase || empty($productFirebase->service_account_json)) {
+            return response()->json(['status' => 'error', 'message' => 'Firebase is not configured for this product.'], 400);
+        }
+
+        try {
+            $serviceAccount = json_decode($productFirebase->service_account_json, true);
+            $databaseId = $tenant->firestoreDatabaseId();
+            
+            $exporter = new \App\Services\FirestoreExporter($serviceAccount, $databaseId);
+            $data = $exporter->export();
+            
+            $fileName = $tenant->tenant_key . '_firebase_backup_' . date('Y-m-d_H-i-s') . '.json';
+            $jsonContent = json_encode($data, JSON_PRETTY_PRINT);
+            
+            // Save to Storage
+            $path = 'backups/' . $fileName;
+            \Illuminate\Support\Facades\Storage::disk('local')->put($path, $jsonContent);
+            
+            // Log in DB
+            $tenant->tenantBackups()->create([
+                'file_name' => $fileName,
+                'file_path' => $path,
+                'file_size' => strlen($jsonContent)
+            ]);
+            
+            return response()->streamDownload(function () use ($jsonContent) {
+                echo $jsonContent;
+            }, $fileName, [
+                'Content-Type' => 'application/json',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['status' => 'error', 'message' => 'Backup failed: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * List all Firebase backups for this purchase.
+     */
+    public function listBackups(Request $request, $uuid)
+    {
+        $user = $request->user();
+
+        $tenant = Tenant::where('uuid', $uuid)->where('create_by', $user->id)->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        $backups = $tenant->tenantBackups()->latest()->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $backups
+        ]);
+    }
+
+    /**
+     * Restore a specific backup.
+     */
+    public function restoreBackup(Request $request, $uuid, $backupId)
+    {
+        $user = $request->user();
+
+        $tenant = Tenant::where('uuid', $uuid)->where('create_by', $user->id)->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        $backup = $tenant->tenantBackups()->findOrFail($backupId);
+
+        $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+        if (!$productFirebase || empty($productFirebase->service_account_json)) {
+            return response()->json(['status' => 'error', 'message' => 'Firebase is not configured for this product.'], 400);
+        }
+
+        try {
+            $jsonContent = \Illuminate\Support\Facades\Storage::disk('local')->get($backup->file_path);
+            if (!$jsonContent) {
+                return response()->json(['status' => 'error', 'message' => 'Backup file not found in storage.'], 404);
+            }
+
+            $data = json_decode($jsonContent, true);
+
+            $serviceAccount = json_decode($productFirebase->service_account_json, true);
+            $databaseId = $tenant->firestoreDatabaseId();
+
+            $importer = new \App\Services\FirestoreImporter($serviceAccount, $databaseId);
+            $importer->import($data);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Backup restored successfully.'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['status' => 'error', 'message' => 'Restore failed: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Display a listing of all payments made by this client.
      */
     public function payments(Request $request)
@@ -67,10 +251,13 @@ class ClientPurchaseController extends Controller
         $user = $request->user();
 
         // First find all tenant IDs owned by the user
-        $tenantIds = Tenant::where('create_by', $user->id)->pluck('id');
+        $tenantIds = Tenant::where('create_by', $user->id)
+            ->orWhere('client_id', $user->id)
+            ->pluck('id');
 
-        // Fetch all payments associated with those tenants
+        // Fetch all payments associated with those tenants, along with product & plan info
         $payments = Payment::whereIn('tenant_id', $tenantIds)
+            ->with(['tenant.product', 'tenant.plan'])
             ->orderBy('create_at', 'desc')
             ->get();
 
@@ -92,12 +279,1536 @@ class ClientPurchaseController extends Controller
         // Auto-construct full domain from subdomain_prefix
         if ($request->domain_type === 'subdomain' && $request->has('subdomain_prefix')) {
             $prefix = trim($request->subdomain_prefix, " .");
-            $request->merge(['domain' => $prefix . '.tidcraft.app']);
+            $request->merge(['domain' => $prefix . '.tidcraft.com']);
         }
         
+        $ignoreDomainId = null;
+        if ($request->filled('domain')) {
+            $existingDomain = \App\Models\Domain::where('domain', $request->domain)
+                ->with('tenant')
+                ->first();
+            if ($existingDomain) {
+                $ownerClientId = $existingDomain->client_id ?? $existingDomain->tenant?->client_id;
+                if ($ownerClientId && (string)$ownerClientId === (string)$user->id) {
+                    $ignoreDomainId = $existingDomain->id;
+                }
+            }
+        }
+
         $validator = Validator::make($request->all(), [
             // Step 1: Client Info
             'business_name' => 'required|string|max:255',
+            'client_name' => 'nullable|string|max:255',
+            'company_logo' => 'nullable',
+            'primary_contact_email' => 'nullable|email|max:255',
+            'phone_number' => 'nullable|string|max:20',
+            'whatsapp_number' => 'nullable|string|max:20',
+            'country_code' => 'nullable|string|max:10',
+            'industry' => 'nullable|string|max:255',
+            'address' => 'nullable|string|max:500',
+            
+            // Step 2 & 3: Product and Plan
+            'product_id' => 'required|exists:products,id',
+            'plan_id' => 'required|exists:plans,id',
+            'billing_cycle' => 'nullable|in:monthly,yearly',
+
+            // Step 4: Domain Setup
+            'domain_type' => 'nullable|in:subdomain,shared,custom',
+            'domain' => 'nullable|string' . ($ignoreDomainId ? "|unique:domains,domain,{$ignoreDomainId}" : "|unique:domains,domain"),
+
+
+
+            // Add-ons
+            'add_ons' => 'nullable|array',
+            'add_ons.*' => 'exists:add_ons,id',
+
+            // Payment Details
+            'transaction_id' => 'nullable|string',
+            'amount' => 'nullable|numeric',
+            'currency' => 'nullable|string',
+            'payment_method' => 'nullable|string',
+            'payment_status' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation Error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $request->product_id)->first();
+        if (!$productFirebase || empty($productFirebase->firebase_project_id)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'This product has no Firebase project ID configured. Please contact support.',
+            ], 422);
+        }
+        if (empty($productFirebase->service_account_json)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'This product has no Firebase service account configured. Please contact support.',
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Update user profile with client name and logo if provided
+            if ($request->filled('client_name') && empty($user->name)) {
+                $user->name = $request->client_name;
+            }
+            if (empty($user->profile_image)) {
+                if ($request->hasFile('company_logo')) {
+                    $path = $request->file('company_logo')->store('profiles', 'public');
+                    $user->profile_image = '/storage/' . $path;
+                } elseif ($request->filled('company_logo') && is_string($request->company_logo)) {
+                    $user->profile_image = $request->company_logo;
+                }
+            }
+
+            // Update user contact details if they are currently null
+            if ($request->filled('country_code') && empty($user->country_code)) {
+                $user->country_code = $request->country_code;
+            }
+            if ($request->filled('whatsapp_number') && empty($user->whatsapp_number)) {
+                $user->whatsapp_number = $request->whatsapp_number;
+            }
+            if ($request->filled('phone_number') && empty($user->phone_number)) {
+                $user->phone_number = $request->phone_number;
+            }
+            if ($request->filled('address') && empty($user->address)) {
+                $user->address = $request->address;
+            }
+
+            $user->save();
+
+            // Clean up any previously abandoned checkouts for this same product to prevent duplicate pending entries
+            $abandonedTenants = Tenant::where('client_id', $user->id)
+                ->where('product_id', $request->product_id)
+                ->where('status', 'provisioning')
+                ->whereDoesntHave('payments', function ($query) {
+                    $query->where('status', 'success');
+                })
+                ->get();
+                
+            foreach ($abandonedTenants as $abandoned) {
+                // Delete related records to prevent orphan data before force deleting the abandoned tenant
+                $abandoned->subscriptions()->delete();
+                $abandoned->payments()->delete();
+                Domain::where('tenant_id', $abandoned->id)->delete();
+                $abandoned->forceDelete();
+            }
+
+            $tenantKey = Str::slug($request->business_name) . '-p' . $request->product_id;
+
+            // 1. Create Tenant
+            $tenant = Tenant::create([
+                'client_id' => $user->id,
+                'create_by' => $user->id,
+                'uuid' => Str::uuid()->toString(),
+                'name' => $request->business_name,
+                'tenant_key' => $tenantKey,
+                'business_name' => $request->business_name,
+                'primary_contact_email' => $user->email, // Always use the logged-in client's email securely
+                'phone_number' => $request->phone_number,
+                'whatsapp_number' => $request->whatsapp_number,
+                'country_code' => $request->country_code,
+                'address' => $request->address,
+                'industry' => $request->industry,
+                'product_id' => $request->product_id,
+                'plan_id' => $request->plan_id,
+                'status' => 'pending',
+                'onboard' => filter_var($request->input('onboard', false), FILTER_VALIDATE_BOOLEAN),
+            ]);
+
+            // Attach Add-ons if any
+            if ($request->has('add_ons') && is_array($request->add_ons)) {
+                $tenant->addOns()->attach($request->add_ons);
+            }
+
+            // Calculate actual total amount based on billing cycle
+            $plan = \App\Models\Plan::find($request->plan_id);
+            $billingCycle = $request->billing_cycle ?? 'monthly';
+            
+            $paymentAmount = 0;
+            if ($plan) {
+                if ($billingCycle === 'yearly' || $billingCycle === 'annual') {
+                    $paymentAmount = (float) $plan->annual_price + (float) ($plan->onboarding_fee ?? 0);
+                } else {
+                    $paymentAmount = (float) ($plan->onboarding_fee ?? 0);
+                }
+            }
+            if ($request->has('add_ons') && is_array($request->add_ons)) {
+                $paymentAmount += (float) \App\Models\AddOn::whereIn('id', $request->add_ons)->sum('price');
+            }
+
+            // Determine End Date
+            $endDate = now()->addMonth();
+            if ($billingCycle === 'yearly') {
+                $endDate = now()->addYear();
+            } else if ($plan && $plan->duration_days) {
+                $endDate = now()->addDays($plan->duration_days);
+            }
+
+            // Determine initial payment status and subscription status
+            $initialPaymentStatus = $paymentAmount > 0 ? ($request->payment_status ?? 'pending') : 'success';
+            $subscriptionStatus = $initialPaymentStatus === 'success' ? 'active' : 'pending';
+
+            // Create Subscription
+            $tenant->subscriptions()->create([
+                'plan_id' => $request->plan_id,
+                'status' => $subscriptionStatus,
+                'start_date' => now(),
+                'end_date' => $endDate,
+                'billing_cycle' => $billingCycle,
+            ]);
+
+            // Create Payment
+            $payment = $tenant->payments()->create([
+                'transaction_id' => $request->transaction_id ?? ($paymentAmount > 0 ? null : ('FREE-' . strtoupper(Str::random(10)))),
+                'amount' => $paymentAmount,
+                'currency' => $request->currency ?? 'INR',
+                'payment_method' => $paymentAmount > 0 ? ($request->payment_method ?? 'razorpay') : 'free',
+                'status' => $initialPaymentStatus,
+                'type' => 'purchase',
+                'billing_cycle' => $billingCycle,
+            ]);
+
+            // 2. Create Domain Configuration
+            if ($request->has('domain_type') && $request->has('domain')) {
+                Domain::create([
+                    'tenant_id' => $tenant->id,
+                    'client_id' => $user->id,
+                    'product_id' => $tenant->product_id,
+                    'type' => $request->domain_type,
+                    'domain' => $request->domain,
+                    'status' => 'pending',
+                    'dns_verified' => false,
+                    'dns_verified_at' => null,
+                    'ssl_verified' => false,
+                    'ssl_verified_at' => null,
+                ]);
+            }
+
+
+
+            DB::commit();
+
+            // Generate Razorpay Payment Link
+            $paymentLinkStr = null;
+            $paymentErrorStr = null;
+
+            if ($paymentAmount > 0) {
+                $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
+                
+                $isActive = isset($razorpaySettings['razorpay_active']) && in_array($razorpaySettings['razorpay_active'], ['true', '1', true, 1], true);
+                if ($isActive) {
+                    $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
+                    $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
+
+                    if ($keyId && $keySecret) {
+                        try {
+                            $customerData = array_filter([
+                                'name' => $tenant->business_name,
+                                'email' => $tenant->primary_contact_email,
+                                'contact' => $tenant->phone_number
+                            ]);
+
+                            $paymentLinkData = [
+                                'amount' => (int) ($paymentAmount * 100), // convert to paise
+                                'currency' => $request->currency ?? 'INR',
+                                'description' => 'Payment for Tenant Provisioning',
+                                'customer' => $customerData,
+                                'notify' => ['email' => true, 'sms' => true],
+                                'reminder_enable' => true,
+                            ];
+                            
+                            $response = \Illuminate\Support\Facades\Http::withBasicAuth($keyId, $keySecret)
+                                ->post('https://api.razorpay.com/v1/payment_links', $paymentLinkData);
+
+                            if ($response->successful()) {
+                                $paymentLinkStr = $response->json('short_url');
+                            } else {
+                                throw new \Exception('Razorpay Error: ' . $response->body());
+                            }
+                        } catch (\Exception $e) {
+                            $paymentErrorStr = $e->getMessage();
+                            \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
+                        }
+                    } else {
+                        $paymentErrorStr = 'razorpay_key_id or razorpay_key_secret is missing in settings table';
+                    }
+                } else {
+                    $paymentErrorStr = 'razorpay_active is not set to 1 or true in settings table';
+                }
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Tenant provisioned successfully.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'tenant_status' => $tenant->status,
+                    'payment_status' => $payment->status,
+                    'payment_link' => $paymentLinkStr,
+                    'payment_link_error' => $paymentErrorStr,
+                    'amount' => $paymentAmount,
+                    'invoice_number' => $payment->invoice_number,
+                ]
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to provision tenant.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function renew(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->where(function($q) {
+            $q->where('client_id', auth()->id())->orWhere('create_by', auth()->id());
+        })->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired', 'past_due'])->first();
+        if (!$subscription) {
+            return response()->json(['status' => 'error', 'message' => 'No active or expired subscription found to renew.'], 400);
+        }
+
+        $plan = $subscription->plan ?? $tenant->plan;
+        if (!$plan) {
+            return response()->json(['status' => 'error', 'message' => 'Subscription plan not found.'], 400);
+        }
+
+        $billingCycle = $subscription->billing_cycle ?? 'monthly';
+        $paymentAmount = ($billingCycle === 'yearly' || $billingCycle === 'annual') ? (float) $plan->annual_price : (float) $plan->monthly_price;
+        
+        // Smart Pending Reuse: If a pending renewal payment already exists for this tenant, update it instead of creating duplicates
+        $payment = $tenant->payments()
+            ->where('status', 'pending')
+            ->where('type', 'renewal')
+            ->latest('id')
+            ->first();
+
+        if ($payment) {
+            $payment->update([
+                'amount' => $paymentAmount,
+                'currency' => 'INR',
+                'billing_cycle' => $billingCycle,
+                'payment_method' => 'razorpay',
+            ]);
+        } else {
+            $payment = $tenant->payments()->create([
+                'amount' => $paymentAmount,
+                'currency' => 'INR',
+                'billing_cycle' => $billingCycle,
+                'payment_method' => 'razorpay',
+                'status' => 'pending',
+                'type' => 'renewal',
+            ]);
+        }
+
+        $paymentLinkStr = $this->generateRazorpayLink($tenant, $paymentAmount, 'Payment for Subscription Renewal');
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Renewal payment initiated.',
+            'data' => [
+                'tenant_id' => $tenant->uuid,
+                'payment_id' => $payment->id,
+                'invoice_number' => $payment->invoice_number,
+                'payment_link' => $paymentLinkStr,
+                'amount' => $paymentAmount
+            ]
+        ]);
+    }
+
+    public function upgrade(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->where(function($q) {
+            $q->where('client_id', auth()->id())->orWhere('create_by', auth()->id());
+        })->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'new_plan_id' => 'required|exists:plans,id',
+            'billing_cycle' => 'nullable|in:monthly,yearly,annual',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['status' => 'error', 'message' => 'Validation Error', 'errors' => $validator->errors()], 422);
+        }
+
+        $newPlan = \App\Models\Plan::find($request->new_plan_id);
+        
+        $subscription = $tenant->subscriptions()->whereIn('status', ['active', 'expired', 'past_due'])->first();
+        $billingCycle = $request->billing_cycle ?? ($subscription->billing_cycle ?? 'monthly');
+        $paymentAmount = ($billingCycle === 'yearly' || $billingCycle === 'annual') ? (float) $newPlan->annual_price : (float) $newPlan->monthly_price;
+
+        // Smart Pending Reuse: If a pending upgrade payment already exists for this tenant, update it instead of creating duplicates
+        $payment = $tenant->payments()
+            ->where('status', 'pending')
+            ->where('type', 'upgrade')
+            ->latest('id')
+            ->first();
+
+        if ($payment) {
+            $payment->update([
+                'amount' => $paymentAmount,
+                'currency' => 'INR',
+                'billing_cycle' => $billingCycle,
+                'payment_method' => 'razorpay',
+                'metadata' => ['new_plan_id' => $newPlan->id, 'billing_cycle' => $billingCycle]
+            ]);
+        } else {
+            $payment = $tenant->payments()->create([
+                'amount' => $paymentAmount,
+                'currency' => 'INR',
+                'billing_cycle' => $billingCycle,
+                'payment_method' => 'razorpay',
+                'status' => 'pending',
+                'type' => 'upgrade',
+                'metadata' => ['new_plan_id' => $newPlan->id, 'billing_cycle' => $billingCycle]
+            ]);
+        }
+
+        $paymentLinkStr = $this->generateRazorpayLink($tenant, $paymentAmount, 'Payment for Plan Upgrade to ' . $newPlan->name);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Upgrade payment initiated.',
+            'data' => [
+                'tenant_id' => $tenant->uuid,
+                'payment_id' => $payment->id,
+                'invoice_number' => $payment->invoice_number,
+                'payment_link' => $paymentLinkStr,
+                'amount' => $paymentAmount
+            ]
+        ]);
+    }
+
+    /**
+     * Get all invoices for a specific client purchase (tenant),
+     * including subscriptions, renewals, upgrades, and post-paid overage bills.
+     */
+    public function getInvoices(Request $request, $uuid)
+    {
+        $user = $request->user();
+        $tenant = Tenant::where('uuid', $uuid)->where(function($q) use ($user) {
+            $q->where('client_id', $user->id)->orWhere('create_by', $user->id);
+        })->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        $payments = $tenant->payments()
+            ->orderBy('id', 'desc')
+            ->get()
+            ->map(function ($p) {
+                $createdDate = $p->create_at ?? $p->created_at ?? now();
+                $meta = !empty($p->metadata) ? (is_array($p->metadata) ? $p->metadata : json_decode($p->metadata, true)) : [];
+                return [
+                    'id' => $p->id,
+                    'invoice_number' => $p->invoice_number,
+                    'type' => $p->type,
+                    'type_label' => match($p->type) {
+                        'overage_orders' => 'Additional Orders Overage',
+                        'renewal' => 'Subscription Renewal',
+                        'upgrade' => 'Plan Upgrade',
+                        default => 'Subscription Activation'
+                    },
+                    'amount' => (float) $p->amount,
+                    'currency' => $p->currency ?? 'INR',
+                    'billing_cycle' => $p->billing_cycle ?? 'monthly',
+                    'payment_method' => $p->payment_method ?? 'razorpay',
+                    'status' => $p->status,
+                    'is_paid' => in_array(strtolower($p->status), ['success', 'paid']),
+                    'date' => \Carbon\Carbon::parse($createdDate)->format('M d, Y'),
+                    'metadata' => $meta,
+                    'payment_link' => $meta['payment_link'] ?? null,
+                ];
+            });
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'tenant' => [
+                    'id' => $tenant->id,
+                    'uuid' => $tenant->uuid,
+                    'business_name' => $tenant->business_name,
+                    'plan_name' => $tenant->plan?->name ?? 'Default',
+                ],
+                'summary' => [
+                    'total_invoices' => $payments->count(),
+                    'total_paid' => round($payments->where('is_paid', true)->sum('amount'), 2),
+                    'total_pending' => round($payments->where('is_paid', false)->sum('amount'), 2),
+                    'pending_count' => $payments->where('is_paid', false)->count(),
+                ],
+                'invoices' => $payments,
+            ]
+        ]);
+    }
+
+    /**
+     * Get overage / overplan billing invoices specifically for this purchased tenant.
+     */
+    public function getOverageInvoices(Request $request, $uuid)
+    {
+        $user = $request->user();
+        $tenant = Tenant::where('uuid', $uuid)->where(function($q) use ($user) {
+            $q->where('client_id', $user->id)->orWhere('create_by', $user->id);
+        })->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        $plan = $tenant->plan;
+        $ratePerUnit = (float) ($plan->additional_booking_price ?? $plan->additional_order_price ?? 0);
+
+        // 1. Primary: query dedicated tenant_overage_bills table
+        $bills = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)
+            ->orderBy('id', 'desc')
+            ->get();
+
+        if ($bills->isNotEmpty()) {
+            $overageInvoices = $bills->map(function ($b) use ($plan, $ratePerUnit) {
+                return [
+                    'id' => $b->id,
+                    'bill_id' => $b->id,
+                    'type' => $b->bill_type === 'bookings' ? 'overage_bookings' : 'overage_orders',
+                    'bill_type' => $b->bill_type,
+                    'invoice_number' => $b->bill_number,
+                    'bill_number' => $b->bill_number,
+                    'amount' => (float) $b->total_amount,
+                    'subtotal' => (float) $b->subtotal,
+                    'currency' => $b->currency ?? 'INR',
+                    'status' => $b->status,
+                    'is_paid' => $b->isPaid(),
+                    'date' => $b->created_at?->format('M d, Y'),
+                    'period_label' => $b->period_label,
+                    'included_units' => $b->included_quota,
+                    'total_units' => $b->total_usage,
+                    'overage_units' => $b->overage_units,
+                    'rate_per_unit' => (float) $b->rate_per_unit,
+                    // Backward compatible aliases
+                    'included_orders' => $b->included_quota,
+                    'total_orders' => $b->total_usage,
+                    'overage_orders' => $b->overage_units,
+                    'rate_per_order' => (float) $b->rate_per_unit,
+                    'description' => $b->metadata['description'] ?? null,
+                    'payment_link' => $b->payment_link,
+                    'paid_at' => $b->paid_at?->format('M d, Y'),
+                    'due_date' => $b->due_date?->format('M d, Y'),
+                ];
+            });
+        } else {
+            // 2. Fallback to payments table
+            $overageInvoices = $tenant->payments()
+                ->whereIn('type', ['overage_orders', 'overage_bookings'])
+                ->orderBy('id', 'desc')
+                ->get()
+                ->map(function ($p) use ($plan, $ratePerUnit) {
+                    $createdDate = $p->create_at ?? $p->created_at ?? now();
+                    $meta = !empty($p->metadata) ? (is_array($p->metadata) ? $p->metadata : json_decode($p->metadata, true)) : [];
+                    $isBooking = ($p->type === 'overage_bookings');
+                    return [
+                        'id' => $p->id,
+                        'bill_id' => $p->overage_bill_id ?? $p->id,
+                        'type' => $p->type,
+                        'bill_type' => $isBooking ? 'bookings' : 'orders',
+                        'invoice_number' => $p->invoice_number,
+                        'bill_number' => $p->invoice_number,
+                        'amount' => (float) $p->amount,
+                        'subtotal' => (float) $p->amount,
+                        'currency' => $p->currency ?? 'INR',
+                        'status' => $p->status,
+                        'is_paid' => in_array(strtolower($p->status), ['success', 'paid']),
+                        'date' => \Carbon\Carbon::parse($createdDate)->format('M d, Y'),
+                        'period_label' => $meta['period_label'] ?? \Carbon\Carbon::parse($createdDate)->format('M Y'),
+                        'included_units' => $meta['included_bookings'] ?? $meta['included_orders'] ?? 0,
+                        'total_units' => $meta['total_bookings'] ?? $meta['total_orders'] ?? 0,
+                        'overage_units' => $meta['overage_bookings'] ?? $meta['overage_orders'] ?? 0,
+                        'rate_per_unit' => $meta['rate_per_booking'] ?? $meta['rate_per_order'] ?? $ratePerUnit,
+                        // Backward compatible aliases
+                        'included_orders' => $meta['included_bookings'] ?? $meta['included_orders'] ?? 0,
+                        'total_orders' => $meta['total_bookings'] ?? $meta['total_orders'] ?? 0,
+                        'overage_orders' => $meta['overage_bookings'] ?? $meta['overage_orders'] ?? 0,
+                        'rate_per_order' => $meta['rate_per_booking'] ?? $meta['rate_per_order'] ?? $ratePerUnit,
+                        'description' => $meta['description'] ?? null,
+                        'payment_link' => $meta['payment_link'] ?? null,
+                        'paid_at' => null,
+                        'due_date' => null,
+                    ];
+                });
+        }
+
+        $pendingInvoice = $overageInvoices->firstWhere('is_paid', false);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'tenant_uuid' => $tenant->uuid,
+                'plan_name' => $plan?->name,
+                'rate_per_unit' => $ratePerUnit,
+                'rate_per_order' => (float) ($plan?->additional_order_price ?? 0),
+                'rate_per_booking' => (float) ($plan?->additional_booking_price ?? 0),
+                'included_orders_annual' => (int) ($plan?->max_orders ?? -1),
+                'included_orders_monthly' => (int) ($plan?->max_orders_monthly ?? -1),
+                'included_bookings_annual' => (int) ($plan?->max_bookings ?? -1),
+                'included_bookings_monthly' => (int) ($plan?->max_bookings_monthly ?? -1),
+                'total_overage_invoices' => $overageInvoices->count(),
+                'total_overage_pending' => round($overageInvoices->where('is_paid', false)->sum('amount'), 2),
+                'pending_invoice' => $pendingInvoice,
+                'invoices' => $overageInvoices,
+            ]
+        ]);
+    }
+
+    /**
+     * Initiate or generate payment link for a pending overage / additional orders bill.
+     */
+    public function payOverage(Request $request, $uuid)
+    {
+        $user = $request->user();
+        $tenant = Tenant::where('uuid', $uuid)->where(function($q) use ($user) {
+            $q->where('client_id', $user->id)->orWhere('create_by', $user->id);
+        })->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        // Look up bill from tenant_overage_bills first
+        $bill = null;
+        if ($request->filled('bill_id')) {
+            $bill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)->where('id', $request->bill_id)->first();
+        } elseif ($request->filled('bill_number')) {
+            $bill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)->where('bill_number', $request->bill_number)->first();
+        } elseif ($request->filled('payment_id')) {
+            $bill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)
+                ->whereHas('payments', function ($pq) use ($request) {
+                    $pq->where('id', $request->payment_id);
+                })
+                ->first();
+        }
+
+        if (!$bill) {
+            $bill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)
+                ->where('status', 'pending')
+                ->latest('id')
+                ->first();
+        }
+
+        if ($bill && $bill->isPaid()) {
+            return response()->json(['status' => 'error', 'message' => 'This bill has already been paid.'], 400);
+        }
+
+        // Find corresponding payment
+        $payment = null;
+        if ($bill) {
+            $payment = $tenant->payments()->where('overage_bill_id', $bill->id)->latest('id')->first();
+        }
+        if (!$payment) {
+            if ($request->filled('payment_id')) {
+                $payment = $tenant->payments()->where('id', $request->payment_id)->first();
+            } else {
+                $payment = $tenant->payments()
+                    ->whereIn('type', ['overage_orders', 'overage_bookings'])
+                    ->where('status', 'pending')
+                    ->latest('id')
+                    ->first();
+            }
+        }
+
+        if (!$bill && !$payment) {
+            return response()->json(['status' => 'error', 'message' => 'No pending overage invoice found to pay.'], 404);
+        }
+
+        if ($payment && in_array(strtolower($payment->status), ['success', 'paid'])) {
+            return response()->json(['status' => 'error', 'message' => 'This invoice has already been paid.'], 400);
+        }
+
+        $meta = !empty($payment?->metadata) ? (is_array($payment->metadata) ? $payment->metadata : json_decode($payment->metadata, true)) : ($bill?->metadata ?? []);
+        $extraUnits = $bill?->overage_units ?? ($meta['overage_bookings'] ?? $meta['overage_orders'] ?? 0);
+        $billType = $bill?->bill_type ?? (($payment?->type === 'overage_bookings') ? 'bookings' : 'orders');
+        $unitLabel = ($billType === 'bookings') ? 'Bookings' : 'Orders';
+        $invoiceNum = $bill?->bill_number ?? $payment?->invoice_number;
+        $amount = (float) ($bill?->total_amount ?? $payment?->amount);
+
+        $description = "Payment for Additional {$unitLabel} Overage: Invoice #{$invoiceNum} ({$extraUnits} extra {$unitLabel})";
+
+        // Generate Razorpay payment link
+        $paymentLink = $this->generateRazorpayLink($tenant, $amount, $description);
+
+        if ($paymentLink) {
+            if ($bill) {
+                $bill->payment_link = $paymentLink;
+                $bill->save();
+            }
+            if ($payment) {
+                $meta['payment_link'] = $paymentLink;
+                $payment->metadata = $meta;
+                $payment->save();
+            }
+        }
+
+        $finalLink = $paymentLink ?? ($bill?->payment_link ?? ($meta['payment_link'] ?? null));
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Overage invoice payment initiated.',
+            'data' => [
+                'tenant_uuid' => $tenant->uuid,
+                'bill_id' => $bill?->id,
+                'bill_number' => $bill?->bill_number,
+                'payment_id' => $payment?->id,
+                'invoice_number' => $invoiceNum,
+                'amount' => $amount,
+                'currency' => $bill?->currency ?? $payment?->currency ?? 'INR',
+                'status' => $bill?->status ?? $payment?->status,
+                'extra_units' => $extraUnits,
+                'extra_orders' => $extraUnits,
+                'payment_link' => $finalLink,
+            ]
+        ]);
+    }
+
+    private function generateRazorpayLink($tenant, $amount, $description)
+    {
+        $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
+        $isActive = isset($razorpaySettings['razorpay_active']) && in_array($razorpaySettings['razorpay_active'], ['true', '1', true, 1], true);
+        
+        if (!$isActive) return null;
+
+        $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
+        $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
+
+        if ($keyId && $keySecret) {
+            try {
+                $api = new \Razorpay\Api\Api($keyId, $keySecret);
+                $paymentLinkData = [
+                    'amount' => (int) ($amount * 100),
+                    'currency' => 'INR',
+                    'description' => $description,
+                    'customer' => array_filter([
+                        'name' => $tenant->business_name,
+                        'email' => $tenant->primary_contact_email,
+                        'contact' => $tenant->phone_number
+                    ]),
+                    'notify' => ['email' => true, 'sms' => true],
+                    'reminder_enable' => true,
+                ];
+                return $api->paymentLink->create($paymentLinkData)->short_url;
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
+            }
+        }
+        return null;
+    }
+
+    public function verifyPayment(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'razorpay_payment_id' => 'nullable|string',
+            'razorpay_payment_link_id' => 'nullable|string',
+            'razorpay_payment_link_status' => 'nullable|string',
+            'razorpay_signature' => 'nullable|string', // frontend might not send signature if it's a simple flow
+            'status' => 'nullable|string', // fallback for custom status ('success', 'failed', 'pending', 'canceled')
+            'onboard' => 'nullable|boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation Error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // If a signature is provided, we verify it for security
+        if ($request->has('razorpay_signature') && $request->has('razorpay_payment_link_id') && $request->has('razorpay_payment_link_reference_id')) {
+            $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_secret'])->pluck('value', 'key')->toArray();
+            $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
+            
+            if ($keySecret) {
+                $expectedSignature = hash_hmac('sha256', $request->razorpay_payment_link_id . '|' . $request->razorpay_payment_link_reference_id . '|' . $request->razorpay_payment_link_status . '|' . $request->razorpay_payment_id, $keySecret);
+                if (!hash_equals($expectedSignature, $request->razorpay_signature)) {
+                    return response()->json(['status' => 'error', 'message' => 'Invalid payment signature'], 400);
+                }
+            }
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Determine initial payment status from request params
+            $paymentStatus = 'pending';
+
+            if ($request->filled('razorpay_payment_link_status')) {
+                $linkStatus = strtolower($request->razorpay_payment_link_status);
+                $paymentStatus = match ($linkStatus) {
+                    'paid' => 'success',
+                    'failed', 'expired' => 'failed',
+                    'cancelled', 'canceled' => 'canceled',
+                    default => $linkStatus
+                };
+            } elseif ($request->filled('status')) {
+                $incomingStatus = strtolower($request->status);
+                $paymentStatus = match ($incomingStatus) {
+                    'success', 'paid' => 'success',
+                    'failed' => 'failed',
+                    'cancelled', 'canceled' => 'canceled',
+                    'pending' => 'pending',
+                    default => $incomingStatus
+                };
+            } elseif ($request->filled('razorpay_payment_id')) {
+                $paymentStatus = 'success';
+            }
+
+            // Fetch detailed info from Razorpay API if payment ID is available
+            $bankRrn = null;
+            $orderId = null;
+            $customerDetails = null;
+            $paymentMethodStr = 'razorpay';
+            
+            $razorpaySettingsForFetch = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret'])->pluck('value', 'key')->toArray();
+            $keyId = $razorpaySettingsForFetch['razorpay_key_id'] ?? null;
+            $keySecretFetch = $razorpaySettingsForFetch['razorpay_key_secret'] ?? null;
+
+            if ($keyId && $keySecretFetch && $request->filled('razorpay_payment_id')) {
+                try {
+                    $api = new \Razorpay\Api\Api($keyId, $keySecretFetch);
+                    $rzpPayment = $api->payment->fetch($request->razorpay_payment_id);
+                    
+                    if ($rzpPayment) {
+                        if (isset($rzpPayment->status)) {
+                            if (in_array($rzpPayment->status, ['captured', 'authorized', 'paid'])) {
+                                $paymentStatus = 'success';
+                            } elseif ($rzpPayment->status === 'failed') {
+                                $paymentStatus = 'failed';
+                            }
+                        }
+
+                        // Extract bank_rrn or generic RRN
+                        $bankRrn = $rzpPayment->acquirer_data['bank_transaction_id'] ?? $rzpPayment->acquirer_data['rrn'] ?? null;
+                        $orderId = $rzpPayment->order_id ?? null;
+                        
+                        $customerDetails = [
+                            'email' => $rzpPayment->email ?? null,
+                            'contact' => $rzpPayment->contact ?? null,
+                        ];
+                        
+                        // Try to get a more specific payment method
+                        if ($rzpPayment->method) {
+                            $paymentMethodStr = $rzpPayment->method;
+                            if ($rzpPayment->bank) {
+                                $paymentMethodStr .= ' (' . $rzpPayment->bank . ')';
+                            }
+                        }
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Razorpay Payment Fetch Error: ' . $e->getMessage());
+                }
+            }
+
+            // Find the specific payment being verified:
+            // 1. By explicit payment_id, invoice_number, or razorpay_order_id
+            $payment = null;
+            if ($request->filled('payment_id')) {
+                $payment = $tenant->payments()->where('id', $request->payment_id)->first();
+            } elseif ($request->filled('invoice_number')) {
+                $inv = $request->invoice_number;
+                $invId = null;
+                if (preg_match('/INV-\d{4}-(\d+)/', $inv, $matches)) {
+                    $invId = (int)$matches[1];
+                } elseif (preg_match('/INV-(\d+)/', $inv, $matches)) {
+                    $invId = (int)$matches[1];
+                } elseif (is_numeric($inv)) {
+                    $invId = (int)$inv;
+                }
+                if ($invId) {
+                    $payment = $tenant->payments()->where('id', $invId)->first();
+                }
+            } elseif ($request->filled('razorpay_order_id')) {
+                $payment = $tenant->payments()->where('order_id', $request->razorpay_order_id)->first();
+            }
+
+            // 2. Otherwise pick the LATEST pending payment for this tenant (so newly initiated renewal/upgrade is updated, not an old record!)
+            if (!$payment) {
+                $payment = $tenant->payments()->where('status', 'pending')->latest('id')->first();
+            }
+
+            // 3. Fallback
+            if (!$payment) {
+                $payment = $tenant->payments()->latest('id')->first();
+            }
+
+            if ($payment) {
+                $payment->update([
+                    'transaction_id' => $request->razorpay_payment_id ?? $payment->transaction_id,
+                    'status' => $paymentStatus,
+                    'payment_method' => $paymentMethodStr,
+                    'bank_rrn' => $bankRrn,
+                    'order_id' => $orderId ?: $payment->order_id,
+                    'customer_details' => $customerDetails ?: $payment->customer_details,
+                ]);
+            } else {
+                // Fallback if no payment was found
+                $payment = $tenant->payments()->create([
+                    'transaction_id' => $request->razorpay_payment_id,
+                    'amount' => 0,
+                    'currency' => 'INR',
+                    'payment_method' => $paymentMethodStr,
+                    'status' => $paymentStatus,
+                    'bank_rrn' => $bankRrn,
+                    'order_id' => $orderId,
+                    'customer_details' => $customerDetails,
+                    'type' => 'purchase'
+                ]);
+            }
+
+            // Handle subscription and tenant status logic
+            $subscription = $tenant->subscriptions()->latest('id')->first();
+
+            if ($paymentStatus === 'success') {
+                $paymentType = $payment ? ($payment->type ?? 'purchase') : 'purchase';
+
+                // Automatically clean up any other orphaned pending renewal/upgrade attempts for this tenant so they don't linger in invoices list
+                $tenant->payments()
+                    ->where('status', 'pending')
+                    ->where('id', '!=', $payment->id)
+                    ->whereIn('type', ['renewal', 'upgrade'])
+                    ->update(['status' => 'canceled']);
+
+                if ($paymentType === 'renewal') {
+                    if ($subscription) {
+                        $currentEndDate = $subscription->end_date ? \Carbon\Carbon::parse($subscription->end_date) : now();
+                        if ($currentEndDate->isPast()) {
+                            $currentEndDate = now();
+                        }
+                        $billingCycle = $payment->billing_cycle ?? $subscription->billing_cycle ?? 'monthly';
+                        if ($billingCycle === 'yearly' || $billingCycle === 'annual') {
+                            $subscription->end_date = $currentEndDate->addYear();
+                        } else {
+                            $subscription->end_date = $currentEndDate->addMonth();
+                        }
+                        $subscription->status = 'active';
+                        $subscription->save();
+                    }
+                    if (in_array($tenant->status, ['expired', 'past_due', 'pending'])) {
+                        $tenant->status = 'active';
+                        $tenant->save();
+                        \App\Services\TenantProvisionService::unblockTenant($tenant);
+                    }
+                } elseif ($paymentType === 'upgrade') {
+                    $metadata = $payment->metadata ?? [];
+                    $newPlanId = $metadata['new_plan_id'] ?? $request->input('new_plan_id');
+                    if ($subscription && $newPlanId) {
+                        $subscription->plan_id = $newPlanId;
+                        if (isset($metadata['billing_cycle'])) {
+                            $subscription->billing_cycle = $metadata['billing_cycle'];
+                        }
+
+                        // Calculate remaining days from current subscription
+                        $remainingDays = 0;
+                        if ($subscription->end_date) {
+                            $currentEndDate = \Carbon\Carbon::parse($subscription->end_date);
+                            if ($currentEndDate->isFuture()) {
+                                $remainingDays = (int) now()->diffInDays($currentEndDate);
+                            }
+                        }
+
+                        $subscription->start_date = now();
+                        
+                        $plan = \App\Models\Plan::find($newPlanId);
+                        $billingCycle = $subscription->billing_cycle ?? 'monthly';
+                        
+                        if ($billingCycle === 'yearly' || $billingCycle === 'annual') {
+                            $subscription->end_date = now()->addYear()->addDays($remainingDays);
+                        } else if ($plan && $plan->duration_days) {
+                            $subscription->end_date = now()->addDays($plan->duration_days + $remainingDays);
+                        } else {
+                            $subscription->end_date = now()->addMonth()->addDays($remainingDays);
+                        }
+                        
+                        $subscription->status = 'active';
+                        $subscription->save();
+                    }
+                    if ($newPlanId) {
+                        $tenant->plan_id = $newPlanId;
+                    }
+                    if (in_array($tenant->status, ['expired', 'past_due', 'pending'])) {
+                        $tenant->status = 'active';
+                        $tenant->save();
+                        \App\Services\TenantProvisionService::unblockTenant($tenant);
+                    }
+                } elseif ($paymentType === 'overage_orders' || $paymentType === 'overage_bookings') {
+                    // Post-Paid Overage bill paid: Keep current subscription active, unblock if past due or suspended
+                    if (in_array($tenant->status, ['expired', 'past_due', 'suspended', 'pending'])) {
+                        $tenant->status = 'active';
+                        $tenant->save();
+                        \App\Services\TenantProvisionService::unblockTenant($tenant);
+                    }
+
+                    // Mark linked TenantOverageBill as paid
+                    $bill = null;
+                    if ($payment->overage_bill_id) {
+                        $bill = \App\Models\TenantOverageBill::find($payment->overage_bill_id);
+                    }
+                    if (!$bill) {
+                        $billType = ($paymentType === 'overage_bookings') ? 'bookings' : 'orders';
+                        $bill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)
+                            ->where('bill_type', $billType)
+                            ->where('status', 'pending')
+                            ->latest('id')
+                            ->first();
+                    }
+
+                    if ($bill) {
+                        $bill->markAsPaid($payment->transaction_id, $paymentMethodStr);
+                        if (!$payment->overage_bill_id) {
+                            $payment->update(['overage_bill_id' => $bill->id]);
+                        }
+                    }
+
+                    AuditLogger::log($tenant->id, 'overage_bill_paid', "Post-paid overage invoice #{$payment->invoice_number} paid successfully (Amount: ₹{$payment->amount}).");
+                } else {
+                    // Initial Client Purchase: Activate subscription, keep tenant status 'pending'
+                    if ($subscription) {
+                        $subscription->status = 'active';
+                        $subscription->save();
+                    }
+                    $tenant->status = 'pending';
+                    $tenant->save();
+                }
+            } elseif (in_array($paymentStatus, ['failed', 'canceled', 'cancelled'])) {
+                // If payment was for renewal, upgrade, or overage, do NOT cancel an active subscription or demote an active tenant to pending!
+                if ($payment && in_array($payment->type, ['renewal', 'upgrade', 'overage_orders', 'overage_bookings'])) {
+                    // Keep subscription and tenant in their current active state; only payment record is marked failed/canceled
+                } else {
+                    if ($subscription) {
+                        $subscription->status = $paymentStatus;
+                        $subscription->save();
+                    }
+                    $tenant->status = 'pending';
+                    $tenant->save();
+                }
+            }
+
+            // Update onboard status if provided
+            if ($request->has('onboard')) {
+                $tenant->onboard = filter_var($request->input('onboard', false), FILTER_VALIDATE_BOOLEAN);
+                $tenant->save();
+            }
+
+            DB::commit();
+
+            if ($paymentStatus === 'success' && isset($payment)) {
+                try {
+                    $client = $tenant->client;
+                    $clientEmail = $client ? $client->email : $tenant->primary_contact_email;
+                    if ($clientEmail) {
+                        $clientName = $client ? $client->name : $tenant->business_name;
+
+                        // No invoice PDF attachment per requirement (download available in client dashboard)
+                        $emailAttachments = [];
+
+                        // Use Dynamic Template if available
+                        $paymentTemplate = \App\Models\EmailTemplate::where('slug', 'Payment_Received')->first();
+                        
+                        if ($paymentTemplate && $paymentTemplate->status === 'active') {
+                            $imageUrl = (!empty($paymentTemplate->images) && isset($paymentTemplate->images[0])) ? url($paymentTemplate->images[0]) : '';
+                            
+                            $replacements = [
+                                '{name}' => $clientName,
+                                '{{name}}' => $clientName,
+                                '{email}' => $clientEmail,
+                                '{{email}}' => $clientEmail,
+                                '{business_name}' => $tenant->business_name,
+                                '{{business_name}}' => $tenant->business_name,
+                                '{tenant_name}' => $tenant->name,
+                                '{{tenant_name}}' => $tenant->name,
+                                '{tenant_slug}' => $tenant->tenant_key,
+                                '{{tenant_slug}}' => $tenant->tenant_key,
+                                '{product_name}' => $tenant->product->name ?? '',
+                                '{{product_name}}' => $tenant->product->name ?? '',
+                                '{invoice_amount}' => $payment->amount,
+                                '{{invoice_amount}}' => $payment->amount,
+                                '{invoice_number}' => $payment->invoice_number ?? '',
+                                '{{invoice_number}}' => $payment->invoice_number ?? '',
+                                '{image}' => $imageUrl,
+                                '{{image}}' => $imageUrl,
+                                'tenant' => $tenant,
+                                'payment' => $payment,
+                            ];
+
+                            \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\DynamicEmail($paymentTemplate, $replacements, $emailAttachments));
+                        } else {
+                            // Fallback
+                            \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\ClientPaymentReceivedMail($tenant, $payment, $emailAttachments));
+                        }
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to send payment received email to client: ' . $e->getMessage());
+                }
+
+                // Send Email to Admin
+                try {
+                    $adminEmails = \App\Models\User::role('SuperAdmin')->pluck('email')->filter()->unique();
+                    foreach ($adminEmails as $email) {
+                        \Illuminate\Support\Facades\Mail::to($email)->send(new \App\Mail\AdminPaymentReceivedMail($tenant, $payment));
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to send admin payment notification email: ' . $e->getMessage());
+                }
+
+                // Create Admin Notification for Payment
+                try {
+                    $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
+                    \App\Models\AdminNotification::create([
+                        'type' => 'payment_received',
+                        'title' => 'Payment Received',
+                        'message' => 'Payment of ' . $payment->currency . ' ' . $payment->amount . ' received from ' . $clientName . '.',
+                        'related_id' => $tenant->id,
+                        'client_name' => $clientName,
+                        'is_read' => false
+                    ]);
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to create payment received notification: ' . $e->getMessage());
+                }
+            } elseif ($paymentStatus === 'failed' && isset($payment)) {
+                try {
+                    $client = $tenant->client;
+                    $clientEmail = $client ? $client->email : $tenant->primary_contact_email;
+                    if ($clientEmail) {
+                        \Illuminate\Support\Facades\Mail::to($clientEmail)->send(new \App\Mail\ClientPaymentFailedMail($tenant, $payment));
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to send payment failed email to client: ' . $e->getMessage());
+                }
+
+                try {
+                    $adminEmails = \App\Models\User::role('SuperAdmin')->pluck('email')->filter()->unique();
+                    foreach ($adminEmails as $email) {
+                        \Illuminate\Support\Facades\Mail::to($email)->send(new \App\Mail\AdminPaymentFailedMail($tenant, $payment));
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to send admin payment failed notification email: ' . $e->getMessage());
+                }
+
+                try {
+                    $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
+                    \App\Models\AdminNotification::create([
+                        'type' => 'payment_failed',
+                        'title' => 'Payment Failed',
+                        'message' => 'Payment attempt of ' . $payment->currency . ' ' . $payment->amount . ' failed from ' . $clientName . '.',
+                        'related_id' => $tenant->id,
+                        'client_name' => $clientName,
+                        'is_read' => false
+                    ]);
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to create payment failed notification: ' . $e->getMessage());
+                }
+            }
+
+            return response()->json([
+                'status' => $paymentStatus === 'success' ? 'success' : 'error',
+                'message' => $paymentStatus === 'success' ? 'Payment verified successfully.' : ('Payment ' . $paymentStatus . '.'),
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'tenant_status' => $tenant->status,
+                    'payment_status' => $paymentStatus,
+                    'invoice_number' => $payment ? $payment->invoice_number : null,
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to verify payment.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Cancel an unfulfilled or pending payment (e.g., when user closes/cancels checkout popup).
+     */
+    public function cancelPayment(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $payment = null;
+        if ($request->filled('payment_id')) {
+            $payment = $tenant->payments()->where('id', $request->payment_id)->first();
+        } elseif ($request->filled('invoice_number')) {
+            $inv = $request->invoice_number;
+            $invId = null;
+            if (preg_match('/INV-\d{4}-(\d+)/', $inv, $matches)) {
+                $invId = (int)$matches[1];
+            } elseif (preg_match('/INV-(\d+)/', $inv, $matches)) {
+                $invId = (int)$matches[1];
+            } elseif (is_numeric($inv)) {
+                $invId = (int)$inv;
+            }
+            if ($invId) {
+                $payment = $tenant->payments()->where('id', $invId)->first();
+            }
+        }
+
+        if (!$payment) {
+            $payment = $tenant->payments()->where('status', 'pending')->latest('id')->first();
+        }
+
+        if ($payment && $payment->status === 'pending') {
+            $payment->update([
+                'status' => 'canceled'
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Pending payment cancelled successfully.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'payment_id' => $payment->id,
+                    'invoice_number' => $payment->invoice_number,
+                    'payment_status' => 'canceled'
+                ]
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'No active pending payment found to cancel.'
+        ]);
+    }
+
+    public function setupDomain(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        // Auto-construct full domain from subdomain_prefix
+        if ($request->domain_type === 'subdomain' && $request->has('subdomain_prefix')) {
+            $prefix = trim($request->subdomain_prefix, " .");
+            $request->merge(['domain' => $prefix . '.tidcraft.com']);
+        } elseif ($request->domain_type === 'custom' && $request->has('domain')) {
+            $cleanDomain = \App\Services\DnsService::normalizeDomain($request->domain);
+            $request->merge(['domain' => $cleanDomain]);
+        }
+
+        $existingDomain = Domain::where('tenant_id', $tenant->id)->first();
+        $ignoreId = $existingDomain ? $existingDomain->id : 'NULL';
+
+        $validator = Validator::make($request->all(), [
+            'domain_type' => 'required|in:subdomain,shared,custom',
+            'domain' => 'required|string|unique:domains,domain,' . $ignoreId . ',id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation Error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $existingDomain = Domain::where('tenant_id', $tenant->id)->first();
+            $domainStatus = ($request->domain_type === 'custom') ? 'pending_dns' : 'pending';
+
+            if ($existingDomain) {
+                if ($existingDomain->domain === $request->domain) {
+                    // Keep the existing status if the domain hasn't changed
+                    $domainStatus = $existingDomain->status;
+                } else {
+                    // Domain changed: reset verifications
+                    $existingDomain->dns_verified = false;
+                    $existingDomain->dns_verified_at = null;
+                    $existingDomain->ssl_verified = false;
+                    $existingDomain->ssl_verified_at = null;
+                }
+
+                $existingDomain->update([
+                    'client_id' => $tenant->client_id ?? $tenant->create_by,
+                    'product_id' => $tenant->product_id,
+                    'type' => $request->domain_type,
+                    'domain' => $request->domain,
+                    'status' => $domainStatus,
+                ]);
+                $domainRecord = $existingDomain;
+            } else {
+                $domainRecord = Domain::create([
+                    'tenant_id' => $tenant->id,
+                    'client_id' => $tenant->client_id ?? $tenant->create_by,
+                    'product_id' => $tenant->product_id,
+                    'type' => $request->domain_type,
+                    'domain' => $request->domain,
+                    'status' => $domainStatus,
+                ]);
+            }
+
+            DB::commit();
+
+            // For custom domain: auto-detect server IP, prepare DNS records, and send email instructions
+            if ($request->domain_type === 'custom') {
+                $serverIp = \App\Services\DnsService::getServerIp();
+                $dnsRecords = \App\Services\DnsService::getExpectedDnsRecords($request->domain, 'custom');
+
+                // Send email notification with DNS instructions only if not already verified
+                $emailSent = false;
+                if (!$domainRecord->dns_verified && $domainRecord->status !== 'active') {
+                    \App\Services\DnsService::sendDnsInstructionsEmail($tenant, $domainRecord);
+                    $emailSent = true;
+                }
+
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Custom domain configured successfully. Please add the required DNS records in your domain registrar.',
+                    'data' => [
+                        'tenant_id' => $tenant->uuid,
+                        'domain' => $request->domain,
+                        'domain_type' => $domainRecord->type,
+                        'domain_status' => $domainRecord->status,
+                        'server_ip' => $serverIp,
+                        'dns_records' => $dnsRecords,
+                        'instructions' => [
+                            'title' => 'DNS Configuration Required',
+                            'description' => \App\Services\DnsService::isApexDomain($request->domain)
+                                ? "Add the A record with Host @ pointing to {$serverIp} and CNAME record for www at your domain registrar."
+                                : "Add the A record with Host " . (explode('.', $request->domain)[0] ?? '@') . " pointing to {$serverIp} at your domain registrar.",
+                            'verify_endpoint' => "/api/client/purchases/{$tenant->uuid}/verify-dns",
+                            'propagation_time' => '5-30 minutes (up to 24-48 hours)'
+                        ],
+                        'email_sent' => $emailSent
+                    ]
+                ]);
+            }
+
+            // For subdomain: trigger background provisioning if tenant is unprovisioned
+            $provisioningLogs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)->get();
+            $isFullyProvisioned = $provisioningLogs->where('step', 'activation')->where('status', 'success')->isNotEmpty()
+                && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id);
+
+            if (!$isFullyProvisioned) {
+                $tenant->update(['status' => 'provisioning']);
+                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                \App\Helpers\QueueRunner::runBackground();
+            }
+
+            // Standard response for subdomain (preserves existing behavior)
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Domain configured successfully.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'domain' => $request->domain,
+                    'domain_type' => $request->domain_type
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to configure domain.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Verify live DNS propagation for the tenant domain.
+     */
+    public function verifyDns(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $domain = Domain::where('tenant_id', $tenant->id)->first();
+        if (!$domain) {
+            return response()->json(['status' => 'error', 'message' => 'No domain configured for this purchase.'], 404);
+        }
+
+        $verification = \App\Services\DnsService::verifyDomainDns($domain->domain, $domain->type);
+
+        if ($verification['verified']) {
+            $domain->update([
+                'status' => 'active',
+                'dns_verified' => true,
+                'dns_verified_at' => now(),
+            ]);
+
+            // Create frontend symlink for Nginx
+            \App\Services\DnsService::createTenantSymlink($tenant, $domain->domain);
+
+            if ($domain->type === 'custom') {
+                \App\Jobs\GenerateSslForCustomDomainJob::dispatch($tenant, $domain->domain);
+                \App\Helpers\QueueRunner::runBackground();
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'verified' => true,
+                'message' => 'DNS records verified successfully! Your custom domain is now active.',
+                'data' => [
+                    'tenant_id' => $tenant->uuid,
+                    'domain' => $domain->domain,
+                    'domain_type' => $domain->type,
+                    'status' => 'active',
+                    'dns_verified' => true,
+                    'dns_verified_at' => now()->toIso8601String(),
+                    'server_ip' => $verification['server_ip'],
+                    'resolved_ips' => $verification['resolved_ips'],
+                    'verified_at' => now()->toIso8601String()
+                ]
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'error',
+            'verified' => false,
+            'message' => $verification['message'],
+            'data' => [
+                'tenant_id' => $tenant->uuid,
+                'domain' => $domain->domain,
+                'domain_type' => $domain->type,
+                'status' => $domain->status,
+                'server_ip' => $verification['server_ip'],
+                'current_resolved_ips' => $verification['resolved_ips'],
+                'dns_records' => \App\Services\DnsService::getExpectedDnsRecords($domain->domain, $domain->type),
+                'help' => 'Ensure you have added an A record with Host ' . (\App\Services\DnsService::isApexDomain($domain->domain) ? '@' : (explode('.', $domain->domain)[0] ?? '@')) . ' pointing to ' . $verification['server_ip'] . '. Note that DNS propagation can take 5-30 minutes.'
+            ]
+        ], 400);
+    }
+
+    /**
+     * Get current DNS status and required records.
+     */
+    public function dnsStatus(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $domain = Domain::where('tenant_id', $tenant->id)->first();
+        if (!$domain) {
+            return response()->json(['status' => 'error', 'message' => 'No domain configured for this purchase.'], 404);
+        }
+
+        $serverIp = \App\Services\DnsService::getServerIp();
+        $dnsRecords = \App\Services\DnsService::getExpectedDnsRecords($domain->domain, $domain->type);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'tenant_id' => $tenant->uuid,
+                'domain' => $domain->domain,
+                'domain_type' => $domain->type,
+                'status' => $domain->status,
+                'server_ip' => $serverIp,
+                'dns_records' => $dnsRecords,
+                'is_active' => $domain->status === 'active'
+            ]
+        ]);
+    }
+
+    /**
+     * Resend DNS instructions email to the client.
+     */
+    public function sendDnsEmail(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $domain = Domain::where('tenant_id', $tenant->id)->first();
+        if (!$domain) {
+            return response()->json(['status' => 'error', 'message' => 'No domain configured for this purchase.'], 404);
+        }
+
+        $sent = \App\Services\DnsService::sendDnsInstructionsEmail($tenant, $domain, true);
+
+        if ($sent) {
+            $client = $tenant->client ?? \App\Models\User::find($tenant->client_id ?? $tenant->create_by);
+            $email = $client->email ?? $tenant->primary_contact_email;
+            return response()->json([
+                'status' => 'success',
+                'message' => "DNS instructions email successfully sent to {$email}."
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Failed to send DNS instructions email. Please check contact email configuration.'
+        ], 500);
+    }
+
+    public function checkoutproduct(Request $request)
+    {
+        $user = $request->user();
+
+        // Auto-fill from user profile if not provided
+        if (!$request->has('business_name') && $user->company_name) {
+            $request->merge(['business_name' => $user->company_name]);
+        }
+        
+        // Auto-construct full domain from subdomain_prefix
+        if ($request->domain_type === 'subdomain' && $request->has('subdomain_prefix')) {
+            $prefix = trim($request->subdomain_prefix, " .");
+            $request->merge(['domain' => $prefix . '.tidcraft.com']);
+        } elseif ($request->domain_type === 'custom' && $request->has('domain')) {
+            $cleanDomain = \App\Services\DnsService::normalizeDomain($request->domain);
+            $request->merge(['domain' => $cleanDomain]);
+        }
+        
+        $ignoreDomainId = null;
+        if ($request->filled('domain')) {
+            $existingDomain = \App\Models\Domain::where('domain', $request->domain)
+                ->with('tenant')
+                ->first();
+            if ($existingDomain) {
+                $ownerClientId = $existingDomain->client_id ?? $existingDomain->tenant?->client_id;
+                if ($ownerClientId && (string)$ownerClientId === (string)$user->id) {
+                    $ignoreDomainId = $existingDomain->id;
+                }
+            }
+        }
+
+        $validator = Validator::make($request->all(), [
+            // Step 1: Client Info
+            'business_name' => 'required|string|max:255',
+            'client_name' => 'nullable|string|max:255',
+            'company_logo' => 'nullable',
             'primary_contact_email' => 'nullable|email|max:255',
             'phone_number' => 'nullable|string|max:20',
             'industry' => 'nullable|string|max:255',
@@ -106,12 +1817,11 @@ class ClientPurchaseController extends Controller
             // Step 2 & 3: Product and Plan
             'product_id' => 'required|exists:products,id',
             'plan_id' => 'required|exists:plans,id',
+            'billing_cycle' => 'nullable|in:monthly,yearly',
 
             // Step 4: Domain Setup
-            'domain_type' => 'required|in:subdomain,shared,custom',
-            'domain' => 'required|string|unique:tenant_domains,domain',
-
-
+            'domain_type' => 'nullable|in:subdomain,shared,custom',
+            'domain' => 'nullable|string' . ($ignoreDomainId ? "|unique:domains,domain,{$ignoreDomainId}" : "|unique:domains,domain"),
 
             // Add-ons
             'add_ons' => 'nullable|array',
@@ -136,17 +1846,86 @@ class ClientPurchaseController extends Controller
         try {
             DB::beginTransaction();
 
-            // 1. Create Tenant
+            // Update user profile with client name, logo, phone and address if provided
+            if ($request->filled('client_name')) {
+                $user->name = $request->client_name;
+            }
+            if ($request->filled('phone_number') && empty($user->phone_number)) {
+                $user->phone_number = $request->phone_number;
+            }
+            if ($request->filled('address') && empty($user->address)) {
+                $user->address = $request->address;
+            }
+            
+            if ($request->hasFile('company_logo')) {
+                $path = $request->file('company_logo')->store('profiles', 'public');
+                $user->profile_image = '/storage/' . $path;
+            } elseif ($request->filled('company_logo') && is_string($request->company_logo)) {
+                $user->profile_image = $request->company_logo;
+            }
+            $user->save();
+
+            // Clean up any previously abandoned checkouts for this same product to prevent duplicate pending entries
+            $abandonedTenants = Tenant::where('client_id', $user->id)
+                ->where('product_id', $request->product_id)
+                ->whereIn('status', ['provisioning', 'pending'])
+                ->whereDoesntHave('payments', function ($query) {
+                    $query->where('status', 'success');
+                })
+                ->get();
+                
+            foreach ($abandonedTenants as $abandoned) {
+                // Delete related records to prevent orphan data before force deleting the abandoned tenant
+                $abandoned->subscriptions()->delete();
+                $abandoned->payments()->delete();
+                Domain::where('tenant_id', $abandoned->id)->delete();
+                $abandoned->forceDelete();
+            }
+
+            // Calculate actual total amount based on billing cycle
+            $plan = \App\Models\Plan::find($request->plan_id);
+            $billingCycle = $request->billing_cycle ?? 'monthly';
+            
+            $paymentAmount = 0;
+            if ($plan) {
+                if ($billingCycle === 'yearly' || $billingCycle === 'annual') {
+                    $paymentAmount = (float) $plan->annual_price + (float) ($plan->onboarding_fee ?? 0);
+                } else {
+                    $paymentAmount = (float) ($plan->onboarding_fee ?? 0);
+                }
+            }
+            if ($request->has('add_ons') && is_array($request->add_ons)) {
+                $paymentAmount += (float) \App\Models\AddOn::whereIn('id', $request->add_ons)->sum('price');
+            }
+
+            // Determine End Date
+            $endDate = now()->addMonth();
+            if ($billingCycle === 'yearly') {
+                $endDate = now()->addYear();
+            } else if ($plan && $plan->duration_days) {
+                $endDate = now()->addDays($plan->duration_days);
+            }
+
+            $initialStatus = 'pending';
+
+            $tenantKey = Str::slug($request->business_name) . '-p' . $request->product_id;
+
+            // 1. Create Tenant (stores the product plan purchase record)
             $tenant = Tenant::create([
+                'client_id' => $user->id,
+                'create_by' => $user->id,
                 'uuid' => Str::uuid()->toString(),
+                'name' => $request->business_name,
+                'tenant_key' => $tenantKey,
                 'business_name' => $request->business_name,
-                'primary_contact_email' => $user->email, // Always use the logged-in client's email securely
+                'primary_contact_email' => $user->email,
                 'phone_number' => $request->phone_number,
                 'address' => $request->address,
                 'industry' => $request->industry,
                 'product_id' => $request->product_id,
                 'plan_id' => $request->plan_id,
-                'status' => 'provisioning',
+                'status' => $initialStatus,
+                'onboard' => filter_var($request->input('onboard', false), FILTER_VALIDATE_BOOLEAN),
             ]);
 
             // Attach Add-ons if any
@@ -154,97 +1933,96 @@ class ClientPurchaseController extends Controller
                 $tenant->addOns()->attach($request->add_ons);
             }
 
-            // Calculate actual total amount
-            $plan = \App\Models\Plan::find($request->plan_id);
-            $paymentAmount = $plan ? (float) $plan->price : 0;
-            if ($request->has('add_ons') && is_array($request->add_ons)) {
-                $paymentAmount += (float) \App\Models\AddOn::whereIn('id', $request->add_ons)->sum('price');
-            }
+            // Determine initial payment status and subscription status
+            $initialPaymentStatus = $paymentAmount > 0 ? ($request->payment_status ?? 'pending') : 'success';
+            $subscriptionStatus = $initialPaymentStatus === 'success' ? 'active' : 'pending';
 
             // Create Subscription
             $tenant->subscriptions()->create([
                 'plan_id' => $request->plan_id,
-                'status' => 'active',
+                'status' => $subscriptionStatus,
                 'start_date' => now(),
+                'end_date' => $endDate,
+                'billing_cycle' => $billingCycle,
             ]);
 
-            // Create Payment
-            if ($paymentAmount > 0) {
-                $tenant->payments()->create([
-                    'transaction_id' => $request->transaction_id ?? null,
-                    'amount' => $paymentAmount,
-                    'currency' => $request->currency ?? 'INR',
-                    'payment_method' => $request->payment_method ?? 'razorpay',
-                    'status' => $request->payment_status ?? 'pending',
-                ]);
-            }
+            // Create Payment (Status defaults to pending, frontend handles actual payment; free plans are auto success)
+            $payment = $tenant->payments()->create([
+                'transaction_id' => $request->transaction_id ?? ($paymentAmount > 0 ? null : ('FREE-' . strtoupper(Str::random(10)))),
+                'amount' => $paymentAmount,
+                'currency' => $request->currency ?? 'INR',
+                'payment_method' => $paymentAmount > 0 ? ($request->payment_method ?? 'razorpay') : 'free',
+                'status' => $initialPaymentStatus,
+                'type' => 'purchase',
+                'billing_cycle' => $billingCycle,
+            ]);
 
             // 2. Create Domain Configuration
-            TenantDomain::create([
-                'tenant_id' => $tenant->id,
-                'type' => $request->domain_type,
-                'domain' => $request->domain,
-                'status' => 'pending',
+            if ($request->has('domain_type') && $request->has('domain')) {
+                $domainStatus = ($request->domain_type === 'custom') ? 'pending_dns' : 'pending';
+                $domainRecord = Domain::create([
+                    'tenant_id' => $tenant->id,
+                    'client_id' => $user->id,
+                    'product_id' => $tenant->product_id,
+                    'type' => $request->domain_type,
+                    'domain' => $request->domain,
+                    'status' => $domainStatus,
+                ]);
+
+                if ($request->domain_type === 'custom') {
+                    \App\Services\DnsService::sendDnsInstructionsEmail($tenant, $domainRecord);
+                }
+            }
+
+            $productName = \App\Models\Product::where('id', $request->product_id)->value('name') ?? $request->product_id;
+
+            // Create Admin Notification
+            \App\Models\AdminNotification::create([
+                'type' => 'new_purchase',
+                'title' => 'New Checkout Initiated',
+                'message' => 'Client ' . $user->name . ' has initiated a checkout for product ' . $productName . '.',
+                'related_id' => $tenant->id,
+                'client_name' => $user->name,
+                'is_read' => false
             ]);
 
-
-
             DB::commit();
-            
-            // Optionally log the provisioning action
-            AuditLogger::log('Tenant Provisioned', 'New Tenant Created', "Tenant {$tenant->business_name} was provisioned.");
 
-            // Generate Razorpay Payment Link
-            $paymentLinkStr = null;
-
-            if ($paymentAmount > 0) {
-                $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
-                
-                if (isset($razorpaySettings['razorpay_active']) && $razorpaySettings['razorpay_active'] === 'true') {
-                    $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
-                    $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
-
-                    if ($keyId && $keySecret) {
-                        try {
-                            $api = new \Razorpay\Api\Api($keyId, $keySecret);
-                            
-                            $paymentLinkData = [
-                                'amount' => (int) ($paymentAmount * 100), // convert to paise
-                                'currency' => $request->currency ?? 'INR',
-                                'description' => 'Payment for Tenant Provisioning',
-                                'customer' => [
-                                    'name' => $tenant->business_name,
-                                    'email' => $tenant->primary_contact_email,
-                                    'contact' => $tenant->phone_number ?? ''
-                                ],
-                                'notify' => ['email' => true, 'sms' => true],
-                                'reminder_enable' => true,
-                            ];
-                            
-                            $paymentLinkResponse = $api->paymentLink->create($paymentLinkData);
-                            $paymentLinkStr = $paymentLinkResponse->short_url;
-                        } catch (\Exception $e) {
-                            \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
-                        }
-                    }
+            // Send Email to Admin for Checkout Initiation
+            try {
+                $adminEmails = \App\Models\User::role('SuperAdmin')->pluck('email')->filter()->unique();
+                foreach ($adminEmails as $email) {
+                    \Illuminate\Support\Facades\Mail::to($email)->send(new \App\Mail\AdminNewPurchaseMail($tenant, $user));
                 }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to send admin notification email: ' . $e->getMessage());
+            }
+
+            $checkoutData = [
+                'tenant_id' => $tenant->uuid,
+                'tenant_status' => $tenant->status,
+                'payment_status' => $payment->status,
+                'amount' => $paymentAmount,
+                'invoice_number' => $payment->invoice_number,
+            ];
+
+            if ($request->domain_type === 'custom' && $request->has('domain')) {
+                $checkoutData['server_ip'] = \App\Services\DnsService::getServerIp();
+                $checkoutData['dns_records'] = \App\Services\DnsService::getExpectedDnsRecords($request->domain, 'custom');
+                $checkoutData['verify_endpoint'] = "/api/client/purchases/{$tenant->uuid}/verify-dns";
             }
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Tenant provisioned successfully.',
-                'data' => [
-                    'tenant_id' => $tenant->uuid,
-                    'payment_link' => $paymentLinkStr,
-                    'amount' => $paymentAmount
-                ]
+                'message' => 'Product checkout initiated successfully.',
+                'data' => $checkoutData
             ], 201);
 
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to provision tenant.',
+                'message' => 'Failed to process checkout.',
                 'error' => $e->getMessage()
             ], 500);
         }

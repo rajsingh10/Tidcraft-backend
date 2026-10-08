@@ -164,6 +164,7 @@ class SettingController extends Controller
             'company_address',
             'company_gst',
             'company_tagline',
+            'whatsapp_number',
             'admin_login_mail_send'
         ];
         
@@ -171,11 +172,42 @@ class SettingController extends Controller
 
         foreach (['company_favicon', 'company_short_logo', 'company_logo'] as $fileField) {
             if (isset($settings[$fileField]) && !empty($settings[$fileField])) {
-                if (!str_starts_with($settings[$fileField], 'http')) {
-                    $settings[$fileField] = asset($settings[$fileField]);
-                }
+                $settings[$fileField] = \App\Helpers\UrlHelper::getStorageUrl($settings[$fileField]);
             }
         }
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $settings
+        ]);
+    }
+
+    public function publicGeneral()
+    {
+        $settings = \Illuminate\Support\Facades\Cache::remember('public_settings', 3600, function () {
+            $keys = [
+                'company_name',
+                'company_favicon',
+                'company_short_logo',
+                'company_logo',
+                'company_phone',
+                'company_email',
+                'company_address',
+                'company_gst',
+                'company_tagline',
+                'whatsapp_number'
+            ];
+            
+            $settingsData = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
+
+            foreach (['company_favicon', 'company_short_logo', 'company_logo'] as $fileField) {
+                if (isset($settingsData[$fileField]) && !empty($settingsData[$fileField])) {
+                    $settingsData[$fileField] = \App\Helpers\UrlHelper::getStorageUrl($settingsData[$fileField]);
+                }
+            }
+            
+            return $settingsData;
+        });
 
         return response()->json([
             'status' => 'success',
@@ -196,6 +228,7 @@ class SettingController extends Controller
             'company_address' => 'nullable|string',
             'company_gst' => 'nullable|string',
             'company_tagline' => 'nullable|string',
+            'whatsapp_number' => 'nullable|string',
             'admin_login_mail_send' => 'nullable|boolean',
         ];
         
@@ -274,6 +307,8 @@ class SettingController extends Controller
         if (!empty($newValues)) {
             AuditLogger::log('Settings Changed', 'System Settings Changed', 'Admin updated General settings.', $oldValues, $newValues);
         }
+        
+        \Illuminate\Support\Facades\Cache::forget('public_settings');
 
         return response()->json([
             'status' => 'success',
@@ -281,6 +316,22 @@ class SettingController extends Controller
         ]);
     }
      public function getPaymentMethods()
+    {
+        $keys = [
+            'razorpay_key_id',
+            'razorpay_key_secret',
+            'razorpay_active',
+        ];
+        
+        $settings = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $settings
+        ]);
+    }
+
+    public function getClientPaymentMethods()
     {
         $keys = [
             'razorpay_key_id',

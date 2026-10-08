@@ -12,7 +12,13 @@ class AdminNotificationController extends Controller
     public function index()
     {
         $notifications = AdminNotification::latest()->get();
-        return response()->json(['status' => 'success', 'data' => $notifications]);
+        $unreadCount = AdminNotification::where('is_read', false)->count();
+
+        return response()->json([
+            'status' => 'success', 
+            'data' => $notifications,
+            'unread_count' => $unreadCount
+        ]);
     }
 
     public function unread()

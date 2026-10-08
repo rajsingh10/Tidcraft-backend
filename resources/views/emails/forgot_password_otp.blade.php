@@ -288,30 +288,36 @@
         }
     @endphp
     <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                    <td align="left" valign="middle">
-                        <div class="brand">
-                            @if($embedLogoPath && isset($message))
-                                <img src="{{ $message->embed($embedLogoPath) }}" alt="Logo" class="brand-logo-img">
-                            @elseif($logoUrl)
-                                <img src="{{ $logoUrl }}" alt="Logo" class="brand-logo-img">
-                            @else
-                                <img src="https://img.icons8.com/ios-filled/50/002244/security-checked.png" alt="Logo" class="brand-logo-img">
-                            @endif
-                            <span style="vertical-align: middle;">{{ $companyName }}</span>
-                        </div>
-                        <div class="brand-sub">{{ $companyTagline }}</div>
-                    </td>
-                    <td align="right" valign="middle" style="font-size: 12px; color: #e0e0e0;">
-                        <div>Account Security</div>
-                        <div style="font-weight: bold; color: white;">Our Priority</div>
-                    </td>
-                </tr>
-            </table>
-        </div>
+                    <!-- Header -->
+            <div class="header" style="background: #002244; background-color: #002244; padding: 25px 35px; color: #ffffff;">
+                <table class="header-table" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; width: 100%; border-collapse: collapse;">
+                    <tbody><tr>
+                        <td width="60%" valign="middle" style="vertical-align: middle;">
+                            <table cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse;">
+                                <tbody><tr>
+                                    <td valign="middle" style="vertical-align: middle;">
+                                        <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; display: inline-block;">
+                                            <div style="background-color: #FFFFFF; width: 42px; height: 42px; border-radius: 8px; text-align: center; line-height: 42px; overflow: hidden; display: inline-block; vertical-align: middle;">
+                                                <img src="{{ !empty($settings['company_logo'] ?? null) ? url($settings['company_logo']) : asset('storage/settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg') }}" alt="Logo" width="42" height="42" style="display: block; width: 42px; height: 42px; max-width: 42px; max-height: 42px; object-fit: contain;">
+                                            </div>
+                                        </a>
+                                    </td>
+                                    <td valign="middle" style="padding-left: 12px; vertical-align: middle;">
+                                        <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; color: #ffffff;">
+                                            <div style="font-size: 20px; font-weight: 800; color: #FFFFFF; line-height: 1.2;">{{ $settings['company_name'] ?? 'TidCraft' }}</div>
+                                            <div style="font-size: 11px; color: #93c5fd; margin-top: 2px; letter-spacing: 0.3px;">Manage • Monitor • Grow</div>
+                                        </a>
+                                    </td>
+                                </tr>
+                            </tbody></table>
+                        </td>
+                        <td width="40%" align="right" valign="middle" class="header-motto" style="font-size: 12px; text-align: right; line-height: 1.4; color: #cbd5e1; vertical-align: middle;">
+                            Technology<br>
+                            <strong style="display: block; font-size: 13px; font-weight: 600; color: #ffffff;">for a Brighter<br>Tomorrow</strong>
+                        </td>
+                    </tr>
+                </tbody></table>
+            </div>
 
         <!-- Content -->
         <div class="content">

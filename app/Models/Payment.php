@@ -20,9 +20,13 @@ class Payment extends Model
         'order_id',
         'amount',
         'currency',
+        'billing_cycle',
         'payment_method',
         'status',
         'customer_details',
+        'type',
+        'metadata',
+        'overage_bill_id',
         'create_by',
         'update_by',
         'delete_by',
@@ -30,10 +34,37 @@ class Payment extends Model
 
     protected $casts = [
         'customer_details' => 'array',
+        'metadata' => 'array',
     ];
+
+    protected $appends = ['invoice_number'];
+
+    public function getInvoiceNumberAttribute()
+    {
+        $issueDate = $this->create_at ?? $this->created_at ?? now();
+        return 'INV-' . \Carbon\Carbon::parse($issueDate)->format('Y') . '-' . str_pad($this->id, 3, '0', STR_PAD_LEFT);
+    }
+
+    public function getCreatedAtAttribute()
+    {
+        $val = $this->attributes['create_at'] ?? $this->attributes['created_at'] ?? null;
+        return $val ? \Carbon\Carbon::parse($val) : now();
+    }
+
+    public function getUpdatedAtAttribute()
+    {
+        $val = $this->attributes['update_at'] ?? $this->attributes['updated_at'] ?? null;
+        return $val ? \Carbon\Carbon::parse($val) : now();
+    }
 
     public function tenant()
     {
         return $this->belongsTo(Tenant::class);
     }
+
+    public function overageBill()
+    {
+        return $this->belongsTo(TenantOverageBill::class, 'overage_bill_id');
+    }
 }
+

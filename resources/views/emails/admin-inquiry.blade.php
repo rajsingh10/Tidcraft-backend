@@ -22,6 +22,14 @@
             <td style="padding: 8px; border: 1px solid #ddd;">{{ $inquiry->phone ?? 'N/A' }}</td>
         </tr>
         <tr>
+            <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Country Code</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{{ $inquiry->country_code ?? 'N/A' }}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">WhatsApp Number</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{{ $inquiry->whatsapp_number ?? 'N/A' }}</td>
+        </tr>
+        <tr>
             <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Inquiry Subject/Service</td>
             <td style="padding: 8px; border: 1px solid #ddd;">{{ $inquiry->project_id ?? 'N/A' }}</td>
         </tr>
@@ -31,7 +39,7 @@
         </tr>
         <tr>
             <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Date & Time</td>
-            <td style="padding: 8px; border: 1px solid #ddd;">{{ $inquiry->created_at ? $inquiry->created_at->format('Y-m-d H:i:s') : 'N/A' }}</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{{ ($inquiry->create_at ?? $inquiry->created_at) ? ($inquiry->create_at ?? $inquiry->created_at)->format('Y-m-d H:i:s') : now()->format('Y-m-d H:i:s') }}</td>
         </tr>
         <tr>
             <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Inquiry ID</td>

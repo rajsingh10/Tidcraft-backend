@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ProductCategory;
+use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -64,6 +65,13 @@ class ProductCategoryController extends Controller
      */
     public function update(Request $request, ProductCategory $productCategory)
     {
+        if (Product::where('product_category_id', $productCategory->id)->exists()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Cannot update category because it is associated with one or more products.'
+            ], 400);
+        }
+
         $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
@@ -94,6 +102,13 @@ class ProductCategoryController extends Controller
      */
     public function destroy(ProductCategory $productCategory)
     {
+        if (Product::where('product_category_id', $productCategory->id)->exists()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Cannot delete category because it is associated with one or more products.'
+            ], 400);
+        }
+
         if ($productCategory->getRawOriginal('image')) {
             Storage::disk('public')->delete($productCategory->getRawOriginal('image'));
         }

@@ -28,11 +28,31 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
-    'slack' => [
+        'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
+    ],
+
+    'firebase' => [
+        'location_id' => env('FIRESTORE_LOCATION_ID', 'nam5'),
+    ],
+
+    'foodapp' => [
+        'dispatcher_url' => env('ORDER_DISPATCHER_URL', 'http://127.0.0.1:5005'),
+        'enable_cloudfunction_deploy' => env('ENABLE_CLOUDFUNCTION_DEPLOY', false),
+    ],
+
+    'parkmeapp' => [
+        'enable_cloudfunction_deploy' => env('ENABLE_CLOUDFUNCTION_DEPLOY', false),
+    ],
+
+    'cloud_billing' => [
+        'aws_key' => env('AWS_BILLING_KEY'),
+        'aws_secret' => env('AWS_BILLING_SECRET'),
+        'aws_region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+        'gcp_credentials' => env('GOOGLE_APPLICATION_CREDENTIALS'),
     ],
 
 ];

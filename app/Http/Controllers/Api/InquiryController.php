@@ -10,9 +10,15 @@ use Illuminate\Support\Facades\Validator;
 
 class InquiryController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $inquiries = Inquiry::all();
+        $query = Inquiry::query();
+        
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
+        }
+        
+        $inquiries = $query->get();
         return response()->json(['status' => 'success', 'data' => $inquiries]);
     }
 
@@ -22,7 +28,10 @@ class InquiryController extends Controller
             'customer_name' => 'required|string|max:255',
             'email' => 'required|email|max:255',
             'phone' => 'nullable|string|max:20',
-            'project_id' => 'nullable|string|max:255',
+            'whatsapp_number' => 'nullable|string|max:20',
+            'country_code' => 'nullable|string|max:10',
+            'product_id' => 'nullable|max:255',
+            'plan_name' => 'nullable|string|max:255',
             'description' => 'nullable|string',
         ]);
 
@@ -35,38 +44,128 @@ class InquiryController extends Controller
         }
 
         $data = $validator->validated();
+        
+        // Force the default status to 'new' on creation
+        $data['status'] = 'new';
+        
         if (auth()->check()) {
             $data['create_by'] = auth()->id();
             $data['update_by'] = auth()->id();
+        }
+
+        $rawProductId = $data['product_id'] ?? null;
+        if (isset($data['product_id']) && !is_numeric($data['product_id'])) {
+            // inquiries.product_id is unsignedBigInteger in database; store null if text was passed
+            $data['product_id'] = null;
         }
 
         try {
             $inquiry = Inquiry::create($data);
 
             // Create Admin Notification
-            \App\Models\AdminNotification::create([
-                'type' => 'inquiry',
-                'title' => 'New Inquiry Received',
-                'message' => 'A new inquiry has been received from ' . $inquiry->customer_name . '.',
-                'related_id' => $inquiry->id,
-                'client_name' => $inquiry->customer_name,
-                'is_read' => false,
-            ]);
-
-            // Dispatch Emails safely
             try {
-                $adminEmail = env('MAIL_FROM_ADDRESS', 'admin@example.com');
-                // You can also get it from settings if available
-                $settings = \App\Models\Setting::where('key', 'smtp_from_address')->first();
-                if ($settings && $settings->value) {
-                    $adminEmail = $settings->value;
+                \App\Models\AdminNotification::create([
+                    'type' => 'inquiry',
+                    'title' => 'New Inquiry Received',
+                    'message' => 'A new inquiry has been received from ' . $inquiry->customer_name . '.',
+                    'related_id' => $inquiry->id,
+                    'client_name' => $inquiry->customer_name,
+                    'is_read' => false,
+                ]);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning('Failed to create admin notification for inquiry: ' . $e->getMessage());
+            }
+
+            // Company information from settings
+            $companyName = \App\Models\Setting::where('key', 'company_name')->value('value') ?? config('app.name', 'TidCraft');
+            $companyEmail = \App\Models\Setting::where('key', 'company_email')->value('value') ?? config('mail.from.address');
+            $companyPhone = \App\Models\Setting::where('key', 'company_phone')->value('value') ?? '';
+            $companyWhatsapp = \App\Models\Setting::where('key', 'whatsapp_number')->value('value') ?? '';
+
+            // Template replacement variables and objects for DynamicEmail & Blade
+            $replacements = [
+                'inquiry' => $inquiry,
+                'companyName' => $companyName,
+                'companyEmail' => $companyEmail,
+                'companyPhone' => $companyPhone,
+                '{name}' => $inquiry->customer_name,
+                '{{name}}' => $inquiry->customer_name,
+                '{customer_name}' => $inquiry->customer_name,
+                '{{customer_name}}' => $inquiry->customer_name,
+                '{email}' => $inquiry->email,
+                '{{email}}' => $inquiry->email,
+                '{phone}' => $inquiry->phone ?? 'N/A',
+                '{{phone}}' => $inquiry->phone ?? 'N/A',
+                '{whatsapp_number}' => $inquiry->whatsapp_number ?? 'N/A',
+                '{{whatsapp_number}}' => $inquiry->whatsapp_number ?? 'N/A',
+                '{country_code}' => $inquiry->country_code ?? 'N/A',
+                '{{country_code}}' => $inquiry->country_code ?? 'N/A',
+                '{product_id}' => $rawProductId ?? $inquiry->product_id ?? 'N/A',
+                '{{product_id}}' => $rawProductId ?? $inquiry->product_id ?? 'N/A',
+                '{plan_name}' => $inquiry->plan_name ?? 'N/A',
+                '{{plan_name}}' => $inquiry->plan_name ?? 'N/A',
+                '{service}' => $rawProductId ?? $inquiry->product_id ?? 'N/A',
+                '{{service}}' => $rawProductId ?? $inquiry->product_id ?? 'N/A',
+                '{description}' => $inquiry->description ?? 'N/A',
+                '{{description}}' => $inquiry->description ?? 'N/A',
+                '{message}' => $inquiry->description ?? 'N/A',
+                '{{message}}' => $inquiry->description ?? 'N/A',
+                '{inquiry_id}' => $inquiry->id,
+                '{{inquiry_id}}' => $inquiry->id,
+                '{company_name}' => $companyName,
+                '{{company_name}}' => $companyName,
+                '{company_email}' => $companyEmail,
+                '{{company_email}}' => $companyEmail,
+                '{company_phone}' => $companyPhone,
+                '{{company_phone}}' => $companyPhone,
+                '{company_whatsapp}' => $companyWhatsapp,
+                '{{company_whatsapp}}' => $companyWhatsapp,
+            ];
+
+            // 1. Send Email to Admin
+            try {
+                $adminEmail = \App\Models\Setting::where('key', 'company_email')->value('value');
+                if (!$adminEmail) {
+                    $superAdmin = \App\Models\User::role('SuperAdmin')->first();
+                    $adminEmail = $superAdmin ? $superAdmin->email : null;
+                }
+                if (!$adminEmail) {
+                    $adminEmail = \App\Models\Setting::where('key', 'mail_from_address')->value('value');
+                }
+                if (!$adminEmail) {
+                    $adminEmail = config('mail.from.address');
                 }
 
-                \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\AdminInquiryNotification($inquiry));
-                \Illuminate\Support\Facades\Mail::to($inquiry->email)->send(new \App\Mail\ClientInquiryConfirmation($inquiry));
+                if ($adminEmail) {
+                    $adminTemplate = \App\Models\EmailTemplate::whereIn('slug', ['Admin_Inquiry', 'admin_inquiry', 'admin-inquiry', 'new-inquiry-admin'])
+                        ->where('status', 'active')
+                        ->first();
+
+                    if ($adminTemplate) {
+                        \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\DynamicEmail($adminTemplate, $replacements));
+                    } else {
+                        \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\AdminInquiryNotification($inquiry));
+                    }
+                }
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Inquiry Email failed: ' . $e->getMessage());
-                // Non-blocking: continue without throwing error for email failure
+                \Illuminate\Support\Facades\Log::error('Failed to send admin inquiry notification email: ' . $e->getMessage());
+            }
+
+            // 2. Send Confirmation Email to Client / Customer
+            try {
+                if (!empty($inquiry->email)) {
+                    $clientTemplate = \App\Models\EmailTemplate::whereIn('slug', ['Your_Inquiry_Has_Been_Received', 'your_inquiry_has_been_received', 'client-inquiry', 'client_inquiry', 'inquiry-received', 'inquiry_confirmation'])
+                        ->where('status', 'active')
+                        ->first();
+
+                    if ($clientTemplate) {
+                        \Illuminate\Support\Facades\Mail::to($inquiry->email)->send(new \App\Mail\DynamicEmail($clientTemplate, $replacements));
+                    } else {
+                        \Illuminate\Support\Facades\Mail::to($inquiry->email)->send(new \App\Mail\ClientInquiryConfirmation($inquiry));
+                    }
+                }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to send client inquiry confirmation email: ' . $e->getMessage());
             }
 
             return response()->json([
@@ -104,8 +203,12 @@ class InquiryController extends Controller
             'customer_name' => 'nullable|string|max:255',
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:20',
-            'project_id' => 'nullable|string|max:255',
+            'whatsapp_number' => 'nullable|string|max:20',
+            'country_code' => 'nullable|string|max:10',
+            'product_id' => 'nullable|string|max:255',
+            'plan_name' => 'nullable|string|max:255',
             'description' => 'nullable|string',
+            'status' => 'nullable|in:new,in_review,resolved',
         ]);
 
         if ($validator->fails()) {
@@ -118,6 +221,18 @@ class InquiryController extends Controller
         }
 
         $inquiry->update($data);
+        
+        if (!auth()->check() || !auth()->user()->hasRole('SuperAdmin')) {
+            \App\Models\AdminNotification::create([
+                'type' => 'inquiry',
+                'title' => 'Inquiry Updated',
+                'message' => 'Inquiry from ' . $inquiry->customer_name . ' has been updated.',
+                'related_id' => $inquiry->id,
+                'client_name' => $inquiry->customer_name,
+                'is_read' => false,
+            ]);
+        }
+
         return response()->json(['status' => 'success', 'message' => 'Inquiry updated.', 'data' => $inquiry]);
     }
 
@@ -135,5 +250,29 @@ class InquiryController extends Controller
         
         $inquiry->delete();
         return response()->json(['status' => 'success', 'message' => 'Inquiry deleted.']);
+    }
+
+    // Status change API
+    public function changeStatus(Request $request, string $id)
+    {
+        $inquiry = Inquiry::find($id);
+        if (!$inquiry) {
+            return response()->json(['status' => 'error', 'message' => 'Inquiry not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'status' => 'required|in:new,in_review,resolved',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['status' => 'error', 'message' => 'Validation Error', 'errors' => $validator->errors()], 422);
+        }
+
+        $inquiry->update([
+            'status' => $request->status,
+            'update_by' => auth()->id(),
+        ]);
+
+        return response()->json(['status' => 'success', 'message' => 'Inquiry status updated.', 'data' => $inquiry]);
     }
 }

@@ -17,10 +17,19 @@ class Inquiry extends Model
         'customer_name',
         'email',
         'phone',
-        'project_id',
+        'whatsapp_number',
+        'country_code',
+        'product_id',
+        'plan_name',
         'description',
+        'status',
         'create_by',
         'update_by',
         'delete_by',
     ];
+
+    public function getCreatedAtAttribute()
+    {
+        return $this->create_at;
+    }
 }

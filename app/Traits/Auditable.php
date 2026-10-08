@@ -40,8 +40,9 @@ trait Auditable
             AuditLogger::log(class_basename($model) . ' Deleted', 'Delete', 'A ' . class_basename($model) . ' was deleted.', $model->getAttributes(), null); 
         }); 
         
-        static::retrieved(function ($model) { 
-            AuditLogger::log(class_basename($model) . ' Viewed', 'View', 'A ' . class_basename($model) . ' record was viewed.', null, null); 
-        }); 
+        // Commenting out retrieved to prevent flooding the audit logs on every GET request.
+        // static::retrieved(function ($model) { 
+        //     AuditLogger::log(class_basename($model) . ' Viewed', 'View', 'A ' . class_basename($model) . ' record was viewed.', null, null); 
+        // }); 
     } 
 }

@@ -15,6 +15,7 @@ class AddOn extends Model
 
     protected $fillable = [
         'name',
+        'product_id',
         'price',
         'period',
         'limit',

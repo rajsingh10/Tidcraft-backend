@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Application is Ready</title>
+    <style>
+        body { margin: 0; padding: 0; background-color: #f4f7f6; font-family: 'Inter', sans-serif; color: #333333; }
+        table { border-spacing: 0; }
+        .container { max-width: 650px; margin: 40px auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); overflow: hidden; }
+        .header { background: linear-gradient(135deg, #0e2a53 0%, #1e4a8b 100%); padding: 30px 40px; color: #ffffff; }
+        .header-table { width: 100%; }
+        .brand-logo { font-size: 24px; font-weight: 700; }
+        .brand-logo-img { padding-right: 10px; }
+        .brand-tagline { font-size: 10px; opacity: 0.7; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+        .header-nav { font-size: 13px; color: #e2e8f0; text-align: center; }
+        .header-nav span { margin: 0 5px; opacity: 0.5; }
+        .header-motto { font-size: 13px; text-align: right; line-height: 1.4; }
+        .header-motto strong { display: block; font-size: 14px; }
+        .content { padding: 40px; }
+        .badge { background-color: #eff6ff; color: #2563eb; padding: 6px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; display: inline-block; margin-bottom: 15px; }
+        .title { font-size: 28px; font-weight: 700; color: #1a1a1a; margin: 0 0 15px 0; line-height: 1.3; }
+        .title span { color: #2563eb; }
+        .intro-text { color: #64748b; font-size: 15px; line-height: 1.6; margin: 0 0 30px 0; }
+        .divider { width: 40px; height: 3px; background-color: #2563eb; margin-bottom: 30px; }
+        .card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 25px; background-color: #ffffff; }
+        .card-bg { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 25px; margin-bottom: 25px; }
+        .icon-box { width: 40px; height: 40px; background-color: #eff6ff; border-radius: 8px; display: inline-block; text-align: center; line-height: 40px; }
+        .btn-outline { border: 1px solid #2563eb; color: #2563eb !important; padding: 8px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; font-size: 14px; display: inline-block; }
+        .btn-primary { background-color: #0b57d0; color: #ffffff !important; padding: 12px 30px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 16px; display: inline-block; }
+        .cred-box { background-color: #eff6ff; border-radius: 8px; padding: 15px; width: 100%; box-sizing: border-box; }
+        .cred-icon { width: 36px; height: 36px; background-color: #ffffff; border-radius: 8px; text-align: center; line-height: 36px; }
+        .footer { background-color: #ffffff; padding: 30px 40px; border-top: 1px solid #e2e8f0; }
+        .sub-footer { background-color: #0e2a53; color: #94a3b8; padding: 15px 40px; font-size: 12px; }
+    </style>
+</head>
+<body>
+    @php
+        $companyShortLogo = $settings['company_short_logo'] ?? null;
+        $companyLogo = $settings['company_logo'] ?? null;
+        $embedLogoPath = null;
+        $logoToUse = $companyShortLogo ?: $companyLogo;
+        
+        if ($logoToUse) {
+            $cleanPath = preg_replace('/^\/?storage\//', '', $logoToUse);
+            $possiblePaths = [
+                public_path(ltrim($logoToUse, '/')),
+                storage_path('app/public/' . $cleanPath),
+            ];
+            foreach ($possiblePaths as $path) {
+                if (file_exists($path)) {
+                    $embedLogoPath = $path;
+                    break;
+                }
+            }
+        }
+        
+        $appImagePath = public_path('email_images/application.png');
+        $hasAppImage = file_exists($appImagePath);
+        
+        $companyName = $settings['company_name'] ?? 'Tidcraft';
+        $clientName = !empty($tenant->client?->name) ? $tenant->client->name : (!empty($clientName) ? $clientName : ($tenant->business_name ?? 'Client'));
+        
+        $productName = !empty($tenant->product?->name) ? strtolower($tenant->product->name) : (!empty($product_name) ? strtolower($product_name) : '');
+        $isFoodApp = strpos($productName, 'food') !== false;
+        $isParkApp = strpos($productName, 'park') !== false;
+
+        $domainUrl = $domainUrl ?? ($domain_url ?? config('app.url'));
+        $adminEmail = $adminEmail ?? ($admin_email ?? ($tenant->client?->email ?? ''));
+        $adminPassword = $adminPassword ?? ($admin_password ?? '********');
+    @endphp
+
+    <table width="100%" bgcolor="#f4f7f6" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td align="center" style="padding: 20px;">
+                <div class="container">
+                    
+                            <!-- Header -->
+        <div class="header" style="background: #002244; background-color: #002244; padding: 25px 35px; color: #ffffff;">
+            <table class="header-table" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; width: 100%; border-collapse: collapse;">
+                <tbody><tr>
+                    <td width="60%" valign="middle" style="vertical-align: middle;">
+                        <table cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse;">
+                            <tbody><tr>
+                                <td valign="middle" style="vertical-align: middle;">
+                                    <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; display: inline-block;">
+                                        <div style="background-color: #FFFFFF; width: 42px; height: 42px; border-radius: 8px; text-align: center; line-height: 42px; overflow: hidden; display: inline-block; vertical-align: middle;">
+                                            <img src="{{ !empty($settings['company_logo'] ?? null) ? \App\Helpers\UrlHelper::getStorageUrl($settings['company_logo']) : \App\Helpers\UrlHelper::getStorageUrl('settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg') }}" alt="Logo" width="42" height="42" style="display: block; width: 42px; height: 42px; max-width: 42px; max-height: 42px; object-fit: contain;">
+                                        </div>
+                                    </a>
+                                </td>
+                                <td valign="middle" style="padding-left: 12px; vertical-align: middle;">
+                                    <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; color: #ffffff;">
+                                        <div style="font-size: 20px; font-weight: 800; color: #FFFFFF; line-height: 1.2;">{{ $settings['company_name'] ?? 'TidCraft' }}</div>
+                                        <div style="font-size: 11px; color: #93c5fd; margin-top: 2px; letter-spacing: 0.3px;">Manage • Monitor • Grow</div>
+                                    </a>
+                                </td>
+                            </tr>
+                        </tbody></table>
+                    </td>
+                    <td width="40%" align="right" valign="middle" class="header-motto" style="font-size: 12px; text-align: right; line-height: 1.4; color: #cbd5e1; vertical-align: middle;">
+                        Technology<br>
+                        <strong style="display: block; font-size: 13px; font-weight: 600; color: #ffffff;">for a Brighter<br>Tomorrow</strong>
+                    </td>
+                </tr>
+            </tbody></table>
+        </div>
+
+        <!-- Content -->
+                    <div class="content">
+                        
+                        <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                                <td valign="top" style="padding-right: 20px;">
+                                    <div class="badge">🎉 Good News!</div>
+                                    
+                                    <h1 class="title">Your Application is Ready,<br><span>{{ $clientName }}</span>!</h1>
+                                    
+                                    <p class="intro-text">We are excited to let you know that your new application has been successfully provisioned and is now live.</p>
+                                    
+                                    <div class="divider"></div>
+                                </td>
+                                @if($hasAppImage && isset($message))
+                                <td valign="middle" width="220" align="right">
+                                    <img src="{{ $message->embed($appImagePath) }}" alt="Application Ready" style="max-width: 220px; height: auto;">
+                                </td>
+                                @endif
+                            </tr>
+                        </table>
+
+                        <!-- Web URL Card -->
+                        <div style="background-color: #f5f9ff; border-radius: 12px; padding: 20px; margin-bottom: 15px;">
+                            <table width="100%" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td width="55" valign="middle">
+                                        <div class="icon-box" style="background-color: #e5f0ff;">
+                                            <img src="https://img.icons8.com/ios-filled/50/2563eb/link--v1.png" width="20" height="20" style="vertical-align: middle;">
+                                        </div>
+                                    </td>
+                                    <td valign="middle">
+                                        <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 4px;">Application URL</div>
+                                        <a href="{{ $domainUrl }}" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ $domainUrl }}</a>
+                                    </td>
+                                    <td align="right" valign="middle">
+                                        <a href="{{ $domainUrl }}" class="btn-outline" style="color: #2563eb !important; background-color: transparent;">Open Application &rarr;</a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        @if($isFoodApp)
+                        <!-- Restaurant Panel Card -->
+                        <div style="background-color: #f5f9ff; border-radius: 12px; padding: 20px; margin-bottom: 15px;">
+                            <table width="100%" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td width="55" valign="middle">
+                                        <div class="icon-box" style="background-color: #e5f0ff;">
+                                            <img src="https://img.icons8.com/ios-filled/50/2563eb/link--v1.png" width="20" height="20" style="vertical-align: middle;">
+                                        </div>
+                                    </td>
+                                    <td valign="middle">
+                                        <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 4px;">Restaurant Panel URL</div>
+                                        <a href="{{ rtrim($domainUrl, '/') }}/restaurant_panel" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ rtrim($domainUrl, '/') }}/restaurant_panel</a>
+                                    </td>
+                                    <td align="right" valign="middle">
+                                        <a href="{{ rtrim($domainUrl, '/') }}/restaurant_panel" class="btn-outline" style="color: #2563eb !important; background-color: transparent;">Open Restaurant Panel &rarr;</a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                        @endif
+
+                        @if($isParkApp)
+                        <!-- Owner Panel Card -->
+                        <div style="background-color: #f5f9ff; border-radius: 12px; padding: 20px; margin-bottom: 15px;">
+                            <table width="100%" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td width="55" valign="middle">
+                                        <div class="icon-box" style="background-color: #e5f0ff;">
+                                            <img src="https://img.icons8.com/ios-filled/50/2563eb/link--v1.png" width="20" height="20" style="vertical-align: middle;">
+                                        </div>
+                                    </td>
+                                    <td valign="middle">
+                                        <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 4px;">Owner Panel URL</div>
+                                        <a href="{{ rtrim($domainUrl, '/') }}/owner_panel" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ rtrim($domainUrl, '/') }}/owner_panel</a>
+                                    </td>
+                                    <td align="right" valign="middle">
+                                        <a href="{{ rtrim($domainUrl, '/') }}/owner_panel" class="btn-outline" style="color: #2563eb !important; background-color: transparent;">Open Owner Panel &rarr;</a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                        @endif
+
+                        <!-- Admin Panel Card -->
+                        <div style="background-color: #f5f9ff; border-radius: 12px; padding: 20px; margin-bottom: 25px;">
+                            <table width="100%" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td width="55" valign="middle">
+                                        <div class="icon-box" style="background-color: #e5f0ff;">
+                                            <img src="https://img.icons8.com/ios-filled/50/2563eb/link--v1.png" width="20" height="20" style="vertical-align: middle;">
+                                        </div>
+                                    </td>
+                                    <td valign="middle">
+                                        <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 4px;">Admin Panel URL</div>
+                                        <a href="{{ rtrim($domainUrl, '/') }}/admin_panel" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ rtrim($domainUrl, '/') }}/admin_panel</a>
+                                    </td>
+                                    <td align="right" valign="middle">
+                                        <a href="{{ rtrim($domainUrl, '/') }}/admin_panel" class="btn-outline" style="color: #2563eb !important; background-color: transparent;">Open Admin Panel &rarr;</a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <!-- Credentials Card -->
+                        <div class="card-bg">
+                            <table width="100%" style="margin-bottom: 20px;" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td width="35" valign="top">
+                                        <img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/user.png" width="24" height="24">
+                                    </td>
+                                    <td>
+                                        <div style="font-weight: 700; font-size: 18px; color: #1a1a1a; margin-bottom: 4px;">Admin Login Credentials</div>
+                                        <div style="color: #64748b; font-size: 14px;">You can use the following credentials to log in to your application's admin panel:</div>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <table width="100%" cellspacing="0" cellpadding="0">
+                                <tr>
+                                    <td width="48%">
+                                        <div class="cred-box">
+                                            <table width="100%" cellpadding="0" cellspacing="0">
+                                                <tr>
+                                                    <td width="46" valign="middle">
+                                                        <div class="cred-icon">
+                                                            <img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/new-post.png" width="20" height="20" style="vertical-align: middle;">
+                                                        </div>
+                                                    </td>
+                                                    <td valign="middle">
+                                                        <div style="font-weight: 700; color: #1a1a1a; font-size: 13px; margin-bottom: 2px;">Email</div>
+                                                        <a href="mailto:{{ $adminEmail }}" style="color: #2563eb; font-weight: 500; text-decoration: underline;">{{ $adminEmail }}</a>
+                                                    </td>
+                                                </tr>
+                                            </table>
+                                        </div>
+                                    </td>
+                                    <td width="4%"></td>
+                                    <td width="48%">
+                                        <div class="cred-box">
+                                            <table width="100%" cellpadding="0" cellspacing="0">
+                                                <tr>
+                                                    <td width="46" valign="middle">
+                                                        <div class="cred-icon">
+                                                            <img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/lock.png" width="20" height="20" style="vertical-align: middle;">
+                                                        </div>
+                                                    </td>
+                                                    <td valign="middle">
+                                                        <div style="font-weight: 700; color: #1a1a1a; font-size: 13px; margin-bottom: 2px;">Password</div>
+                                                        <div style="color: #1a1a1a; font-weight: 600;">{{ $adminPassword }}</div>
+                                                    </td>
+                
+                                                </tr>
+                                            </table>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <table width="100%" style="margin-top: 20px;" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    <td width="24" valign="top"><img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/info.png" width="16" height="16"></td>
+                                    <td style="font-size: 13px; color: #64748b; font-style: italic;">Note: We highly recommend changing your password after your first login for security purposes.</td>
+                                </tr>
+                            </table>
+                        </div>
+
+
+
+                        <!-- CTA -->
+                        <div style="text-align: center; margin-top: 35px; margin-bottom: 20px;">
+                            <a href="{{ $domainUrl }}" class="btn-primary" style="color: #ffffff !important;">Go to your Application &rarr;</a>
+                        </div>
+                        
+                        <div style="text-align: center; color: #64748b; font-size: 13px;">
+                            If you have any questions or need support, please open a ticket from your client portal.
+                        </div>
+                    </div>
+                    
+                    <!-- Footer -->
+                    <div class="footer">
+                        <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                                <td width="30%">
+                                    <div class="brand-logo" style="font-size: 20px; color: #1a1a1a;">{{ $companyName }}</div>
+                                    <div class="brand-tagline" style="color:#64748b;">Technologies</div>
+                                </td>
+                                <td width="40%" align="center" style="color: #475569; font-size: 13px;">
+                                    Let's Build a<br>Brighter Tomorrow Together.
+                                </td>
+                                <td width="30%" align="right">
+                                    <img src="https://img.icons8.com/ios-filled/50/94a3b8/linkedin.png" width="24" height="24" style="margin-left: 5px;">
+                                    <img src="https://img.icons8.com/ios-filled/50/94a3b8/twitter.png" width="24" height="24" style="margin-left: 5px;">
+                                    <img src="https://img.icons8.com/ios-filled/50/94a3b8/youtube-play.png" width="24" height="24" style="margin-left: 5px;">
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="sub-footer">
+                        <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                                <td style="color: #94a3b8;">&copy; {{ date('Y') }} {{ $companyName }} Technologies. All rights reserved.</td>
+                                <td align="right" style="color: #94a3b8;">{{ parse_url(config('app.url'), PHP_URL_HOST) ?? 'www.tidcraft.com' }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

@@ -13,7 +13,10 @@ use App\Models\User;
 use Spatie\Permission\Models\Role;
 use Illuminate\Support\Str;
 use App\Mail\ForgotPasswordOtpMail;
-
+use App\Mail\ClientRegisteredMail;
+use App\Mail\AdminNewClientMail;
+use App\Models\AdminNotification;
+use App\Models\Setting;
 class ClientAuthController extends Controller
 {
     /**
@@ -46,6 +49,82 @@ class ClientAuthController extends Controller
         // Ensure Client role exists and assign it
         $role = Role::firstOrCreate(['name' => 'Client']);
         $user->assignRole($role);
+
+        // Send email to client
+        try {
+            $template = \App\Models\EmailTemplate::where('slug', 'register')->first();
+            $frontendLoginUrl = \App\Helpers\UrlHelper::getLoginUrl($request);
+            $frontendContactUrl = \App\Helpers\UrlHelper::getContactUrl($request);
+
+            if ($template) {
+                if ($template->status === 'active') {
+                    $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
+                    $globalCompanyName = Setting::where('key', 'company_name')->value('value') ?? 'TidCraft';
+                    $whatsappNumber = Setting::where('key', 'whatsapp_number')->value('value') ?? '';
+                    $companyEmail = Setting::where('key', 'company_email')->value('value') ?? '';
+                    Mail::to($user->email)->send(new \App\Mail\DynamicEmail($template, [
+                        '{name}' => $user->name,
+                        '{email}' => $user->email,
+                        '{password}' => $request->password,
+                        '{company_name}' => $globalCompanyName,
+                        '{{company_name}}' => $globalCompanyName,
+                        '{whatsapp_number}' => $whatsappNumber,
+                        '{{whatsapp_number}}' => $whatsappNumber,
+                        '{company_email}' => $companyEmail,
+                        '{{company_email}}' => $companyEmail,
+                        '{platform_name}' => $globalCompanyName,
+                        '{{platform_name}}' => $globalCompanyName,
+                        '{client_company}' => $user->company_name ?? '',
+                        '{client_company_name}' => $user->company_name ?? '',
+                        '{image}' => $imageUrl,
+                        '{login_url}' => $frontendLoginUrl,
+                        '{{login_url}}' => $frontendLoginUrl,
+                        '{contact_url}' => $frontendContactUrl,
+                        '{{contact_url}}' => $frontendContactUrl,
+                        '{frontend_url}' => \App\Helpers\UrlHelper::getFrontendUrl($request),
+                        '{{frontend_url}}' => \App\Helpers\UrlHelper::getFrontendUrl($request),
+                    ]));
+                }
+            } else {
+                $whatsappNumber = Setting::where('key', 'whatsapp_number')->value('value') ?? '';
+                $companyEmail = Setting::where('key', 'company_email')->value('value') ?? '';
+                Mail::to($user->email)->send(new ClientRegisteredMail($user, $frontendLoginUrl, $frontendContactUrl, $request->password, $whatsappNumber, $companyEmail));
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send registration email to client: ' . $e->getMessage());
+        }
+
+        // Send email to admin
+        try {
+            $adminEmail = Setting::where('key', 'company_email')->value('value');
+            if (!$adminEmail) {
+                $superAdmin = User::role('SuperAdmin')->first();
+                $adminEmail = $superAdmin ? $superAdmin->email : null;
+            }
+            if (!$adminEmail) {
+                $adminEmail = config('mail.from.address') ?? 'admin@example.com';
+            }
+            
+            if ($adminEmail) {
+                Mail::to($adminEmail)->send(new AdminNewClientMail($user));
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send registration email to admin: ' . $e->getMessage());
+        }
+
+        // Create Admin Notification
+        try {
+            AdminNotification::create([
+                'type' => 'new_client',
+                'title' => 'New Client Registered',
+                'message' => 'A new client has registered: ' . $user->name . ' (' . $user->email . ')',
+                'related_id' => $user->id,
+                'client_name' => $user->name,
+                'is_read' => false,
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to create admin notification: ' . $e->getMessage());
+        }
 
         $token = $user->createToken('client-token')->plainTextToken;
 
@@ -128,13 +207,26 @@ class ClientAuthController extends Controller
             $user->profile_image = asset($user->profile_image);
         }
 
+        $purchases = \App\Models\Tenant::with(['product', 'plan', 'domains', 'payments', 'subscriptions'])
+            ->where(function($query) use ($user) {
+                $query->where('create_by', $user->id)
+                      ->orWhere('client_id', $user->id);
+            })
+            ->orderBy('create_at', 'desc')
+            ->get();
+
         return response()->json([
             'status' => 'success',
             'data' => [
                 'name' => $user->name,
                 'email' => $user->email,
                 'contact' => $user->contact ?? null,
+                'phone_number' => $user->phone_number ?? null,
+                'whatsapp_number' => $user->whatsapp_number ?? null,
+                'country_code' => $user->country_code ?? null,
+                'company_name' => $user->company_name ?? null,
                 'profile_image' => $user->profile_image ?? null,
+                'purchases' => $purchases->isEmpty() ? null : $purchases,
             ]
         ]);
     }
@@ -150,6 +242,11 @@ class ClientAuthController extends Controller
             'name' => 'nullable|string|max:255',
             'email' => 'nullable|email|unique:users,email,' . $user->id,
             'contact' => 'nullable|string|max:20',
+            'phone_number' => 'nullable|string|max:20',
+            'whatsapp_number' => 'nullable|string|max:20',
+            'country_code' => 'nullable|string|max:10',
+            'company_name' => 'nullable|string|max:255',
+            'address' => 'nullable|string',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
         ]);
 
@@ -172,6 +269,11 @@ class ClientAuthController extends Controller
         if (isset($data['name'])) $user->name = $data['name'];
         if (isset($data['email'])) $user->email = $data['email'];
         if (isset($data['contact'])) $user->contact = $data['contact'];
+        if ($request->has('phone_number')) $user->phone_number = $request->phone_number;
+        if ($request->has('whatsapp_number')) $user->whatsapp_number = $request->whatsapp_number;
+        if ($request->has('country_code')) $user->country_code = $request->country_code;
+        if (isset($data['company_name'])) $user->company_name = $data['company_name'];
+        if (isset($data['address'])) $user->address = $data['address'];
         if (isset($data['profile_image'])) $user->profile_image = $data['profile_image'];
 
         $user->save();
@@ -188,6 +290,11 @@ class ClientAuthController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'contact' => $user->contact ?? null,
+                'phone_number' => $user->phone_number ?? null,
+                'whatsapp_number' => $user->whatsapp_number ?? null,
+                'country_code' => $user->country_code ?? null,
+                'company_name' => $user->company_name ?? null,
+                'address' => $user->address ?? null,
                 'profile_image' => $user->profile_image ?? null,
             ]
         ]);
@@ -257,7 +364,31 @@ class ClientAuthController extends Controller
         $user->save();
 
         // Send OTP via Email
-        Mail::to($user->email)->send(new ForgotPasswordOtpMail($otp));
+        try {
+            $slugs = ['forgot_password', 'forgot-password', 'Forgot_Password'];
+            $template = \App\Models\EmailTemplate::whereIn('slug', $slugs)->first();
+            if ($template) {
+                if ($template->status === 'active') {
+                    $imageUrl = (!empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
+                    Mail::to($user->email)->send(new \App\Mail\DynamicEmail($template, [
+                        '{name}' => $user->name,
+                        '{email}' => $user->email,
+                        '{otp}' => $otp,
+                        '{otp_1}' => $otp[0],
+                        '{otp_2}' => $otp[1],
+                        '{otp_3}' => $otp[2],
+                        '{otp_4}' => $otp[3],
+                        '{otp_5}' => $otp[4],
+                        '{otp_6}' => $otp[5],
+                        '{image}' => $imageUrl,
+                    ]));
+                }
+            } else {
+                Mail::to($user->email)->send(new ForgotPasswordOtpMail($otp));
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send forgot password email: ' . $e->getMessage());
+        }
 
         return response()->json([
             'status' => 'success', 

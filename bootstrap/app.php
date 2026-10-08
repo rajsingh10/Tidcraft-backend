@@ -35,4 +35,13 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 401);
             }
         });
+
+        $exceptions->render(function (\Illuminate\Http\Exceptions\PostTooLargeException $e, Request $request) {
+            if ($request->is('api/*')) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'The POST data is too large. Please upload smaller files or fewer files at once.'
+                ], 413);
+            }
+        });
     })->create();
