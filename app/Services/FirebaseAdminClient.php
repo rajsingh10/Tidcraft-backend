@@ -305,6 +305,41 @@ class FirebaseAdminClient
         }
     }
 
+    /**
+     * Get the count of documents in a specific collection via Firestore REST API (runAggregationQuery).
+     */
+    public function getCollectionCount(array $serviceAccount, string $databaseId, string $collectionName): int
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) return 0;
+
+        $accessToken = $this->accessToken($serviceAccount, [
+            'https://www.googleapis.com/auth/datastore',
+            'https://www.googleapis.com/auth/cloud-platform',
+        ]);
+
+        $url = "https://firestore.googleapis.com/v1/projects/{$projectId}/databases/{$databaseId}/documents:runAggregationQuery";
+
+        $response = Http::withToken($accessToken)->post($url, [
+            'structuredQuery' => [
+                'from' => [['collectionId' => $collectionName]]
+            ],
+            'aggregations' => [
+                ['alias' => 'count', 'count' => new \stdClass()]
+            ]
+        ]);
+
+        if ($response->successful()) {
+            $data = $response->json();
+            if (isset($data[0]['result']['aggregateFields']['count']['integerValue'])) {
+                return (int) $data[0]['result']['aggregateFields']['count']['integerValue'];
+            }
+        }
+        
+        \Illuminate\Support\Facades\Log::warning("Failed to get count for collection {$collectionName} in DB {$databaseId}: " . $response->body());
+        return 0;
+    }
+
     private function waitForOperation(string $accessToken, ?string $operationName): void
     {
         if (!$operationName) {
