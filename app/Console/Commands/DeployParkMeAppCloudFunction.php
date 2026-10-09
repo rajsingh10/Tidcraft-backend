@@ -44,6 +44,7 @@ class DeployParkMeAppCloudFunction extends Command
         // Locate functions directory
         $candidates = [
             base_path('products/ParkMeApp/firebase_functions'),
+            '/home/prodtidcraftcomusr/parkme-app/firebase_functions',
             '/home/devtidcraftcomusr/parkme-app/firebase_functions'
         ];
 

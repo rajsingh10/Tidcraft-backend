@@ -45,6 +45,8 @@ class DeployFoodAppCloudFunction extends Command
         $candidates = [
             base_path('products/FoodApp/firebase_functions'),
             base_path('products/FoodApp/backup/Order Tracking Firebase Function'),
+            '/home/prodtidcraftcomusr/food-app/firebase_functions',
+            '/home/prodtidcraftcomusr/food-app/backup/Order Tracking Firebase Function',
             '/home/devtidcraftcomusr/food-app/firebase_functions',
             '/home/devtidcraftcomusr/food-app/backup/Order Tracking Firebase Function'
         ];
