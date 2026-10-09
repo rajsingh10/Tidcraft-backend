@@ -483,11 +483,16 @@ class TenantProvisionService
             @file_put_contents($expiredPath . '/index.html', $html);
         }
 
+        // Ensure tenants directory exists
+        if (!file_exists($tenantsDirectory)) {
+            @mkdir($tenantsDirectory, 0755, true);
+        }
+
         // Replace symlink
         if (is_link($symlinkPath) || file_exists($symlinkPath)) {
-            unlink($symlinkPath);
+            @unlink($symlinkPath);
         }
-        symlink($expiredPath, $symlinkPath);
+        @symlink($expiredPath, $symlinkPath);
 
         self::toggleFirebaseTenant($tenant, false);
     }
@@ -506,13 +511,18 @@ class TenantProvisionService
         $symlinkPath = rtrim($tenantsDirectory, '/') . '/' . $domain->domain;
         $targetPath = $product->frontend_path;
 
+        // Ensure tenants directory exists
+        if (!file_exists($tenantsDirectory)) {
+            @mkdir($tenantsDirectory, 0755, true);
+        }
+
         // Replace symlink
         if (is_link($symlinkPath) || file_exists($symlinkPath)) {
-            unlink($symlinkPath);
+            @unlink($symlinkPath);
         }
         
         if (file_exists($targetPath)) {
-            symlink($targetPath, $symlinkPath);
+            @symlink($targetPath, $symlinkPath);
         }
 
         self::toggleFirebaseTenant($tenant, true);
