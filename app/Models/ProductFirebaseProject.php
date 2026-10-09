@@ -21,9 +21,25 @@ class ProductFirebaseProject extends Model
     ];
 
     protected $casts = [
-        'service_account_json' => 'encrypted',
         'firebase_db_collection' => 'string',
     ];
+
+    public function getServiceAccountJsonAttribute($value)
+    {
+        if (empty($value)) {
+            return null;
+        }
+        try {
+            return decrypt($value);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
+            return $value;
+        }
+    }
+
+    public function setServiceAccountJsonAttribute($value)
+    {
+        $this->attributes['service_account_json'] = empty($value) ? null : encrypt($value);
+    }
 
     public function getFirebaseDbCollectionUrlAttribute()
     {
