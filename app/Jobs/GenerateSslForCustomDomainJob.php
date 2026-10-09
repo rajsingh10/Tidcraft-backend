@@ -52,7 +52,8 @@ class GenerateSslForCustomDomainJob implements ShouldQueue
             
             // STEP 2: Run Certbot in certonly mode using webroot plugin (no Nginx auto-configuration)
             $adminEmail = env('ADMIN_EMAIL', 'admin@tidcraft.com');
-            $webrootPath = "/home/devtidcraftcomusr/tenants/{$this->domain}";
+            $tenantsDir = env('TENANTS_DIRECTORY', '/home/prodtidcraftcomusr/tenants/');
+            $webrootPath = rtrim($tenantsDir, '/') . "/{$this->domain}";
             
             $certbotCmd = "if [ -x /usr/bin/certbot ]; then sudo /usr/bin/certbot certonly --webroot -w {$webrootPath} -d {$this->domain} --cert-name {$this->domain} -m {$adminEmail} --agree-tos --non-interactive; else sudo /snap/bin/certbot certonly --webroot -w {$webrootPath} -d {$this->domain} --cert-name {$this->domain} -m {$adminEmail} --agree-tos --non-interactive; fi";
             
@@ -102,6 +103,9 @@ class GenerateSslForCustomDomainJob implements ShouldQueue
 
     private function generateHttpConfig(): string
     {
+        $tenantsDir = env('TENANTS_DIRECTORY', '/home/prodtidcraftcomusr/tenants');
+        $tenantsDir = rtrim($tenantsDir, '/');
+        
         return <<<EOT
 server {
     listen 80;
@@ -109,7 +113,7 @@ server {
     
     server_name {$this->domain};
 
-    root /home/devtidcraftcomusr/tenants/{$this->domain};
+    root {$tenantsDir}/{$this->domain};
     index index.html index.php;
     charset utf-8;
 
@@ -133,6 +137,9 @@ EOT;
 
     private function generateHttpsConfig(): string
     {
+        $tenantsDir = env('TENANTS_DIRECTORY', '/home/prodtidcraftcomusr/tenants');
+        $tenantsDir = rtrim($tenantsDir, '/');
+        
         return <<<EOT
 server {
     listen 80;
@@ -156,7 +163,7 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers on;
 
-    root /home/devtidcraftcomusr/tenants/{$this->domain};
+    root {$tenantsDir}/{$this->domain};
     index index.html index.php;
     charset utf-8;
 
