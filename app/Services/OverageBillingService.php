@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\Tenant;
-use App\Models\Payment;
 use App\Models\TenantOverageBill;
 use App\Models\Plan;
 use Illuminate\Support\Facades\Log;
@@ -89,7 +88,7 @@ class OverageBillingService
      * Create or update the pending overage invoice for the tenant.
      * Prevents duplicate spam invoices by updating any active 'pending' overage bill for this billing cycle.
      */
-    public static function syncOverageInvoice(Tenant $tenant, int $currentOrdersCount): ?Payment
+    public static function syncOverageInvoice(Tenant $tenant, int $currentOrdersCount): ?TenantOverageBill
     {
         $overage = self::calculateOverage($tenant, $currentOrdersCount);
 
@@ -102,7 +101,6 @@ class OverageBillingService
             
             foreach ($pendingBills as $pb) {
                 $pb->update(['status' => 'waived']);
-                Payment::where('overage_bill_id', $pb->id)->update(['status' => 'waived']);
             }
             return null;
         }
@@ -177,58 +175,20 @@ class OverageBillingService
             Log::info("Generated new pending overage bill #{$bill->bill_number} for tenant #{$tenant->id}: {$overageOrders} extra orders = ₹{$amount}");
         }
 
-        // 2. Synchronize payment record for backwards compatibility
-        $payment = Payment::where('tenant_id', $tenant->id)
-            ->where(function ($q) use ($bill) {
-                $q->where('overage_bill_id', $bill->id)
-                  ->orWhere(function ($q2) {
-                      $q2->where('type', 'overage_orders')->where('status', 'pending');
-                  });
-            })
-            ->latest('id')
-            ->first();
-
-        if ($payment) {
-            $payment->update([
-                'overage_bill_id' => $bill->id,
-                'amount' => $amount,
-                'metadata' => array_merge($payment->metadata ?? [], $metadata, ['overage_bill_id' => $bill->id, 'bill_number' => $bill->bill_number]),
-            ]);
-            Log::info("Updated existing pending overage invoice #{$payment->id} for tenant #{$tenant->id}: {$overageOrders} extra orders = ₹{$amount}");
-        } else {
-            $payment = Payment::create([
-                'tenant_id' => $tenant->id,
-                'overage_bill_id' => $bill->id,
-                'amount' => $amount,
-                'currency' => 'INR',
-                'billing_cycle' => $billingCycle,
-                'payment_method' => 'razorpay',
-                'status' => 'pending',
-                'type' => 'overage_orders',
-                'metadata' => array_merge($metadata, ['overage_bill_id' => $bill->id, 'bill_number' => $bill->bill_number]),
-            ]);
-            Log::info("Generated new pending overage invoice #{$payment->id} for tenant #{$tenant->id}: {$overageOrders} extra orders = ₹{$amount}");
-        }
-
         // Try generating Razorpay link if possible
-        $paymentLink = self::generatePaymentLink($tenant, $payment);
+        $paymentLink = self::generatePaymentLink($tenant, $bill);
         if ($paymentLink) {
-            $meta = $payment->metadata ?? [];
-            $meta['payment_link'] = $paymentLink;
-            $payment->metadata = $meta;
-            $payment->save();
-
             $bill->payment_link = $paymentLink;
             $bill->save();
         }
 
-        return $payment;
+        return $bill;
     }
 
     /**
      * Generate Razorpay payment link for overage invoice.
      */
-    public static function generatePaymentLink(Tenant $tenant, Payment $payment): ?string
+    public static function generatePaymentLink(Tenant $tenant, TenantOverageBill $bill): ?string
     {
         $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])
             ->pluck('value', 'key')
@@ -244,9 +204,9 @@ class OverageBillingService
             try {
                 $api = new \Razorpay\Api\Api($keyId, $keySecret);
                 $paymentLinkData = [
-                    'amount' => (int) ($payment->amount * 100),
-                    'currency' => $payment->currency ?? 'INR',
-                    'description' => "Overage Orders Invoice #{$payment->invoice_number} ({$tenant->name})",
+                    'amount' => (int) ($bill->total_amount * 100),
+                    'currency' => $bill->currency ?? 'INR',
+                    'description' => "Overage Orders Invoice #{$bill->bill_number} ({$tenant->name})",
                     'customer' => array_filter([
                         'name' => $tenant->business_name,
                         'email' => $tenant->primary_contact_email,
@@ -344,7 +304,7 @@ class OverageBillingService
     /**
      * Create or update the pending overage invoice for tenant bookings (ParkMeApp).
      */
-    public static function syncBookingOverageInvoice(Tenant $tenant, int $currentBookingsCount): ?Payment
+    public static function syncBookingOverageInvoice(Tenant $tenant, int $currentBookingsCount): ?TenantOverageBill
     {
         $overage = self::calculateBookingOverage($tenant, $currentBookingsCount);
 
@@ -357,7 +317,6 @@ class OverageBillingService
             
             foreach ($pendingBills as $pb) {
                 $pb->update(['status' => 'waived']);
-                Payment::where('overage_bill_id', $pb->id)->update(['status' => 'waived']);
             }
             return null;
         }
@@ -432,52 +391,14 @@ class OverageBillingService
             Log::info("Generated new pending booking overage bill #{$bill->bill_number} for tenant #{$tenant->id}: {$overageBookings} extra bookings = ₹{$amount}");
         }
 
-        // 2. Synchronize payment record for backwards compatibility
-        $payment = Payment::where('tenant_id', $tenant->id)
-            ->where(function ($q) use ($bill) {
-                $q->where('overage_bill_id', $bill->id)
-                  ->orWhere(function ($q2) {
-                      $q2->where('type', 'overage_bookings')->where('status', 'pending');
-                  });
-            })
-            ->latest('id')
-            ->first();
-
-        if ($payment) {
-            $payment->update([
-                'overage_bill_id' => $bill->id,
-                'amount' => $amount,
-                'metadata' => array_merge($payment->metadata ?? [], $metadata, ['overage_bill_id' => $bill->id, 'bill_number' => $bill->bill_number]),
-            ]);
-            Log::info("Updated existing pending overage invoice #{$payment->id} for tenant #{$tenant->id}: {$overageBookings} extra bookings = ₹{$amount}");
-        } else {
-            $payment = Payment::create([
-                'tenant_id' => $tenant->id,
-                'overage_bill_id' => $bill->id,
-                'amount' => $amount,
-                'currency' => 'INR',
-                'billing_cycle' => $billingCycle,
-                'payment_method' => 'razorpay',
-                'status' => 'pending',
-                'type' => 'overage_bookings',
-                'metadata' => array_merge($metadata, ['overage_bill_id' => $bill->id, 'bill_number' => $bill->bill_number]),
-            ]);
-            Log::info("Generated new pending overage invoice #{$payment->id} for tenant #{$tenant->id}: {$overageBookings} extra bookings = ₹{$amount}");
-        }
-
         // Try generating Razorpay link if possible
-        $paymentLink = self::generateBookingPaymentLink($tenant, $payment);
+        $paymentLink = self::generateBookingPaymentLink($tenant, $bill);
         if ($paymentLink) {
-            $meta = $payment->metadata ?? [];
-            $meta['payment_link'] = $paymentLink;
-            $payment->metadata = $meta;
-            $payment->save();
-
             $bill->payment_link = $paymentLink;
             $bill->save();
         }
 
-        return $payment;
+        return $bill;
     }
 
     /**
@@ -498,25 +419,13 @@ class OverageBillingService
             $bill->save();
         }
 
-        // Synchronize linked Payment records
-        $payments = Payment::where('overage_bill_id', $bill->id)->get();
-        foreach ($payments as $payment) {
-            $paymentMeta = $payment->metadata ?? [];
-            $payment->update([
-                'status' => 'success',
-                'transaction_id' => $transactionId,
-                'payment_method' => $paymentMethod,
-                'metadata' => array_merge($paymentMeta, $extraData)
-            ]);
-        }
-
         return $bill;
     }
 
     /**
      * Generate Razorpay payment link for booking overage invoice.
      */
-    public static function generateBookingPaymentLink(Tenant $tenant, Payment $payment): ?string
+    public static function generateBookingPaymentLink(Tenant $tenant, TenantOverageBill $bill): ?string
     {
         $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])
             ->pluck('value', 'key')
@@ -532,9 +441,9 @@ class OverageBillingService
             try {
                 $api = new \Razorpay\Api\Api($keyId, $keySecret);
                 $paymentLinkData = [
-                    'amount' => (int) ($payment->amount * 100),
-                    'currency' => $payment->currency ?? 'INR',
-                    'description' => "Overage Bookings Invoice #{$payment->invoice_number} ({$tenant->name})",
+                    'amount' => (int) ($bill->total_amount * 100),
+                    'currency' => $bill->currency ?? 'INR',
+                    'description' => "Overage Bookings Invoice #{$bill->bill_number} ({$tenant->name})",
                     'customer' => array_filter([
                         'name' => $tenant->business_name,
                         'email' => $tenant->primary_contact_email,

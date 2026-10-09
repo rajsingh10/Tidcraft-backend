@@ -345,7 +345,7 @@ class ClientPurchaseController extends Controller
                 'message' => 'This product has no Firebase project ID configured. Please contact support.',
             ], 422);
         }
-        if (empty($productFirebase->service_account_json)) {
+        if (!$productFirebase->has_service_account) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'This product has no Firebase service account configured. Please contact support.',
