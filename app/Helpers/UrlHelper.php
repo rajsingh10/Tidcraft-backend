@@ -10,7 +10,7 @@ class UrlHelper
      * Resolve the frontend base URL dynamically.
      * Supports:
      * - Testing/Dev: https://dev.tidcraft.com (API: https://devapi.tidcraft.com)
-     * - Production/Live: https://tidcraft.com (API: https://api.tidcraft.com)
+     * - Production/Live: https://tidcraft.com (API: https://apiprod.tidcraft.com)
      * - Localhost: http://localhost:3000
      * - Explicit override via FRONTEND_URL in .env
      */
@@ -112,7 +112,7 @@ class UrlHelper
      * Resolve the API / backend base URL dynamically.
      * Supports:
      * - Testing/Dev: https://devapi.tidcraft.com
-     * - Production/Live: https://api.tidcraft.com
+     * - Production/Live: https://apiprod.tidcraft.com
      * - Localhost: config('app.url') or request()->root()
      */
     public static function getApiUrl(?Request $request = null): string
@@ -132,7 +132,7 @@ class UrlHelper
                     return 'https://devapi.tidcraft.com';
                 }
                 if (str_contains($host, 'tidcraft.com')) {
-                    return 'https://api.tidcraft.com';
+                    return 'https://apiprod.tidcraft.com';
                 }
             }
 
@@ -141,7 +141,7 @@ class UrlHelper
                 return 'https://devapi.tidcraft.com';
             }
             if (str_contains($currentHost, 'api.tidcraft.com') || (str_contains($currentHost, 'tidcraft.com') && !str_contains($currentHost, 'dev'))) {
-                return 'https://api.tidcraft.com';
+                return 'https://apiprod.tidcraft.com';
             }
         }
 
@@ -152,14 +152,14 @@ class UrlHelper
                 return 'https://devapi.tidcraft.com';
             }
             if (str_contains($appHost, 'api.tidcraft.com') || (str_contains($appHost, 'tidcraft.com') && !str_contains($appHost, 'dev'))) {
-                return 'https://api.tidcraft.com';
+                return 'https://apiprod.tidcraft.com';
             }
             if (str_contains($appHost, 'localhost') || str_contains($appHost, '127.0.0.1')) {
                 return rtrim($appUrl, '/');
             }
         }
 
-        return 'https://api.tidcraft.com';
+        return 'https://apiprod.tidcraft.com';
     }
 
     /**
@@ -194,7 +194,7 @@ class UrlHelper
         $content = preg_replace('#https?://(?:www\.)?dev\.tidcraft\.com/storage/#i', 'https://devapi.tidcraft.com/storage/', $content);
 
         // Convert any production frontend storage URLs to production api backend storage URLs
-        $content = preg_replace('#https?://(?:www\.)?(?<!api\.)tidcraft\.com/storage/#i', 'https://api.tidcraft.com/storage/', $content);
+        $content = preg_replace('#https?://(?:www\.)?(?<!api\.)tidcraft\.com/storage/#i', 'https://apiprod.tidcraft.com/storage/', $content);
 
         return $content;
     }
