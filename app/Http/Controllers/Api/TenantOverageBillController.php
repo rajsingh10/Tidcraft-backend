@@ -222,10 +222,23 @@ class TenantOverageBillController extends Controller
             \Illuminate\Support\Facades\Artisan::call('tenants:generate-overage-billing', ['--all' => true]);
             $output = \Illuminate\Support\Facades\Artisan::output();
 
+            $query = TenantOverageBill::with(['tenant.client', 'tenant.product', 'tenant.plan', 'payments'])
+                        ->orderBy('id', 'desc');
+            $bills = $query->paginate(15);
+
+            $summaryQuery = clone $query;
+
             return response()->json([
                 'status' => 'success',
                 'message' => 'Overage billing generation completed.',
                 'output' => trim($output),
+                'data' => $bills,
+                'summary' => [
+                    'total_bills' => $summaryQuery->count(),
+                    'total_paid_amount' => round((float) (clone $summaryQuery)->whereIn('status', ['paid', 'success'])->sum('total_amount'), 2),
+                    'total_pending_amount' => round((float) (clone $summaryQuery)->where('status', 'pending')->sum('total_amount'), 2),
+                    'pending_count' => (clone $summaryQuery)->where('status', 'pending')->count(),
+                ]
             ]);
         } catch (\Exception $e) {
             return response()->json([
