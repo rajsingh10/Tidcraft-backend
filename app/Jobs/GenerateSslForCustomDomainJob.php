@@ -35,7 +35,8 @@ class GenerateSslForCustomDomainJob implements ShouldQueue
      */
     public function handle()
     {
-        Log::info("GenerateSslForCustomDomainJob: Starting SSL generation for domain {$this->domain}");
+        $currentUser = exec('whoami');
+        Log::info("GenerateSslForCustomDomainJob: Starting SSL generation for domain {$this->domain}. Running as user: {$currentUser}");
 
         try {
             // STEP 1: Generate HTTP-only configuration to pass Let's Encrypt webroot challenge
@@ -53,7 +54,10 @@ class GenerateSslForCustomDomainJob implements ShouldQueue
             // STEP 2: Run Certbot in certonly mode using webroot plugin (no Nginx auto-configuration)
             $adminEmail = env('ADMIN_EMAIL', 'admin@tidcraft.com');
             $tenantsDir = env('TENANTS_DIRECTORY', '/home/prodtidcraftcomusr/tenants/');
-            $webrootPath = rtrim($tenantsDir, '/') . "/{$this->domain}";
+            $webrootPath = rtrim($tenantsDir, '/') . "/{$this->domain}/public";
+            
+            // Ensure the webroot directory exists before running Certbot
+            $this->runCommand("sudo /bin/mkdir -p {$webrootPath}");
             
             $certbotCmd = "if [ -x /usr/bin/certbot ]; then sudo /usr/bin/certbot certonly --webroot -w {$webrootPath} -d {$this->domain} --cert-name {$this->domain} -m {$adminEmail} --agree-tos --non-interactive; else sudo /snap/bin/certbot certonly --webroot -w {$webrootPath} -d {$this->domain} --cert-name {$this->domain} -m {$adminEmail} --agree-tos --non-interactive; fi";
             
@@ -113,9 +117,12 @@ server {
     
     server_name {$this->domain};
 
-    root {$tenantsDir}/{$this->domain};
+    root {$tenantsDir}/{$this->domain}/public;
     index index.html index.php;
     charset utf-8;
+
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
 
     location / {
         try_files \$uri \$uri/ /index.php?\$query_string;
@@ -151,21 +158,33 @@ server {
 }
 
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     
     server_name {$this->domain};
+    root {$tenantsDir}/{$this->domain}/public;
+    index index.html index.php;
+    charset utf-8;
+
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-XSS-Protection "1; mode=block";
+    add_header X-Content-Type-Options "nosniff";
+
+    client_max_body_size 50M;
 
     ssl_certificate /etc/letsencrypt/live/{$this->domain}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/{$this->domain}/privkey.pem;
     
-    # Basic SSL settings
+    # Advanced SSL settings
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers on;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
 
-    root {$tenantsDir}/{$this->domain};
-    index index.html index.php;
-    charset utf-8;
+    error_page 404 /index.php;
+
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
 
     location / {
         try_files \$uri \$uri/ /index.php?\$query_string;

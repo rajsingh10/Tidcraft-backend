@@ -290,22 +290,28 @@ class TenantProvisionService
                 $symlinkPath = rtrim($tenantsDirectory, '/') . '/' . $domain->domain;
                 $targetPath = $product->frontend_path;
 
-                if (file_exists($targetPath)) {
-                    if (is_link($symlinkPath)) {
-                        $current = @readlink($symlinkPath);
-                        if ($current !== $targetPath) {
-                            @unlink($symlinkPath);
-                            @symlink($targetPath, $symlinkPath);
-                        }
-                    } elseif (!file_exists($symlinkPath)) {
-                        @symlink($targetPath, $symlinkPath);
-                    }
+                if (!file_exists($targetPath)) {
+                    throw new \Exception("Product frontend path does not exist on the server: {$targetPath}");
+                }
 
-                    // Generate SSL for subdomain automatically during provisioning
-                    if ($domain->type === 'subdomain') {
-                        \App\Jobs\GenerateSslForCustomDomainJob::dispatch($tenant, $domain->domain);
-                        \App\Helpers\QueueRunner::runBackground();
+                if (is_link($symlinkPath)) {
+                    $current = @readlink($symlinkPath);
+                    if ($current !== $targetPath) {
+                        @unlink($symlinkPath);
+                        if (!@symlink($targetPath, $symlinkPath)) {
+                            throw new \Exception("Failed to create symlink at {$symlinkPath}. Check permissions.");
+                        }
                     }
+                } elseif (!file_exists($symlinkPath)) {
+                    if (!@symlink($targetPath, $symlinkPath)) {
+                        throw new \Exception("Failed to create symlink at {$symlinkPath}. Check permissions.");
+                    }
+                }
+
+                // Generate SSL for subdomain automatically during provisioning
+                if ($domain->type === 'subdomain') {
+                    \App\Jobs\GenerateSslForCustomDomainJob::dispatch($tenant, $domain->domain);
+                    \App\Helpers\QueueRunner::runBackground();
                 }
             }
 
