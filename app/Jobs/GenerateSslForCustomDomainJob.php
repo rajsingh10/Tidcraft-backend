@@ -52,14 +52,16 @@ class GenerateSslForCustomDomainJob implements ShouldQueue
             $this->runCommand("sudo /bin/systemctl reload nginx");
             
             // STEP 2: Run Certbot in certonly mode using webroot plugin (no Nginx auto-configuration)
-            $adminEmail = env('ADMIN_EMAIL', 'admin@tidcraft.com');
+            $adminEmail = env('ADMIN_EMAIL');
+            $emailFlag = $adminEmail ? "-m {$adminEmail}" : "--register-unsafely-without-email";
+            
             $tenantsDir = env('TENANTS_DIRECTORY', '/home/prodtidcraftcomusr/tenants/');
             $webrootPath = rtrim($tenantsDir, '/') . "/{$this->domain}/public";
             
             // Ensure the webroot directory exists before running Certbot
             $this->runCommand("sudo /bin/mkdir -p {$webrootPath}");
             
-            $certbotCmd = "if [ -x /usr/bin/certbot ]; then sudo /usr/bin/certbot certonly --webroot -w {$webrootPath} -d {$this->domain} --cert-name {$this->domain} -m {$adminEmail} --agree-tos --non-interactive; else sudo /snap/bin/certbot certonly --webroot -w {$webrootPath} -d {$this->domain} --cert-name {$this->domain} -m {$adminEmail} --agree-tos --non-interactive; fi";
+            $certbotCmd = "if [ -x /usr/bin/certbot ]; then sudo /usr/bin/certbot certonly --webroot -w {$webrootPath} -d {$this->domain} --cert-name {$this->domain} {$emailFlag} --agree-tos --non-interactive; else sudo /snap/bin/certbot certonly --webroot -w {$webrootPath} -d {$this->domain} --cert-name {$this->domain} {$emailFlag} --agree-tos --non-interactive; fi";
             
             Log::info("GenerateSslForCustomDomainJob: Running Certbot Webroot: {$certbotCmd}");
             $certbotOutput = $this->runCommand($certbotCmd);
