@@ -65,7 +65,8 @@ class OverageBillingService
                 ->sum('overage_units');
         }
 
-        $overageOrders = max(0, $currentOrdersCount - $includedOrders - $paidOverageUnits);
+        $totalOverageOrders = max(0, $currentOrdersCount - $includedOrders);
+        $overageOrders = max(0, $totalOverageOrders - $paidOverageUnits);
         $accruedAmount = round($overageOrders * $ratePerOrder, 2);
         $usagePercent = round(($currentOrdersCount / $includedOrders) * 100);
 
@@ -73,6 +74,8 @@ class OverageBillingService
             'has_limit' => true,
             'included_orders' => $includedOrders,
             'current_orders' => $currentOrdersCount,
+            'total_overage_orders' => $totalOverageOrders,
+            'paid_overage_units' => (int) $paidOverageUnits,
             'overage_orders' => $overageOrders,
             'rate_per_order' => $ratePerOrder,
             'accrued_amount' => $accruedAmount,
@@ -120,12 +123,20 @@ class OverageBillingService
             ->first();
 
         $existingMeta = $bill ? ($bill->metadata ?? []) : [];
+        $paidUnits = (int) ($overage['paid_overage_units'] ?? 0);
+        $totalOverage = (int) ($overage['total_overage_orders'] ?? $overageOrders);
+
+        $description = $paidUnits > 0
+            ? "Post-paid Additional Orders: {$overageOrders} unbilled orders ({$currentOrdersCount} total - {$overage['included_orders']} included - {$paidUnits} already paid) at ₹{$rate}/order"
+            : "Post-paid Additional Orders: {$overageOrders} orders over {$overage['included_orders']} included limit at ₹{$rate}/order";
 
         $metadata = [
             'plan_id' => $plan?->id,
             'plan_name' => $plan?->name ?? 'Default',
             'included_orders' => $overage['included_orders'],
             'total_orders' => $currentOrdersCount,
+            'total_overage_orders' => $totalOverage,
+            'previously_paid_units' => $paidUnits,
             'overage_orders' => $overageOrders,
             'rate_per_order' => $rate,
             'billing_cycle' => $billingCycle,
@@ -133,7 +144,7 @@ class OverageBillingService
             'locations_used' => (int) ($tenant->current_locations_count ?? $existingMeta['locations_used'] ?? 0),
             'users_used' => (int) ($tenant->current_users_count ?? $existingMeta['users_used'] ?? 0),
             'storage_used_gb' => (float) ($tenant->current_storage_used ?? $existingMeta['storage_used_gb'] ?? 0),
-            'description' => "Post-paid Additional Orders: {$overageOrders} orders over {$overage['included_orders']} included limit at ₹{$rate}/order",
+            'description' => $description,
         ];
 
         if ($bill) {
@@ -282,7 +293,8 @@ class OverageBillingService
                 ->sum('overage_units');
         }
 
-        $overageBookings = max(0, $currentBookingsCount - $includedBookings - $paidOverageUnits);
+        $totalOverageBookings = max(0, $currentBookingsCount - $includedBookings);
+        $overageBookings = max(0, $totalOverageBookings - $paidOverageUnits);
         $accruedAmount = round($overageBookings * $ratePerBooking, 2);
         $usagePercent = round(($currentBookingsCount / $includedBookings) * 100);
 
@@ -290,6 +302,8 @@ class OverageBillingService
             'has_limit' => true,
             'included_bookings' => $includedBookings,
             'current_bookings' => $currentBookingsCount,
+            'total_overage_bookings' => $totalOverageBookings,
+            'paid_overage_units' => (int) $paidOverageUnits,
             'overage_bookings' => $overageBookings,
             'rate_per_booking' => $ratePerBooking,
             'accrued_amount' => $accruedAmount,
@@ -336,12 +350,20 @@ class OverageBillingService
             ->first();
 
         $existingMeta = $bill ? ($bill->metadata ?? []) : [];
+        $paidUnits = (int) ($overage['paid_overage_units'] ?? 0);
+        $totalOverage = (int) ($overage['total_overage_bookings'] ?? $overageBookings);
+
+        $description = $paidUnits > 0
+            ? "Post-paid Additional Bookings: {$overageBookings} unbilled bookings ({$currentBookingsCount} total - {$overage['included_bookings']} included - {$paidUnits} already paid) at ₹{$rate}/booking"
+            : "Post-paid Additional Bookings: {$overageBookings} bookings over {$overage['included_bookings']} included limit at ₹{$rate}/booking";
 
         $metadata = [
             'plan_id' => $plan?->id,
             'plan_name' => $plan?->name ?? 'Default',
             'included_bookings' => $overage['included_bookings'],
             'total_bookings' => $currentBookingsCount,
+            'total_overage_bookings' => $totalOverage,
+            'previously_paid_units' => $paidUnits,
             'overage_bookings' => $overageBookings,
             'rate_per_booking' => $rate,
             'billing_cycle' => $billingCycle,
@@ -349,7 +371,7 @@ class OverageBillingService
             'locations_used' => (int) ($tenant->current_locations_count ?? $existingMeta['locations_used'] ?? 0),
             'users_used' => (int) ($tenant->current_users_count ?? $existingMeta['users_used'] ?? 0),
             'storage_used_gb' => (float) ($tenant->current_storage_used ?? $existingMeta['storage_used_gb'] ?? 0),
-            'description' => "Post-paid Additional Bookings: {$overageBookings} bookings over {$overage['included_bookings']} included limit at ₹{$rate}/booking",
+            'description' => $description,
         ];
 
         if ($bill) {

@@ -331,6 +331,9 @@ class TenantPlanStatusController extends Controller
         }
 
         $orderCount = (int) $request->input('order_count', 0);
+        if ($orderCount >= 0 && $orderCount !== (int) ($tenant->current_orders_count ?? 0)) {
+            $tenant->update(['current_orders_count' => $orderCount]);
+        }
         $overageData = \App\Services\OverageBillingService::calculateOverage($tenant, $orderCount);
 
         $pendingInvoice = null;
@@ -384,6 +387,9 @@ class TenantPlanStatusController extends Controller
         }
 
         $bookingCount = (int) ($request->input('booking_count') ?? $request->input('order_count') ?? 0);
+        if ($bookingCount >= 0 && $bookingCount !== (int) ($tenant->current_bookings_count ?? 0)) {
+            $tenant->update(['current_bookings_count' => $bookingCount]);
+        }
         $overageData = \App\Services\OverageBillingService::calculateBookingOverage($tenant, $bookingCount);
 
         $pendingInvoice = null;

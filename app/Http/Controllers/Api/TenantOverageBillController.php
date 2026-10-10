@@ -211,22 +211,93 @@ class TenantOverageBillController extends Controller
      * Manually trigger the overage billing generation command.
      * Can be run via the admin panel.
      */
-    public function generateAll(Request $request)
+    public function generateAll(Request $request, $routeTenantId = null)
     {
+        $origin = $request->header('Origin');
+        $allowedOrigins = config('cors.allowed_origins', []);
+        $allowOrigin = ($origin && in_array($origin, $allowedOrigins, true)) ? $origin : 'https://tidcraft.com';
+
+        $corsHeaders = [
+            'Access-Control-Allow-Origin' => $allowOrigin,
+            'Access-Control-Allow-Credentials' => 'true',
+            'Access-Control-Allow-Methods' => 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With, Origin, Accept',
+        ];
+
+        if ($request->isMethod('OPTIONS')) {
+            return response('', 204)->withHeaders($corsHeaders);
+        }
+
         $user = $request->user();
         if ($user && $user->hasRole('Client')) {
-            return response()->json(['status' => 'error', 'message' => 'Unauthorized. Only admins can trigger overage generation.'], 403);
+            return response()->json(['status' => 'error', 'message' => 'Unauthorized. Only admins can trigger overage generation.'], 403)->withHeaders($corsHeaders);
         }
 
         try {
+            @set_time_limit(180);
+
+            $tenantIdentifier = $routeTenantId 
+                ?? $request->input('tenant_id') 
+                ?? $request->query('tenant_id') 
+                ?? $request->input('tenant') 
+                ?? $request->query('tenant')
+                ?? $request->input('uuid')
+                ?? $request->query('uuid');
+
+            if ($tenantIdentifier) {
+                $targetTenant = \App\Models\Tenant::where(function($q) use ($tenantIdentifier) {
+                    $q->where('id', $tenantIdentifier)
+                      ->orWhere('uuid', $tenantIdentifier)
+                      ->orWhere('tenant_key', $tenantIdentifier);
+                })->first();
+
+                if (!$targetTenant) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Tenant '{$tenantIdentifier}' not found."
+                    ], 404)->withHeaders($corsHeaders);
+                }
+
+                \Illuminate\Support\Facades\Artisan::call('tenants:generate-overage-billing', [
+                    '--tenant' => (string) $targetTenant->id
+                ]);
+                $output = \Illuminate\Support\Facades\Artisan::output();
+
+                $billsQuery = TenantOverageBill::where('tenant_id', $targetTenant->id);
+                $totalBills = (clone $billsQuery)->count();
+                $totalPaid = round((float) (clone $billsQuery)->whereIn('status', ['paid', 'success'])->sum('total_amount'), 2);
+                $totalPending = round((float) (clone $billsQuery)->where('status', 'pending')->sum('total_amount'), 2);
+                $pendingCount = (clone $billsQuery)->where('status', 'pending')->count();
+
+                $bills = (clone $billsQuery)->with(['tenant.client', 'tenant.product', 'tenant.plan', 'payments'])
+                            ->orderBy('id', 'desc')
+                            ->paginate(15);
+
+                return response()->json([
+                    'status' => 'success',
+                    'message' => "Overage billing generation completed for Tenant #{$targetTenant->id} ({$targetTenant->name}).",
+                    'output' => trim($output),
+                    'data' => $bills,
+                    'summary' => [
+                        'total_bills' => $totalBills,
+                        'total_paid_amount' => $totalPaid,
+                        'total_pending_amount' => $totalPending,
+                        'pending_count' => $pendingCount,
+                    ]
+                ])->withHeaders($corsHeaders);
+            }
+
             \Illuminate\Support\Facades\Artisan::call('tenants:generate-overage-billing', ['--all' => true]);
             $output = \Illuminate\Support\Facades\Artisan::output();
 
-            $query = TenantOverageBill::with(['tenant.client', 'tenant.product', 'tenant.plan', 'payments'])
-                        ->orderBy('id', 'desc');
-            $bills = $query->paginate(15);
+            $totalBills = TenantOverageBill::count();
+            $totalPaid = round((float) TenantOverageBill::whereIn('status', ['paid', 'success'])->sum('total_amount'), 2);
+            $totalPending = round((float) TenantOverageBill::where('status', 'pending')->sum('total_amount'), 2);
+            $pendingCount = TenantOverageBill::where('status', 'pending')->count();
 
-            $summaryQuery = clone $query;
+            $bills = TenantOverageBill::with(['tenant.client', 'tenant.product', 'tenant.plan', 'payments'])
+                        ->orderBy('id', 'desc')
+                        ->paginate(15);
 
             return response()->json([
                 'status' => 'success',
@@ -234,18 +305,19 @@ class TenantOverageBillController extends Controller
                 'output' => trim($output),
                 'data' => $bills,
                 'summary' => [
-                    'total_bills' => $summaryQuery->count(),
-                    'total_paid_amount' => round((float) (clone $summaryQuery)->whereIn('status', ['paid', 'success'])->sum('total_amount'), 2),
-                    'total_pending_amount' => round((float) (clone $summaryQuery)->where('status', 'pending')->sum('total_amount'), 2),
-                    'pending_count' => (clone $summaryQuery)->where('status', 'pending')->count(),
+                    'total_bills' => $totalBills,
+                    'total_paid_amount' => $totalPaid,
+                    'total_pending_amount' => $totalPending,
+                    'pending_count' => $pendingCount,
                 ]
-            ]);
-        } catch (\Exception $e) {
+            ])->withHeaders($corsHeaders);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to run overage billing generation: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to run overage billing generation.',
                 'error' => $e->getMessage()
-            ], 500);
+            ], 500)->withHeaders($corsHeaders);
         }
     }
 }

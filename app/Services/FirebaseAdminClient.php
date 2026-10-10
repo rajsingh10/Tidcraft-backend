@@ -308,7 +308,7 @@ class FirebaseAdminClient
     /**
      * Get the count of documents in a specific collection via Firestore REST API (runAggregationQuery).
      */
-    public function getCollectionCount(array $serviceAccount, string $databaseId, string $collectionName): int
+    public function getCollectionCount(array $serviceAccount, string $databaseId, string $collectionName, ?array $filter = null): int
     {
         $projectId = $serviceAccount['project_id'] ?? null;
         if (!$projectId) return 0;
@@ -320,48 +320,69 @@ class FirebaseAdminClient
 
         $url = "https://firestore.googleapis.com/v1/projects/{$projectId}/databases/{$databaseId}/documents:runAggregationQuery";
 
-        $response = Http::withToken($accessToken)->post($url, [
-            'structuredQuery' => [
-                'from' => [['collectionId' => $collectionName]]
-            ],
-            'aggregations' => [
-                ['alias' => 'count', 'count' => new \stdClass()]
-            ]
-        ]);
+        $structuredQuery = [
+            'from' => [['collectionId' => $collectionName]]
+        ];
 
-        if ($response->successful()) {
-            $data = $response->json();
-            if (isset($data[0]['result']['aggregateFields']['count']['integerValue'])) {
-                return (int) $data[0]['result']['aggregateFields']['count']['integerValue'];
-            }
+        if ($filter !== null) {
+            $structuredQuery['where'] = $filter;
         }
-        
-        \Illuminate\Support\Facades\Log::warning("Failed to get count for collection {$collectionName} in DB {$databaseId}: " . $response->body());
+
+        // 1. Primary: runAggregationQuery with proper structuredAggregationQuery wrapper
+        $payload = [
+            'structuredAggregationQuery' => [
+                'structuredQuery' => $structuredQuery,
+                'aggregations' => [
+                    ['alias' => 'count', 'count' => new \stdClass()]
+                ]
+            ]
+        ];
+
+        try {
+            $response = Http::withToken($accessToken)->timeout(6)->post($url, $payload);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                if (is_array($data)) {
+                    foreach ($data as $entry) {
+                        if (isset($entry['result']['aggregateFields']['count']['integerValue'])) {
+                            return (int) $entry['result']['aggregateFields']['count']['integerValue'];
+                        }
+                    }
+                    if (isset($data['result']['aggregateFields']['count']['integerValue'])) {
+                        return (int) $data['result']['aggregateFields']['count']['integerValue'];
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("runAggregationQuery error for {$collectionName} in DB {$databaseId}: " . $e->getMessage());
+        }
+
+        // 2. Fallback: lightweight listDocuments query if aggregation endpoint fails
+        try {
+            $listUrl = "https://firestore.googleapis.com/v1/projects/{$projectId}/databases/{$databaseId}/documents/{$collectionName}?pageSize=1000";
+            $listResponse = Http::withToken($accessToken)->timeout(6)->get($listUrl);
+            if ($listResponse->successful()) {
+                $docs = $listResponse->json('documents');
+                if (is_array($docs)) {
+                    if ($collectionName === 'restaurant_orders' || $filter !== null) {
+                        $onlineDocs = array_filter($docs, function($doc) {
+                            $isPos = $doc['fields']['isPosOrder']['booleanValue'] ?? false;
+                            return !$isPos;
+                        });
+                        return count($onlineDocs);
+                    }
+                    return count($docs);
+                }
+            }
+        } catch (\Throwable $fallbackEx) {
+            // ignore fallback error
+        }
+
         return 0;
     }
 
-    private function waitForOperation(string $accessToken, ?string $operationName): void
-    {
-        if (!$operationName) {
-            return;
-        }
-
-        $deadline = time() + 60;
-        while (time() < $deadline) {
-            $operation = Http::withToken($accessToken)
-                ->timeout(30)
-                ->get('https://firestore.googleapis.com/v1/' . ltrim($operationName, '/'));
-
-            if ($operation->json('done') === true) {
-                if ($operation->json('error')) {
-                    throw new \Exception('Firestore create operation failed: ' . json_encode($operation->json('error')));
-                }
-                return;
-            }
-
-            sleep(2);
-        }
-    }
+    private static array $tokenCache = [];
 
     public function accessToken(array $serviceAccount, array $scopes): string
     {
@@ -371,6 +392,11 @@ class FirebaseAdminClient
 
         if (!$clientEmail || !$privateKey) {
             throw new \Exception('Firebase service account JSON must include client_email and private_key.');
+        }
+
+        $cacheKey = $clientEmail . '|' . implode(',', $scopes);
+        if (isset(self::$tokenCache[$cacheKey]) && self::$tokenCache[$cacheKey]['expires_at'] > time() + 60) {
+            return self::$tokenCache[$cacheKey]['token'];
         }
 
         $now = time();
@@ -392,7 +418,7 @@ class FirebaseAdminClient
         openssl_sign($unsigned, $signature, $key, OPENSSL_ALGO_SHA256);
         $jwt = $unsigned . '.' . $this->base64UrlEncode($signature);
 
-        $response = Http::asForm()->timeout(30)->post($tokenUri, [
+        $response = Http::asForm()->timeout(10)->post($tokenUri, [
             'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
             'assertion' => $jwt,
         ]);
@@ -401,6 +427,12 @@ class FirebaseAdminClient
         if (!$response->successful() || !$accessToken) {
             throw new \Exception('Failed to authenticate Firebase service account: ' . ($response->json('error_description') ?? $response->body()));
         }
+
+        $expiresIn = (int) ($response->json('expires_in') ?? 3600);
+        self::$tokenCache[$cacheKey] = [
+            'token' => $accessToken,
+            'expires_at' => $now + $expiresIn,
+        ];
 
         return $accessToken;
     }
