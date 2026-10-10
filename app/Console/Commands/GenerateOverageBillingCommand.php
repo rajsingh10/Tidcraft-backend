@@ -36,9 +36,6 @@ class GenerateOverageBillingCommand extends Command
             $query->where(function($q) use ($tenantArg) {
                 $q->where('id', $tenantArg)->orWhere('uuid', $tenantArg)->orWhere('tenant_key', $tenantArg);
             });
-        } elseif (!$all) {
-            $this->info("Please specify --tenant=<id|uuid> or --all to process all tenants.");
-            return 0;
         }
 
         $tenants = $query->get();
@@ -64,24 +61,21 @@ class GenerateOverageBillingCommand extends Command
             // --- 1. Evaluate Orders Overage ---
             $orderRate = (float) ($plan->additional_order_price ?? 0);
             if ($orderRate > 0) {
-                $currentOrders = (int) ($tenant->current_orders_count ?? 0);
-                
                 $liveCount = $this->fetchLiveCloudCount($tenant, 'orders');
-                if ($liveCount > $currentOrders) {
+                if ($liveCount > 0) {
+                    $this->line("    Live cloud orders for Tenant #{$tenant->id}: {$liveCount} orders detected.");
                     $currentOrders = $liveCount;
                     $tenant->update(['current_orders_count' => $currentOrders]);
-                }
-
-                if ($currentOrders <= 0) {
-                    $lastBill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)->where('bill_type', 'orders')->latest('id')->first();
-                    if ($lastBill && $lastBill->total_usage > 0) {
-                        $currentOrders = (int) $lastBill->total_usage;
-                    } else {
-                        $lastPayment = \App\Models\Payment::where('tenant_id', $tenant->id)->where('type', 'overage_orders')->latest('id')->first() 
-                            ?? \App\Models\Payment::where('tenant_id', $tenant->id)->latest('id')->first();
-                        if ($lastPayment && isset($lastPayment->metadata['total_orders'])) {
-                            $currentOrders = (int) $lastPayment->metadata['total_orders'];
-                        }
+                } else {
+                    $currentOrders = (int) ($tenant->current_orders_count ?? 0);
+                    $lastPaidBill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)
+                        ->where('bill_type', 'orders')
+                        ->whereIn('status', ['paid', 'success'])
+                        ->latest('id')
+                        ->first();
+                    $lastPaidUsage = $lastPaidBill ? (int) $lastPaidBill->total_usage : 0;
+                    if ($lastPaidUsage > $currentOrders) {
+                        $currentOrders = $lastPaidUsage;
                     }
                 }
 
@@ -100,24 +94,21 @@ class GenerateOverageBillingCommand extends Command
             // --- 2. Evaluate Bookings Overage ---
             $bookingRate = (float) ($plan->additional_booking_price ?? 0);
             if ($bookingRate > 0) {
-                $currentBookings = (int) ($tenant->current_bookings_count ?? 0);
-                
                 $liveCount = $this->fetchLiveCloudCount($tenant, 'booked_parking_order');
-                if ($liveCount > $currentBookings) {
+                if ($liveCount > 0) {
+                    $this->line("    Live cloud bookings for Tenant #{$tenant->id}: {$liveCount} bookings detected.");
                     $currentBookings = $liveCount;
                     $tenant->update(['current_bookings_count' => $currentBookings]);
-                }
-
-                if ($currentBookings <= 0) {
-                    $lastBill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)->where('bill_type', 'bookings')->latest('id')->first();
-                    if ($lastBill && $lastBill->total_usage > 0) {
-                        $currentBookings = (int) $lastBill->total_usage;
-                    } else {
-                        $lastPayment = \App\Models\Payment::where('tenant_id', $tenant->id)->where('type', 'overage_bookings')->latest('id')->first()
-                            ?? \App\Models\Payment::where('tenant_id', $tenant->id)->latest('id')->first();
-                        if ($lastPayment && isset($lastPayment->metadata['total_bookings'])) {
-                            $currentBookings = (int) $lastPayment->metadata['total_bookings'];
-                        }
+                } else {
+                    $currentBookings = (int) ($tenant->current_bookings_count ?? 0);
+                    $lastPaidBill = \App\Models\TenantOverageBill::where('tenant_id', $tenant->id)
+                        ->where('bill_type', 'bookings')
+                        ->whereIn('status', ['paid', 'success'])
+                        ->latest('id')
+                        ->first();
+                    $lastPaidUsage = $lastPaidBill ? (int) $lastPaidBill->total_usage : 0;
+                    if ($lastPaidUsage > $currentBookings) {
+                        $currentBookings = $lastPaidUsage;
                     }
                 }
 
@@ -141,26 +132,133 @@ class GenerateOverageBillingCommand extends Command
     /**
      * Fetch live count directly from Firebase REST API to ensure billing accuracy.
      */
-    private function fetchLiveCloudCount(\App\Models\Tenant $tenant, string $collectionName): int
+    private function fetchLiveCloudCount(\App\Models\Tenant $tenant, string $metricType): int
     {
         try {
             $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
-            if ($productFirebase && $productFirebase->service_account_json) {
-                $serviceAccount = \App\Services\FirebaseProvisionService::decodeServiceAccount($productFirebase->service_account_json);
-                if ($serviceAccount) {
-                    $firebaseConfig = $tenant->firebaseProject;
-                    $databaseId = $firebaseConfig ? $firebaseConfig->firebase_database_id : ($tenant->firestoreDatabaseId ?? $tenant->tenant_key);
-                    
-                    if ($databaseId) {
-                        $adminClient = new \App\Services\FirebaseAdminClient();
-                        return $adminClient->getCollectionCount($serviceAccount, $databaseId, $collectionName);
+            if (!$productFirebase || !$productFirebase->service_account_json) {
+                return 0;
+            }
+
+            $serviceAccount = $this->decodeServiceAccount($productFirebase->service_account_json);
+            if (!$serviceAccount) {
+                return 0;
+            }
+
+            // Determine candidate collections based on metric and product
+            $collections = [];
+            if ($metricType === 'orders' || $metricType === 'restaurant_orders' || $tenant->product_id == 1) {
+                $collections = ['restaurant_orders', 'orders', 'restaurant_order'];
+            } elseif ($metricType === 'booked_parking_order' || $metricType === 'bookings' || $tenant->product_id == 2) {
+                $collections = ['booked_parking_order', 'bookings', 'orders', 'booking'];
+            } else {
+                $collections = [$metricType];
+            }
+
+            // Collect candidate database IDs to check in order of priority
+            $databaseCandidates = [];
+            $firebaseConfig = $tenant->firebaseProject;
+            if ($firebaseConfig && !empty($firebaseConfig->firebase_database_id)) {
+                $databaseCandidates[] = $firebaseConfig->firebase_database_id;
+            }
+            if (method_exists($tenant, 'firestoreDatabaseId')) {
+                try {
+                    $databaseCandidates[] = $tenant->firestoreDatabaseId();
+                } catch (\Throwable $e) {}
+            }
+
+            $sub = method_exists($tenant, 'subdomainPrefix') ? $tenant->subdomainPrefix() : ($tenant->tenant_key ?? '');
+            $cleanSub = preg_replace('/[^a-z0-9-]/', '-', strtolower((string) $sub));
+            $cleanSubNoP = preg_replace('/-p\d+$/', '', $cleanSub);
+
+            $rawKey = preg_replace('/[^a-z0-9-]/', '-', strtolower((string) ($tenant->tenant_key ?? '')));
+            $rawKeyNoP = preg_replace('/-p\d+$/', '', $rawKey);
+
+            if ($tenant->product_id == 1) {
+                $databaseCandidates[] = 'tidcraft-tideats-' . $cleanSubNoP;
+                $databaseCandidates[] = 'tidcraft-tideats-' . $cleanSub;
+                $databaseCandidates[] = 'tidcraft-' . $cleanSubNoP;
+                $databaseCandidates[] = 'tidcraft-' . $cleanSub;
+                $databaseCandidates[] = 'tidcraft-tideats-' . $rawKeyNoP;
+                $databaseCandidates[] = 'tidcraft-tideats-' . $rawKey;
+                $databaseCandidates[] = 'tidcraft-' . $rawKeyNoP;
+                $databaseCandidates[] = 'tidcraft-' . $rawKey;
+            } elseif ($tenant->product_id == 2) {
+                $databaseCandidates[] = 'tidcraft-tidpark-' . $cleanSubNoP;
+                $databaseCandidates[] = 'tidcraft-tidpark-' . $cleanSub;
+                $databaseCandidates[] = 'tidcraft-' . $cleanSubNoP;
+                $databaseCandidates[] = 'tidcraft-' . $cleanSub;
+                $databaseCandidates[] = 'tidcraft-tidpark-' . $rawKeyNoP;
+                $databaseCandidates[] = 'tidcraft-tidpark-' . $rawKey;
+                $databaseCandidates[] = 'tidcraft-' . $rawKeyNoP;
+                $databaseCandidates[] = 'tidcraft-' . $rawKey;
+            } else {
+                $databaseCandidates[] = 'tidcraft-' . $cleanSubNoP;
+                $databaseCandidates[] = 'tidcraft-' . $cleanSub;
+            }
+
+            $databaseCandidates[] = '(default)';
+            $databaseCandidates = array_values(array_unique(array_filter($databaseCandidates)));
+
+            if (!class_exists(\App\Services\FirebaseAdminClient::class)) {
+                \Illuminate\Support\Facades\Log::warning("FirebaseAdminClient class not found on system. Skipping live cloud count for Tenant #{$tenant->id}.");
+                return 0;
+            }
+
+            $adminClient = new \App\Services\FirebaseAdminClient();
+
+            $maxFound = 0;
+            foreach ($databaseCandidates as $databaseId) {
+                foreach ($collections as $collectionName) {
+                    $filter = null;
+                    if ($collectionName === 'restaurant_orders' || ($tenant->product_id == 1 && in_array($collectionName, ['orders', 'restaurant_orders', 'restaurant_order']))) {
+                        $filter = [
+                            'fieldFilter' => [
+                                'field' => ['fieldPath' => 'isPosOrder'],
+                                'op' => 'EQUAL',
+                                'value' => ['booleanValue' => false]
+                            ]
+                        ];
+                    }
+                    $count = $adminClient->getCollectionCount($serviceAccount, $databaseId, $collectionName, $filter);
+                    if ($count > $maxFound) {
+                        $maxFound = $count;
+                        \Illuminate\Support\Facades\Log::info("Found live cloud count for Tenant #{$tenant->id} [DB: {$databaseId}, Collection: {$collectionName}]: {$count}");
                     }
                 }
+                if ($maxFound > 0) {
+                    return $maxFound;
+                }
             }
-        } catch (\Exception $e) {
+
+            return $maxFound;
+        } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning("Failed to fetch live cloud count for tenant {$tenant->id}: " . $e->getMessage());
         }
-        
+
         return 0;
+    }
+
+    /**
+     * Decode and validate Firebase service account JSON without external service dependencies.
+     */
+    private function decodeServiceAccount($json): ?array
+    {
+        if (empty($json)) {
+            return null;
+        }
+
+        if (is_array($json)) {
+            return (!empty($json['private_key']) && !empty($json['client_email'])) ? $json : null;
+        }
+
+        if (is_string($json)) {
+            $decoded = json_decode($json, true);
+            if (is_array($decoded) && !empty($decoded['private_key']) && !empty($decoded['client_email'])) {
+                return $decoded;
+            }
+        }
+
+        return null;
     }
 }
