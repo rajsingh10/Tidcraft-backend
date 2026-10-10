@@ -172,7 +172,7 @@ class FirebaseProvisionService
         return $firebaseConfig->fresh();
     }
 
-    private static function decodeServiceAccount(?string $json): ?array
+    public static function decodeServiceAccount(?string $json): ?array
     {
         if (!$json) {
             return null;
