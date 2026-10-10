@@ -36,9 +36,6 @@ class GenerateOverageBillingCommand extends Command
             $query->where(function($q) use ($tenantArg) {
                 $q->where('id', $tenantArg)->orWhere('uuid', $tenantArg)->orWhere('tenant_key', $tenantArg);
             });
-        } elseif (!$all) {
-            $this->info("Please specify --tenant=<id|uuid> or --all to process all tenants.");
-            return 0;
         }
 
         $tenants = $query->get();
