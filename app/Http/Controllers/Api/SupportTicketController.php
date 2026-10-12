@@ -91,16 +91,8 @@ class SupportTicketController extends Controller
             ]);
 
             try {
-                $adminEmail = \App\Models\Setting::where('key', 'company_email')->value('value');
-                if (!$adminEmail) {
-                    $superAdmin = \App\Models\User::role('SuperAdmin')->first();
-                    $adminEmail = $superAdmin ? $superAdmin->email : null;
-                }
-                if (!$adminEmail) {
-                    $adminEmail = config('mail.from.address') ?? 'admin@example.com';
-                }
-                
-                if ($adminEmail) {
+                $adminEmails = \App\Helpers\MailHelper::getAdminNotificationEmails();
+                foreach ($adminEmails as $adminEmail) {
                     \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\AdminSupportTicketMail($ticket, $user));
                 }
             } catch (\Exception $e) {
