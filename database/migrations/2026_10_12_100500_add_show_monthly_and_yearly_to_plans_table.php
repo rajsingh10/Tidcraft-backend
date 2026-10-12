@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -11,27 +12,21 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (Schema::hasTable('plans')) {
-            Schema::table('plans', function (Blueprint $table) {
-                if (!Schema::hasColumn('plans', 'show_monthly')) {
-                    $table->boolean('show_monthly')->default(true)->after('annual_price');
-                }
-                if (!Schema::hasColumn('plans', 'show_yearly')) {
-                    $table->boolean('show_yearly')->default(true)->after('show_monthly');
-                }
-            });
-        }
+        $this->addColumnIfNotExists('plans', 'show_monthly', function (Blueprint $table) {
+            $table->boolean('show_monthly')->default(true)->after('annual_price');
+        });
 
-        if (Schema::hasTable('plan_prices')) {
-            Schema::table('plan_prices', function (Blueprint $table) {
-                if (!Schema::hasColumn('plan_prices', 'show_monthly')) {
-                    $table->boolean('show_monthly')->default(true)->after('onboard');
-                }
-                if (!Schema::hasColumn('plan_prices', 'show_yearly')) {
-                    $table->boolean('show_yearly')->default(true)->after('show_monthly');
-                }
-            });
-        }
+        $this->addColumnIfNotExists('plans', 'show_yearly', function (Blueprint $table) {
+            $table->boolean('show_yearly')->default(true)->after('show_monthly');
+        });
+
+        $this->addColumnIfNotExists('plan_prices', 'show_monthly', function (Blueprint $table) {
+            $table->boolean('show_monthly')->default(true)->after('onboard');
+        });
+
+        $this->addColumnIfNotExists('plan_prices', 'show_yearly', function (Blueprint $table) {
+            $table->boolean('show_yearly')->default(true)->after('show_monthly');
+        });
     }
 
     /**
@@ -39,34 +34,77 @@ return new class extends Migration
      */
     public function down(): void
     {
-        if (Schema::hasTable('plans')) {
-            Schema::table('plans', function (Blueprint $table) {
-                $columns = [];
-                if (Schema::hasColumn('plans', 'show_monthly')) {
-                    $columns[] = 'show_monthly';
-                }
-                if (Schema::hasColumn('plans', 'show_yearly')) {
-                    $columns[] = 'show_yearly';
-                }
-                if (!empty($columns)) {
-                    $table->dropColumn($columns);
-                }
-            });
+        $this->dropColumnIfExists('plans', 'show_yearly');
+        $this->dropColumnIfExists('plans', 'show_monthly');
+        $this->dropColumnIfExists('plan_prices', 'show_yearly');
+        $this->dropColumnIfExists('plan_prices', 'show_monthly');
+    }
+
+    /**
+     * Safely add column only if it doesn't already exist in database.
+     */
+    private function addColumnIfNotExists(string $tableName, string $columnName, \Closure $callback): void
+    {
+        if (!Schema::hasTable($tableName)) {
+            return;
         }
 
-        if (Schema::hasTable('plan_prices')) {
-            Schema::table('plan_prices', function (Blueprint $table) {
-                $columns = [];
-                if (Schema::hasColumn('plan_prices', 'show_monthly')) {
-                    $columns[] = 'show_monthly';
+        $exists = false;
+        try {
+            $exists = Schema::hasColumn($tableName, $columnName);
+        } catch (\Throwable $e) {
+            $exists = false;
+        }
+
+        if (!$exists) {
+            try {
+                $count = DB::table('information_schema.COLUMNS')
+                    ->where('TABLE_SCHEMA', DB::getDatabaseName())
+                    ->where('TABLE_NAME', $tableName)
+                    ->where('COLUMN_NAME', $columnName)
+                    ->count();
+                $exists = ($count > 0);
+            } catch (\Throwable $e) {
+                // Ignore if query fails
+            }
+        }
+
+        if (!$exists) {
+            try {
+                Schema::table($tableName, $callback);
+            } catch (\Throwable $e) {
+                // If MySQL reports duplicate column (1060 / 42S21), ignore safely
+                if (!str_contains($e->getMessage(), '1060') && !str_contains($e->getMessage(), 'Duplicate column')) {
+                    throw $e;
                 }
-                if (Schema::hasColumn('plan_prices', 'show_yearly')) {
-                    $columns[] = 'show_yearly';
-                }
-                if (!empty($columns)) {
-                    $table->dropColumn($columns);
-                }
-            });
+            }
+        }
+    }
+
+    /**
+     * Safely drop column if exists.
+     */
+    private function dropColumnIfExists(string $tableName, string $columnName): void
+    {
+        if (!Schema::hasTable($tableName)) {
+            return;
+        }
+
+        $exists = false;
+        try {
+            $exists = Schema::hasColumn($tableName, $columnName);
+        } catch (\Throwable $e) {
+            $exists = false;
+        }
+
+        if ($exists) {
+            try {
+                Schema::table($tableName, function (Blueprint $table) use ($columnName) {
+                    $table->dropColumn($columnName);
+                });
+            } catch (\Throwable $e) {
+                // Ignore if column drop fails or not found
+            }
         }
     }
 };
