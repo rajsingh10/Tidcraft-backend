@@ -989,6 +989,11 @@ class TenantProvisionController extends Controller
             $oldStatus = $tenant->status;
             $tenant->update($updateData);
 
+            // Process APK and document file uploads if present
+            if ($request->hasFile('apk_file') || $request->hasFile('apk_files') || $request->hasFile('doc_file') || $request->hasFile('doc_files') || $request->filled('apk_url') || $request->filled('doc_url')) {
+                $this->processTenantFileUploads($request, $tenant);
+            }
+
             // Handle suspending / un-suspending domains
             if ($request->has('status') && $request->status !== $oldStatus) {
                 $newStatus = strtolower($request->status);
@@ -2455,5 +2460,262 @@ class TenantProvisionController extends Controller
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error("Failed to sync Firebase credentials: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Upload tenant APK and documentation files.
+     */
+    public function uploadFiles(Request $request, $uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'apk_file' => 'nullable',
+            'apk_files' => 'nullable|array',
+            'doc_file' => 'nullable',
+            'doc_files' => 'nullable|array',
+            'apk_name' => 'nullable|string',
+            'doc_name' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['status' => 'error', 'message' => 'Validation Error', 'errors' => $validator->errors()], 422);
+        }
+
+        $files = $this->processTenantFileUploads($request, $tenant);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Tenant files uploaded successfully.',
+            'data' => $files
+        ]);
+    }
+
+    /**
+     * Get uploaded APK and documentation files for a tenant.
+     */
+    public function getFiles($uuid)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $this->formatTenantFiles($tenant)
+        ]);
+    }
+
+    /**
+     * Delete an uploaded APK or document file from a tenant.
+     */
+    public function deleteFile(Request $request, $uuid, $fileId)
+    {
+        $tenant = Tenant::where('uuid', $uuid)->first();
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Tenant not found.'], 404);
+        }
+
+        $currentApks = is_array($tenant->apk_file) ? $tenant->apk_file : (json_decode($tenant->apk_file ?? '[]', true) ?: []);
+        $currentDocs = is_array($tenant->doc_file) ? $tenant->doc_file : (json_decode($tenant->doc_file ?? '[]', true) ?: []);
+
+        $newApks = [];
+        $deleted = false;
+        foreach ($currentApks as $apk) {
+            $id = is_array($apk) ? ($apk['id'] ?? null) : null;
+            if ($id === $fileId || (is_string($apk) && basename($apk) === $fileId)) {
+                if (is_array($apk) && !empty($apk['path'])) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($apk['path']);
+                }
+                $deleted = true;
+            } else {
+                $newApks[] = $apk;
+            }
+        }
+
+        $newDocs = [];
+        foreach ($currentDocs as $doc) {
+            $id = is_array($doc) ? ($doc['id'] ?? null) : null;
+            if ($id === $fileId || (is_string($doc) && basename($doc) === $fileId)) {
+                if (is_array($doc) && !empty($doc['path'])) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($doc['path']);
+                }
+                $deleted = true;
+            } else {
+                $newDocs[] = $doc;
+            }
+        }
+
+        $tenant->update([
+            'apk_file' => array_values($newApks),
+            'doc_file' => array_values($newDocs),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => $deleted ? 'File deleted successfully.' : 'File not found.',
+            'data' => $this->formatTenantFiles($tenant)
+        ]);
+    }
+
+    /**
+     * Process and store uploaded files for a tenant.
+     */
+    public function processTenantFileUploads(Request $request, Tenant $tenant): array
+    {
+        $currentApks = is_array($tenant->apk_file) ? $tenant->apk_file : (json_decode($tenant->apk_file ?? '[]', true) ?: []);
+        $currentDocs = is_array($tenant->doc_file) ? $tenant->doc_file : (json_decode($tenant->doc_file ?? '[]', true) ?: []);
+
+        // 1. Handle APK files
+        $uploadedApks = [];
+        if ($request->hasFile('apk_file')) {
+            $uploadedApks[] = $request->file('apk_file');
+        }
+        if ($request->hasFile('apk_files')) {
+            $apks = $request->file('apk_files');
+            if (is_array($apks)) {
+                $uploadedApks = array_merge($uploadedApks, $apks);
+            }
+        }
+
+        $apkNameInput = $request->input('apk_name') ?? $request->input('app_name') ?? 'Android App';
+
+        foreach ($uploadedApks as $index => $file) {
+            if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                $origName = $file->getClientOriginalName();
+                $cleanName = Str::slug(pathinfo($origName, PATHINFO_FILENAME)) . '-' . time() . '.' . ($file->getClientOriginalExtension() ?: 'apk');
+                $path = $file->storeAs("tenants/{$tenant->uuid}/apk", $cleanName, 'public');
+                
+                $title = (count($uploadedApks) > 1) ? "{$apkNameInput} " . ($index + 1) : $apkNameInput;
+                $currentApks[] = [
+                    'id' => Str::random(10),
+                    'name' => $title,
+                    'file_name' => $origName,
+                    'path' => $path,
+                    'url' => url('storage/' . $path),
+                    'size' => $file->getSize(),
+                    'type' => 'apk',
+                    'uploaded_at' => now()->toDateTimeString(),
+                ];
+            }
+        }
+
+        // Also accept string URL for APK if passed as raw url
+        if ($request->filled('apk_url') && is_string($request->input('apk_url')) && filter_var($request->input('apk_url'), FILTER_VALIDATE_URL)) {
+            $url = $request->input('apk_url');
+            $currentApks[] = [
+                'id' => Str::random(10),
+                'name' => $apkNameInput,
+                'file_name' => basename(parse_url($url, PHP_URL_PATH) ?: 'app.apk'),
+                'path' => null,
+                'url' => $url,
+                'size' => null,
+                'type' => 'apk',
+                'uploaded_at' => now()->toDateTimeString(),
+            ];
+        }
+
+        // 2. Handle Document files
+        $uploadedDocs = [];
+        if ($request->hasFile('doc_file')) {
+            $uploadedDocs[] = $request->file('doc_file');
+        }
+        if ($request->hasFile('doc_files')) {
+            $docs = $request->file('doc_files');
+            if (is_array($docs)) {
+                $uploadedDocs = array_merge($uploadedDocs, $docs);
+            }
+        }
+
+        $docNameInput = $request->input('doc_name') ?? $request->input('document_name') ?? 'Documentation';
+
+        foreach ($uploadedDocs as $index => $file) {
+            if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                $origName = $file->getClientOriginalName();
+                $ext = $file->getClientOriginalExtension() ?: 'pdf';
+                $cleanName = Str::slug(pathinfo($origName, PATHINFO_FILENAME)) . '-' . time() . '.' . $ext;
+                $path = $file->storeAs("tenants/{$tenant->uuid}/docs", $cleanName, 'public');
+
+                $title = (count($uploadedDocs) > 1) ? "{$docNameInput} " . ($index + 1) : $docNameInput;
+                $currentDocs[] = [
+                    'id' => Str::random(10),
+                    'name' => $title,
+                    'file_name' => $origName,
+                    'path' => $path,
+                    'url' => url('storage/' . $path),
+                    'extension' => $ext,
+                    'size' => $file->getSize(),
+                    'type' => 'document',
+                    'uploaded_at' => now()->toDateTimeString(),
+                ];
+            }
+        }
+
+        // Also accept string URL for doc if passed as raw url
+        if ($request->filled('doc_url') && is_string($request->input('doc_url')) && filter_var($request->input('doc_url'), FILTER_VALIDATE_URL)) {
+            $url = $request->input('doc_url');
+            $currentDocs[] = [
+                'id' => Str::random(10),
+                'name' => $docNameInput,
+                'file_name' => basename(parse_url($url, PHP_URL_PATH) ?: 'document.pdf'),
+                'path' => null,
+                'url' => $url,
+                'extension' => pathinfo(parse_url($url, PHP_URL_PATH) ?: '', PATHINFO_EXTENSION),
+                'size' => null,
+                'type' => 'document',
+                'uploaded_at' => now()->toDateTimeString(),
+            ];
+        }
+
+        $tenant->update([
+            'apk_file' => array_values($currentApks),
+            'doc_file' => array_values($currentDocs),
+        ]);
+
+        return $this->formatTenantFiles($tenant);
+    }
+
+    /**
+     * Format tenant APK and Document files for API responses.
+     */
+    public function formatTenantFiles(Tenant $tenant): array
+    {
+        $apks = is_array($tenant->apk_file) ? $tenant->apk_file : (json_decode($tenant->apk_file ?? '[]', true) ?: []);
+        $docs = is_array($tenant->doc_file) ? $tenant->doc_file : (json_decode($tenant->doc_file ?? '[]', true) ?: []);
+
+        $formattedApks = array_map(function ($item) {
+            if (is_string($item)) {
+                return [
+                    'name' => basename($item),
+                    'url' => str_starts_with($item, 'http') ? $item : url('storage/' . ltrim($item, '/')),
+                ];
+            }
+            if (isset($item['path']) && !empty($item['path']) && empty($item['url'])) {
+                $item['url'] = url('storage/' . ltrim($item['path'], '/'));
+            }
+            return $item;
+        }, $apks);
+
+        $formattedDocs = array_map(function ($item) {
+            if (is_string($item)) {
+                return [
+                    'name' => basename($item),
+                    'url' => str_starts_with($item, 'http') ? $item : url('storage/' . ltrim($item, '/')),
+                ];
+            }
+            if (isset($item['path']) && !empty($item['path']) && empty($item['url'])) {
+                $item['url'] = url('storage/' . ltrim($item['path'], '/'));
+            }
+            return $item;
+        }, $docs);
+
+        return [
+            'apk_files' => array_values($formattedApks),
+            'doc_files' => array_values($formattedDocs),
+        ];
     }
 }
