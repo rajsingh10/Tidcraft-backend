@@ -22,13 +22,19 @@ class ClientPurchaseController extends Controller
     {
         $user = $request->user();
 
-        // Fetch tenants linked to this user
-        $tenants = Tenant::with(['product', 'plan', 'domains', 'subscriptions', 'payments', 'overageBills'])
+        // Fetch tenants linked to this user with apps and product demos
+        $tenants = Tenant::with(['product.demos', 'plan', 'domains', 'subscriptions', 'payments', 'overageBills', 'apps', 'provisioningLogs'])
             ->where(function ($q) use ($user) {
                 $q->where('create_by', $user->id)
                   ->orWhere('client_id', $user->id);
             })
+            ->latest('id')
             ->get();
+
+        $tenants->each(function ($tenant) {
+            $tenant->setAttribute('product_links', $this->buildProductLinks($tenant));
+            $tenant->setAttribute('access_details', $this->buildAccessDetails($tenant));
+        });
 
         return response()->json([
             'status' => 'success',
@@ -44,7 +50,7 @@ class ClientPurchaseController extends Controller
         $user = $request->user();
 
         // Fetch the specific tenant ensuring it belongs to this client
-        $tenant = Tenant::with(['product', 'plan', 'domains', 'firebaseProject', 'addOns', 'subscriptions', 'provisioningLogs', 'payments', 'overageBills'])
+        $tenant = Tenant::with(['product.demos', 'plan', 'domains', 'firebaseProject', 'addOns', 'subscriptions', 'provisioningLogs', 'payments', 'overageBills', 'apps'])
             ->where('uuid', $uuid)
             ->where(function ($q) use ($user) {
                 $q->where('create_by', $user->id)
@@ -59,10 +65,147 @@ class ClientPurchaseController extends Controller
             ], 404);
         }
 
+        $tenant->setAttribute('product_links', $this->buildProductLinks($tenant));
+        $tenant->setAttribute('access_details', $this->buildAccessDetails($tenant));
+
         return response()->json([
             'status' => 'success',
             'data' => $tenant
         ]);
+    }
+
+    /**
+     * Return structured product and application links for a specific purchase.
+     */
+    public function getLinks(Request $request, $uuid)
+    {
+        $user = $request->user();
+        $tenant = Tenant::with(['product.demos', 'domains', 'apps'])
+            ->where('uuid', $uuid)
+            ->where(function ($q) use ($user) {
+                $q->where('create_by', $user->id)
+                  ->orWhere('client_id', $user->id);
+            })
+            ->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $this->buildProductLinks($tenant)
+        ]);
+    }
+
+    /**
+     * Return access details and activation instructions for a specific purchase.
+     */
+    public function getAccessDetails(Request $request, $uuid)
+    {
+        $user = $request->user();
+        $tenant = Tenant::with(['domains', 'firebaseProject', 'apps', 'payments'])
+            ->where('uuid', $uuid)
+            ->where(function ($q) use ($user) {
+                $q->where('create_by', $user->id)
+                  ->orWhere('client_id', $user->id);
+            })
+            ->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $this->buildAccessDetails($tenant)
+        ]);
+    }
+
+    /**
+     * Retry provisioning for a purchase without creating duplicate purchases or payments.
+     */
+    public function retryProvision(Request $request, $uuid)
+    {
+        $user = $request->user();
+        $tenant = Tenant::where('uuid', $uuid)
+            ->where(function ($q) use ($user) {
+                $q->where('create_by', $user->id)
+                  ->orWhere('client_id', $user->id);
+            })
+            ->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        // Check if payment is confirmed
+        $hasPaid = $tenant->payments()->where('status', 'success')->exists();
+        if (!$hasPaid) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Cannot retry provisioning: Payment is not confirmed yet for this purchase.'
+            ], 400);
+        }
+
+        // Release any existing stale cache lock
+        \Illuminate\Support\Facades\Cache::forget('provisioning_tenant_' . $tenant->id);
+
+        // Update status to provisioning
+        $tenant->update(['status' => 'provisioning']);
+
+        // Log retry attempt in ProvisioningLog
+        \App\Models\ProvisioningLog::create([
+            'tenant_id' => $tenant->id,
+            'step' => 'retry',
+            'status' => 'in_progress',
+            'message' => 'Client initiated provisioning retry.',
+            'started_at' => now(),
+        ]);
+
+        // Dispatch provisioning job
+        \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+        \App\Helpers\QueueRunner::runBackground();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Provisioning retry initiated successfully.',
+            'tenant_status' => 'provisioning',
+            'tenant_id' => $tenant->uuid,
+        ]);
+    }
+
+    /**
+     * Resend product links and access instructions email to customer's registered email.
+     */
+    public function resendAccessEmail(Request $request, $uuid)
+    {
+        $user = $request->user();
+        $tenant = Tenant::where('uuid', $uuid)
+            ->where(function ($q) use ($user) {
+                $q->where('create_by', $user->id)
+                  ->orWhere('client_id', $user->id);
+            })
+            ->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        $sent = \App\Services\TenantProvisionService::sendAccessDetailsEmail($tenant);
+        $clientEmail = $tenant->primary_contact_email ?? ($tenant->client?->email ?? $user->email);
+
+        if ($sent) {
+            return response()->json([
+                'status' => 'success',
+                'message' => "Product links and account access instructions have been sent to {$clientEmail}."
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Failed to send email. Please verify mail server settings.'
+        ], 500);
     }
 
     /**
@@ -90,22 +233,38 @@ class ClientPurchaseController extends Controller
             ->orderBy('id', 'asc')
             ->get();
 
+        $hasFailedLog = $logs->where('status', 'failed')->isNotEmpty();
+        $lastFailed = $logs->where('status', 'failed')->last();
+
         $isFullyProvisioned = $logs->where('step', 'activation')->where('status', 'success')->isNotEmpty()
             && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id);
+
+        if ($tenant->status === 'failed' || ($hasFailedLog && !$isFullyProvisioned)) {
+            return response()->json([
+                'status' => 'error',
+                'tenant_status' => 'failed',
+                'can_retry' => true,
+                'message' => 'Provisioning encountered an error. You can retry provisioning.',
+                'failed_step' => $lastFailed?->step,
+                'error' => $lastFailed?->error ?? $lastFailed?->message,
+                'data' => $logs
+            ]);
+        }
+
+        $hasConfirmedPayment = $tenant->payments()->where('status', 'success')->exists();
 
         if (!$isFullyProvisioned) {
             $hasDomain = $tenant->domains()->whereNotNull('domain')->where('domain', '!=', '')->exists();
             $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
 
-            if ($hasDomain && $productFirebase && !empty($productFirebase->firebase_project_id)) {
+            if ($hasConfirmedPayment && $hasDomain && $productFirebase && !empty($productFirebase->firebase_project_id)) {
                 if ($tenant->status !== 'provisioning') {
                     $tenant->update(['status' => 'provisioning']);
                 }
 
-                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
-                \App\Helpers\QueueRunner::runBackground();
-
                 if ($logs->isEmpty()) {
+                    \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                    \App\Helpers\QueueRunner::runBackground();
                     usleep(300000);
                     $logs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)
                         ->orderBy('id', 'asc')
@@ -114,8 +273,10 @@ class ClientPurchaseController extends Controller
             }
 
             return response()->json([
-                'status' => 'success',
-                'tenant_status' => 'provisioning',
+                'status' => 'in_progress',
+                'tenant_status' => $tenant->status === 'pending' ? 'pending' : 'provisioning',
+                'can_retry' => false,
+                'current_step' => $logs->where('status', 'in_progress')->last()?->step ?? 'queued',
                 'data' => $logs
             ]);
         }
@@ -123,8 +284,189 @@ class ClientPurchaseController extends Controller
         return response()->json([
             'status' => 'success',
             'tenant_status' => 'active',
+            'can_retry' => false,
+            'product_links' => $this->buildProductLinks($tenant),
+            'access_details' => $this->buildAccessDetails($tenant),
             'data' => $logs
         ]);
+    }
+
+    /**
+     * Build comprehensive product and app links structure for a tenant.
+     */
+    protected function buildProductLinks(Tenant $tenant): array
+    {
+        $domainObj = $tenant->domains?->where('status', 'active')->first() ?? $tenant->domains?->first();
+        $domainStr = $domainObj?->domain;
+        $domainUrl = $domainStr ? ('https://' . $domainStr) : null;
+        $adminUrl = $domainUrl ? (rtrim($domainUrl, '/') . '/admin_panel') : null;
+        $apanelUrl = $adminUrl;
+        $restaurantPanelUrl = $domainUrl ? (rtrim($domainUrl, '/') . '/restaurant_panel') : null;
+        $ownerPanelUrl = $domainUrl ? (rtrim($domainUrl, '/') . '/owner_panel') : null;
+
+        $prodName = strtolower($tenant->product?->slug ?? $tenant->product?->name ?? '');
+        $isFoodApp = str_contains($prodName, 'food') || str_contains($prodName, 'eats');
+        $isParkApp = str_contains($prodName, 'park') || str_contains($prodName, 'parkme');
+
+        $panels = [];
+        if ($domainUrl) {
+            $panels[] = [
+                'title' => 'Customer Web Application',
+                'type' => 'customer_web',
+                'url' => $domainUrl,
+                'status' => $domainObj?->status ?? 'active',
+                'description' => 'Customer-facing web portal and booking/ordering storefront',
+            ];
+            $panels[] = [
+                'title' => 'Admin Control Panel',
+                'type' => 'admin_panel',
+                'url' => $adminUrl,
+                'status' => $domainObj?->status ?? 'active',
+                'description' => 'Super Administrator control and reporting dashboard',
+            ];
+            if ($isFoodApp) {
+                $panels[] = [
+                    'title' => 'Restaurant / Merchant Panel',
+                    'type' => 'restaurant_panel',
+                    'url' => $restaurantPanelUrl,
+                    'status' => $domainObj?->status ?? 'active',
+                    'description' => 'Restaurant manager and kitchen order processing portal',
+                ];
+            }
+            if ($isParkApp) {
+                $panels[] = [
+                    'title' => 'Parking Lot Owner Panel',
+                    'type' => 'owner_panel',
+                    'url' => $ownerPanelUrl,
+                    'status' => $domainObj?->status ?? 'active',
+                    'description' => 'Parking spot operator and slot management dashboard',
+                ];
+            }
+        }
+
+        // Collect mobile app download links
+        $mobileApps = [];
+        if ($tenant->relationLoaded('apps') || $tenant->apps) {
+            foreach ($tenant->apps as $app) {
+                if (!empty($app->apk_url) && is_array($app->apk_url)) {
+                    foreach ($app->apk_url as $name => $url) {
+                        $mobileApps[] = [
+                            'name' => ucfirst(str_replace('_', ' ', $name)) . ' App',
+                            'type' => $name,
+                            'url' => $url,
+                            'platform' => str_contains(strtolower($name), 'ios') || str_contains(strtolower($name), 'apple') ? 'ios' : 'android',
+                            'download_url' => $url,
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Add any ProductDemo links if not already present
+        if ($tenant->product && ($tenant->product->relationLoaded('demos') || $tenant->product->demos)) {
+            foreach ($tenant->product->demos as $demo) {
+                if (!empty($demo->play_store_url)) {
+                    $mobileApps[] = [
+                        'name' => ($demo->title ?? 'Customer') . ' (Google Play)',
+                        'type' => 'google_play',
+                        'url' => $demo->play_store_url,
+                        'platform' => 'android',
+                        'download_url' => $demo->play_store_url,
+                    ];
+                }
+                if (!empty($demo->app_store_url)) {
+                    $mobileApps[] = [
+                        'name' => ($demo->title ?? 'Customer') . ' (App Store)',
+                        'type' => 'app_store',
+                        'url' => $demo->app_store_url,
+                        'platform' => 'ios',
+                        'download_url' => $demo->app_store_url,
+                    ];
+                }
+            }
+        }
+
+        // All links flat list
+        $allLinks = [];
+        foreach ($panels as $p) {
+            $allLinks[] = [
+                'name' => $p['title'],
+                'category' => 'web_portal',
+                'url' => $p['url'],
+                'description' => $p['description']
+            ];
+        }
+        foreach ($mobileApps as $m) {
+            $allLinks[] = [
+                'name' => $m['name'],
+                'category' => 'mobile_app',
+                'url' => $m['url'],
+                'description' => 'Mobile application download link'
+            ];
+        }
+
+        return [
+            'application_url' => $domainUrl,
+            'admin_panel_url' => $adminUrl,
+            'restaurant_panel_url' => $isFoodApp ? $restaurantPanelUrl : null,
+            'owner_panel_url' => $isParkApp ? $ownerPanelUrl : null,
+            'panels' => $panels,
+            'mobile_apps' => $mobileApps,
+            'all_links' => $allLinks,
+        ];
+    }
+
+    /**
+     * Build account access details and activation instructions for a tenant.
+     */
+    protected function buildAccessDetails(Tenant $tenant): array
+    {
+        $domainObj = $tenant->domains?->where('status', 'active')->first() ?? $tenant->domains?->first();
+        $domainStr = $domainObj?->domain;
+        $domainUrl = $domainStr ? ('https://' . $domainStr) : null;
+        $adminUrl = $domainUrl ? (rtrim($domainUrl, '/') . '/admin_panel') : null;
+
+        $adminEmail = $tenant->primary_contact_email ?? ($tenant->client?->email ?? null);
+
+        // Retrieve or generate secure activation token
+        $cachedToken = null;
+        try {
+            $cachedToken = \Illuminate\Support\Facades\Cache::get('tenant_activation_' . $tenant->uuid);
+        } catch (\Throwable $e) {
+            // cache fallback
+        }
+        $token = is_array($cachedToken) ? ($cachedToken['token'] ?? null) : $cachedToken;
+
+        if (!$token) {
+            $token = \Illuminate\Support\Str::random(60);
+            try {
+                \Illuminate\Support\Facades\Cache::put('tenant_activation_' . $tenant->uuid, [
+                    'email' => $adminEmail,
+                    'token' => $token,
+                    'tenant_id' => $tenant->id,
+                    'created_at' => now(),
+                ], now()->addDays(7));
+            } catch (\Throwable $e) {
+                // cache fallback
+            }
+        }
+
+        $passwordSetupUrl = $domainUrl ? (rtrim($domainUrl, '/') . '/admin_panel/setup-password?token=' . $token) : null;
+
+        return [
+            'admin_email' => $adminEmail,
+            'primary_domain' => $domainStr,
+            'domain_status' => $domainObj?->status ?? 'pending',
+            'ssl_active' => (bool) ($domainObj?->ssl_verified ?? false),
+            'activation_status' => $tenant->status,
+            'password_setup_url' => $passwordSetupUrl,
+            'instructions' => [
+                'account_login' => "Sign in to your administration panel with registered email: {$adminEmail}",
+                'password_setup' => "Set your administrative password securely using the activation link",
+                'admin_portal' => $adminUrl ? "Access the Admin Control Panel at {$adminUrl}" : "Configure domain to view Admin URL",
+                'storefront' => $domainUrl ? "Your live customer web portal is available at {$domainUrl}" : "Configure domain to view Storefront URL",
+            ]
+        ];
     }
 
     /**
@@ -1290,13 +1632,22 @@ class ClientPurchaseController extends Controller
 
                     AuditLogger::log($tenant->id, 'overage_bill_paid', "Post-paid overage invoice #{$payment->invoice_number} paid successfully (Amount: ₹{$payment->amount}).");
                 } else {
-                    // Initial Client Purchase: Activate subscription, keep tenant status 'pending'
+                    // Initial Client Purchase: Activate subscription, trigger provisioning
                     if ($subscription) {
                         $subscription->status = 'active';
                         $subscription->save();
                     }
-                    $tenant->status = 'pending';
+                    $tenant->status = 'provisioning';
                     $tenant->save();
+
+                    // Trigger provisioning if domain is configured
+                    $hasDomain = $tenant->domains()->whereNotNull('domain')->where('domain', '!=', '')->exists();
+                    $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+
+                    if ($hasDomain && $productFirebase && !empty($productFirebase->firebase_project_id)) {
+                        \App\Jobs\ProvisionTenantJob::dispatch($tenant);
+                        \App\Helpers\QueueRunner::runBackground();
+                    }
                 }
             } elseif (in_array($paymentStatus, ['failed', 'canceled', 'cancelled'])) {
                 // If payment was for renewal, upgrade, or overage, do NOT cancel an active subscription or demote an active tenant to pending!
@@ -1610,12 +1961,13 @@ class ClientPurchaseController extends Controller
                 ]);
             }
 
-            // For subdomain: trigger background provisioning if tenant is unprovisioned
+            // For subdomain: trigger background provisioning ONLY if payment is confirmed and tenant is unprovisioned
+            $hasConfirmedPayment = $tenant->payments()->where('status', 'success')->exists();
             $provisioningLogs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)->get();
             $isFullyProvisioned = $provisioningLogs->where('step', 'activation')->where('status', 'success')->isNotEmpty()
                 && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id);
 
-            if (!$isFullyProvisioned) {
+            if (!$isFullyProvisioned && $hasConfirmedPayment) {
                 $tenant->update(['status' => 'provisioning']);
                 \App\Jobs\ProvisionTenantJob::dispatch($tenant);
                 \App\Helpers\QueueRunner::runBackground();

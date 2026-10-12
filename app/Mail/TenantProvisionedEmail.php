@@ -17,17 +17,19 @@ class TenantProvisionedEmail extends Mailable
     public $tenant;
     public $adminEmail;
     public $adminPassword;
+    public $activationUrl;
     public $domainUrl;
     public $settings;
 
     /**
      * Create a new message instance.
      */
-    public function __construct($tenant, $adminEmail, $adminPassword, $domainUrl)
+    public function __construct($tenant, $adminEmail, $activationUrl, $domainUrl, $adminPassword = null)
     {
         $this->tenant = $tenant;
         $this->adminEmail = $adminEmail;
-        $this->adminPassword = $adminPassword;
+        $this->activationUrl = $activationUrl;
+        $this->adminPassword = $adminPassword ?? 'Set securely via activation link';
         $this->domainUrl = $domainUrl;
         
         $keys = [
@@ -68,6 +70,7 @@ class TenantProvisionedEmail extends Mailable
                 'tenant' => $this->tenant,
                 'adminEmail' => $this->adminEmail,
                 'adminPassword' => $this->adminPassword,
+                'activationUrl' => $this->activationUrl,
                 'domainUrl' => $this->domainUrl,
                 'settings' => $this->settings,
             ],

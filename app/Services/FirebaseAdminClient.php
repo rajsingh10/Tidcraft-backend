@@ -468,6 +468,43 @@ class FirebaseAdminClient
         }
     }
 
+    /**
+     * Generate a secure Firebase password reset / activation OOB link.
+     */
+    public function generatePasswordResetLink(array $serviceAccount, string $email): ?string
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) {
+            return null;
+        }
+
+        try {
+            $accessToken = $this->accessToken($serviceAccount, [
+                'https://www.googleapis.com/auth/identitytoolkit',
+                'https://www.googleapis.com/auth/cloud-platform',
+            ]);
+
+            $url = 'https://identitytoolkit.googleapis.com/v1/projects/' . rawurlencode($projectId) . '/accounts:sendOobCode';
+
+            $response = Http::withToken($accessToken)
+                ->timeout(15)
+                ->post($url, [
+                    'requestType' => 'PASSWORD_RESET',
+                    'email' => $email,
+                ]);
+
+            if ($response->successful()) {
+                return $response->json('oobLink');
+            }
+
+            \Illuminate\Support\Facades\Log::warning("Firebase sendOobCode returned non-success: " . $response->body());
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Could not generate Firebase password reset link for {$email}: " . $e->getMessage());
+        }
+
+        return null;
+    }
+
     private function base64UrlEncode(string $data): string
     {
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');

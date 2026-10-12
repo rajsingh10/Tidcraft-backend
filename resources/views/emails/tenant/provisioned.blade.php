@@ -67,7 +67,8 @@
 
         $domainUrl = $domainUrl ?? ($domain_url ?? config('app.url'));
         $adminEmail = $adminEmail ?? ($admin_email ?? ($tenant->client?->email ?? ''));
-        $adminPassword = $adminPassword ?? ($admin_password ?? '********');
+        $activationUrl = $activationUrl ?? ($activation_url ?? ($password_setup_url ?? null));
+        $adminPassword = $adminPassword ?? ($admin_password ?? 'Set securely via activation link');
     @endphp
 
     <table width="100%" bgcolor="#f4f7f6" cellpadding="0" cellspacing="0" border="0">
@@ -256,8 +257,12 @@
                                                         </div>
                                                     </td>
                                                     <td valign="middle">
-                                                        <div style="font-weight: 700; color: #1a1a1a; font-size: 13px; margin-bottom: 2px;">Password</div>
-                                                        <div style="color: #1a1a1a; font-weight: 600;">{{ $adminPassword }}</div>
+                                                        <div style="font-weight: 700; color: #1a1a1a; font-size: 13px; margin-bottom: 2px;">Password Setup</div>
+                                                        @if(!empty($activationUrl))
+                                                            <a href="{{ $activationUrl }}" style="color: #2563eb; font-weight: 600; text-decoration: underline; font-size: 13px;">Set Your Password &rarr;</a>
+                                                        @else
+                                                            <div style="color: #1a1a1a; font-weight: 600; font-size: 13px;">Set securely in client portal</div>
+                                                        @endif
                                                     </td>
                 
                                                 </tr>
@@ -267,10 +272,16 @@
                                 </tr>
                             </table>
                             
+                            @if(!empty($activationUrl))
+                            <div style="text-align: center; margin-top: 20px;">
+                                <a href="{{ $activationUrl }}" class="btn-primary" style="background-color: #2563eb; color: #ffffff !important; padding: 12px 28px; font-size: 14px;">Set Password & Activate Admin Account &rarr;</a>
+                            </div>
+                            @endif
+
                             <table width="100%" style="margin-top: 20px;" cellpadding="0" cellspacing="0">
                                 <tr>
                                     <td width="24" valign="top"><img src="https://img.icons8.com/fluency-systems-regular/48/2563eb/info.png" width="16" height="16"></td>
-                                    <td style="font-size: 13px; color: #64748b; font-style: italic;">Note: We highly recommend changing your password after your first login for security purposes.</td>
+                                    <td style="font-size: 13px; color: #64748b; font-style: italic;">Security Notice: For your protection, passwords are never emailed in plaintext. This secure link allows you to create your password and begin managing your application.</td>
                                 </tr>
                             </table>
                         </div>

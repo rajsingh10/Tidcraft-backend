@@ -331,16 +331,7 @@ class TenantProvisionService
             }
             self::logProgress($tenant, 'activation', 'success', 'Tenant activated successfully');
 
-            // Send email to client with website link, apanel link, and admin credentials
-            $adminEmail = $tenant->primary_contact_email ?? ($tenant->client ? $tenant->client->email : 'admin@' . ($tenant->domains()->first()?->domain ?? 'tidcraft.com'));
-            $baseName = trim($tenant->name ?: $tenant->business_name);
-            $adminPassword = empty($baseName) ? 'tidcraft' : str_replace(' ', '', strtolower($baseName)) . '-tidcraft';
-
-            $tenant->update([
-                'admin_email' => $adminEmail,
-                'admin_password' => $adminPassword,
-            ]);
-
+            // Auto-create/seed default TenantApp suite records if none exist
             $domainObj = $tenant->domains()->first();
             $domainUrl = 'https://' . ($domainObj ? $domainObj->domain : 'tidcraft.com');
             $adminUrl = rtrim($domainUrl, '/') . '/admin_panel';
@@ -351,105 +342,242 @@ class TenantProvisionService
             $prodName = strtolower($tenant->product?->slug ?? $tenant->product?->name ?? '');
             $isFoodApp = str_contains($prodName, 'food') || str_contains($prodName, 'eats');
             $isParkApp = str_contains($prodName, 'park') || str_contains($prodName, 'parkme');
+            $adminEmail = $tenant->primary_contact_email ?? ($tenant->client ? $tenant->client->email : 'admin@' . ($domainObj?->domain ?? 'tidcraft.com'));
 
-            $recipientEmails = array_filter(array_unique(array_map('strtolower', [
-                $adminEmail,
-                $tenant->client?->email,
-                $tenant->primary_contact_email
-            ])));
-
-            try {
-                $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
-                $slug = 'Your_Application_is_Ready';
-                $template = \App\Models\EmailTemplate::where('slug', $slug)->first();
-
-                $imageUrl = ($template && !empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
-                
-                $replacements = [
-                    'name' => $clientName,
-                    '{name}' => $clientName,
-                    '{{name}}' => $clientName,
-                    'clientName' => $clientName,
-                    'client_name' => $clientName,
-                    '{client_name}' => $clientName,
-                    '{{client_name}}' => $clientName,
-                    'email' => $adminEmail,
-                    '{email}' => $adminEmail,
-                    '{{email}}' => $adminEmail,
-                    'login_email' => $adminEmail,
-                    '{login_email}' => $adminEmail,
-                    '{{login_email}}' => $adminEmail,
-                    'adminEmail' => $adminEmail,
-                    'admin_email' => $adminEmail,
-                    '{admin_email}' => $adminEmail,
-                    '{{admin_email}}' => $adminEmail,
-                    'adminPassword' => $adminPassword,
-                    'admin_password' => $adminPassword,
-                    '{admin_password}' => $adminPassword,
-                    '{{admin_password}}' => $adminPassword,
-                    'password' => $adminPassword,
-                    '{password}' => $adminPassword,
-                    '{{password}}' => $adminPassword,
-                    'domainUrl' => $domainUrl,
-                    'domain_url' => $domainUrl,
-                    '{domain_url}' => $domainUrl,
-                    '{{domain_url}}' => $domainUrl,
-                    'website_url' => $domainUrl,
-                    '{website_url}' => $domainUrl,
-                    '{{website_url}}' => $domainUrl,
-                    'adminUrl' => $adminUrl,
-                    'admin_url' => $adminUrl,
-                    '{admin_url}' => $adminUrl,
-                    '{{admin_url}}' => $adminUrl,
-                    'apanel_url' => $apanelUrl,
-                    '{apanel_url}' => $apanelUrl,
-                    '{{apanel_url}}' => $apanelUrl,
-                    'restaurantPanelUrl' => $restaurantPanelUrl,
-                    'restaurant_panel_url' => $restaurantPanelUrl,
-                    '{restaurant_panel_url}' => $restaurantPanelUrl,
-                    'ownerPanelUrl' => $ownerPanelUrl,
-                    'owner_panel_url' => $ownerPanelUrl,
-                    '{owner_panel_url}' => $ownerPanelUrl,
-                    'isFoodApp' => $isFoodApp,
-                    'isParkApp' => $isParkApp,
-                    'business_name' => $tenant->business_name,
-                    '{business_name}' => $tenant->business_name,
-                    '{{business_name}}' => $tenant->business_name,
-                    'tenant_name' => $tenant->name,
-                    '{tenant_name}' => $tenant->name,
-                    '{{tenant_name}}' => $tenant->name,
-                    'product_name' => $tenant->product->name ?? '',
-                    '{product_name}' => $tenant->product->name ?? '',
-                    '{{product_name}}' => $tenant->product->name ?? '',
-                    'image' => $imageUrl,
-                    '{image}' => $imageUrl,
-                    '{{image}}' => $imageUrl,
-                    'hasAppImage' => !empty($imageUrl),
-                    'tenant' => $tenant,
-                ];
-
-                foreach ($recipientEmails as $recEmail) {
-                    if ($template && $template->status === 'active') {
-                        \Illuminate\Support\Facades\Mail::to($recEmail)->send(new \App\Mail\DynamicEmail($template, $replacements));
-                    } else {
-                        // Fallback to hardcoded email if CMS template isn't setup
-                        \Illuminate\Support\Facades\Mail::to($recEmail)->send(new \App\Mail\TenantProvisionedEmail($tenant, $adminEmail, $adminPassword, $domainUrl));
+            if ($tenant->apps()->count() === 0) {
+                try {
+                    $productDemos = \App\Models\ProductDemo::where('product_id', $tenant->product_id)->where('is_active', true)->get();
+                    $apkUrls = [];
+                    foreach ($productDemos as $demo) {
+                        if (!empty($demo->play_store_url)) $apkUrls['play_store'] = $demo->play_store_url;
+                        if (!empty($demo->app_store_url)) $apkUrls['app_store'] = $demo->app_store_url;
+                        if (!empty($demo->demo_url) && str_ends_with($demo->demo_url, '.apk')) $apkUrls['apk'] = $demo->demo_url;
                     }
-                }
 
-                self::logProgress($tenant, 'email', 'success', 'Provisioned email with login credentials and links sent to ' . implode(', ', $recipientEmails));
-            } catch (\Exception $e) {
-                Log::error('Failed to send provisioned email: ' . $e->getMessage());
-                self::logProgress($tenant, 'email', 'failed', 'Failed to send provisioned email', $e->getMessage());
+                    $webPanels = [
+                        'application' => [
+                            'name' => 'Web Application',
+                            'url' => $domainUrl,
+                        ],
+                        'admin_panel' => [
+                            'name' => 'Admin Panel',
+                            'url' => $adminUrl,
+                            'email' => $adminEmail,
+                        ],
+                    ];
+
+                    if ($isFoodApp) {
+                        $webPanels['restaurant_panel'] = [
+                            'name' => 'Restaurant Panel',
+                            'url' => $restaurantPanelUrl,
+                            'email' => $adminEmail,
+                        ];
+                    }
+                    if ($isParkApp) {
+                        $webPanels['owner_panel'] = [
+                            'name' => 'Owner Panel',
+                            'url' => $ownerPanelUrl,
+                            'email' => $adminEmail,
+                        ];
+                    }
+
+                    $tenant->apps()->create([
+                        'app_name' => $tenant->product?->name ?? 'Application Suite',
+                        'email' => $adminEmail,
+                        'apk_url' => !empty($apkUrls) ? $apkUrls : null,
+                        'web_url' => $webPanels,
+                    ]);
+                } catch (\Throwable $appEx) {
+                    \Illuminate\Support\Facades\Log::warning("Could not auto-create tenant apps: " . $appEx->getMessage());
+                }
             }
 
+            // Send provisioned email with product links and secure password setup
+            self::sendAccessDetailsEmail($tenant);
+
         } catch (\Exception $e) {
+            $tenant->update(['status' => 'failed']);
             self::logProgress($tenant, 'activation', 'failed', 'Tenant activation failed', $e->getMessage());
             throw $e;
         }
 
         } finally {
             $lock->release();
+        }
+    }
+
+    /**
+     * Send email with product links and secure password setup instructions to the client.
+     */
+    public static function sendAccessDetailsEmail(Tenant $tenant): bool
+    {
+        $tenant->loadMissing(['client', 'domains', 'product.demos', 'apps']);
+
+        $domainObj = $tenant->domains()->where('status', 'active')->first() ?? $tenant->domains()->first();
+        $domainUrl = 'https://' . ($domainObj ? $domainObj->domain : 'tidcraft.com');
+        $adminUrl = rtrim($domainUrl, '/') . '/admin_panel';
+        $apanelUrl = $adminUrl;
+        $restaurantPanelUrl = rtrim($domainUrl, '/') . '/restaurant_panel';
+        $ownerPanelUrl = rtrim($domainUrl, '/') . '/owner_panel';
+
+        $prodName = strtolower($tenant->product?->slug ?? $tenant->product?->name ?? '');
+        $isFoodApp = str_contains($prodName, 'food') || str_contains($prodName, 'eats');
+        $isParkApp = str_contains($prodName, 'park') || str_contains($prodName, 'parkme');
+
+        $adminEmail = $tenant->primary_contact_email ?? ($tenant->client ? $tenant->client->email : 'admin@' . ($domainObj?->domain ?? 'tidcraft.com'));
+        $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
+
+        // Generate secure activation / password-setup link
+        $activationToken = \Illuminate\Support\Str::random(60);
+        \Illuminate\Support\Facades\Cache::put('tenant_activation_' . $tenant->uuid, [
+            'email' => $adminEmail,
+            'token' => $activationToken,
+            'tenant_id' => $tenant->id,
+            'created_at' => now(),
+        ], now()->addDays(7));
+
+        $firebaseOobLink = null;
+        try {
+            $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+            $serviceAccount = $productFirebase ? (json_decode($productFirebase->service_account_json, true) ?? []) : [];
+            if (!empty($serviceAccount)) {
+                $firebaseAdmin = new \App\Services\FirebaseAdminClient();
+                $firebaseOobLink = $firebaseAdmin->generatePasswordResetLink($serviceAccount, $adminEmail);
+            }
+        } catch (\Throwable $fbEx) {
+            \Illuminate\Support\Facades\Log::warning("Could not generate Firebase password reset link for {$adminEmail}: " . $fbEx->getMessage());
+        }
+
+        $activationUrl = $firebaseOobLink ?: (rtrim($domainUrl, '/') . '/admin_panel/setup-password?token=' . $activationToken);
+
+        // Build HTML links section
+        $linksItems = [];
+        $linksItems[] = "<li style=\"margin-bottom: 8px;\"><strong>Customer Web Store:</strong> <a href=\"{$domainUrl}\" style=\"color: #2563eb; text-decoration: underline;\">{$domainUrl}</a></li>";
+        $linksItems[] = "<li style=\"margin-bottom: 8px;\"><strong>Admin Control Panel:</strong> <a href=\"{$adminUrl}\" style=\"color: #2563eb; text-decoration: underline;\">{$adminUrl}</a></li>";
+        if ($isFoodApp) {
+            $linksItems[] = "<li style=\"margin-bottom: 8px;\"><strong>Restaurant / Merchant Panel:</strong> <a href=\"{$restaurantPanelUrl}\" style=\"color: #2563eb; text-decoration: underline;\">{$restaurantPanelUrl}</a></li>";
+        }
+        if ($isParkApp) {
+            $linksItems[] = "<li style=\"margin-bottom: 8px;\"><strong>Parking Lot Owner Panel:</strong> <a href=\"{$ownerPanelUrl}\" style=\"color: #2563eb; text-decoration: underline;\">{$ownerPanelUrl}</a></li>";
+        }
+
+        // Add any mobile app download links
+        $apps = $tenant->apps;
+        foreach ($apps as $app) {
+            if (!empty($app->apk_url) && is_array($app->apk_url)) {
+                foreach ($app->apk_url as $type => $url) {
+                    $linksItems[] = "<li style=\"margin-bottom: 8px;\"><strong>" . ucfirst(str_replace('_', ' ', $type)) . " App:</strong> <a href=\"{$url}\" style=\"color: #2563eb; text-decoration: underline;\">Download App</a></li>";
+                }
+            }
+        }
+
+        $productLinksHtml = "<ul style=\"margin: 10px 0; padding-left: 20px; font-size: 14px; color: #334155; line-height: 1.6;\">" . implode('', $linksItems) . "</ul>";
+
+        $recipientEmails = array_filter(array_unique(array_map('strtolower', [
+            $adminEmail,
+            $tenant->client?->email,
+            $tenant->primary_contact_email
+        ])));
+
+        try {
+            $slug = 'Your_Application_is_Ready';
+            $template = \App\Models\EmailTemplate::where('slug', $slug)->first();
+            $imageUrl = ($template && !empty($template->images) && isset($template->images[0])) ? url($template->images[0]) : '';
+
+            $replacements = [
+                'name' => $clientName,
+                '{name}' => $clientName,
+                '{{name}}' => $clientName,
+                'clientName' => $clientName,
+                'client_name' => $clientName,
+                '{client_name}' => $clientName,
+                '{{client_name}}' => $clientName,
+                'email' => $adminEmail,
+                '{email}' => $adminEmail,
+                '{{email}}' => $adminEmail,
+                'login_email' => $adminEmail,
+                '{login_email}' => $adminEmail,
+                '{{login_email}}' => $adminEmail,
+                'adminEmail' => $adminEmail,
+                'admin_email' => $adminEmail,
+                '{admin_email}' => $adminEmail,
+                '{{admin_email}}' => $adminEmail,
+                'adminPassword' => 'Set securely via activation link',
+                'admin_password' => 'Set securely via activation link',
+                '{admin_password}' => 'Set securely via activation link',
+                '{{admin_password}}' => 'Set securely via activation link',
+                'password' => 'Set securely via activation link',
+                '{password}' => 'Set securely via activation link',
+                '{{password}}' => 'Set securely via activation link',
+                'activationUrl' => $activationUrl,
+                'activation_url' => $activationUrl,
+                '{activation_url}' => $activationUrl,
+                '{{activation_url}}' => $activationUrl,
+                'activation_link' => $activationUrl,
+                '{activation_link}' => $activationUrl,
+                '{{activation_link}}' => $activationUrl,
+                'password_setup_url' => $activationUrl,
+                '{password_setup_url}' => $activationUrl,
+                '{{password_setup_url}}' => $activationUrl,
+                'password_setup_link' => $activationUrl,
+                '{password_setup_link}' => $activationUrl,
+                '{{password_setup_link}}' => $activationUrl,
+                'domainUrl' => $domainUrl,
+                'domain_url' => $domainUrl,
+                '{domain_url}' => $domainUrl,
+                '{{domain_url}}' => $domainUrl,
+                'website_url' => $domainUrl,
+                '{website_url}' => $domainUrl,
+                '{{website_url}}' => $domainUrl,
+                'adminUrl' => $adminUrl,
+                'admin_url' => $adminUrl,
+                '{admin_url}' => $adminUrl,
+                '{{admin_url}}' => $adminUrl,
+                'apanel_url' => $apanelUrl,
+                '{apanel_url}' => $apanelUrl,
+                '{{apanel_url}}' => $apanelUrl,
+                'restaurantPanelUrl' => $restaurantPanelUrl,
+                'restaurant_panel_url' => $restaurantPanelUrl,
+                '{restaurant_panel_url}' => $restaurantPanelUrl,
+                'ownerPanelUrl' => $ownerPanelUrl,
+                'owner_panel_url' => $ownerPanelUrl,
+                '{owner_panel_url}' => $ownerPanelUrl,
+                'product_links' => $productLinksHtml,
+                '{product_links}' => $productLinksHtml,
+                '{{product_links}}' => $productLinksHtml,
+                'isFoodApp' => $isFoodApp,
+                'isParkApp' => $isParkApp,
+                'business_name' => $tenant->business_name,
+                '{business_name}' => $tenant->business_name,
+                '{{business_name}}' => $tenant->business_name,
+                'tenant_name' => $tenant->name,
+                '{tenant_name}' => $tenant->name,
+                '{{tenant_name}}' => $tenant->name,
+                'product_name' => $tenant->product->name ?? '',
+                '{product_name}' => $tenant->product->name ?? '',
+                '{{product_name}}' => $tenant->product->name ?? '',
+                'image' => $imageUrl,
+                '{image}' => $imageUrl,
+                '{{image}}' => $imageUrl,
+                'hasAppImage' => !empty($imageUrl),
+                'tenant' => $tenant,
+            ];
+
+            foreach ($recipientEmails as $recEmail) {
+                if ($template && $template->status === 'active') {
+                    \Illuminate\Support\Facades\Mail::to($recEmail)->send(new \App\Mail\DynamicEmail($template, $replacements));
+                } else {
+                    // Fallback to blade email with secure activation link
+                    \Illuminate\Support\Facades\Mail::to($recEmail)->send(new \App\Mail\TenantProvisionedEmail($tenant, $adminEmail, $activationUrl, $domainUrl));
+                }
+            }
+
+            self::logProgress($tenant, 'email', 'success', 'Product links and secure password setup instructions sent to ' . implode(', ', $recipientEmails));
+            return true;
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send provisioned email: ' . $e->getMessage());
+            self::logProgress($tenant, 'email', 'failed', 'Failed to send provisioned email', $e->getMessage());
+            return false;
         }
     }
 
