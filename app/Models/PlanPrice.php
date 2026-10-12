@@ -20,6 +20,8 @@ class PlanPrice extends Model
         'currency_id',
         'monthly_price',
         'annual_price',
+        'show_monthly',
+        'show_yearly',
         'onboarding_fee',
         'onboard',
         'create_by',
@@ -32,6 +34,8 @@ class PlanPrice extends Model
         'currency_id' => 'integer',
         'monthly_price' => 'float',
         'annual_price' => 'float',
+        'show_monthly' => 'boolean',
+        'show_yearly' => 'boolean',
         'onboarding_fee' => 'float',
         'onboard' => 'boolean',
     ];

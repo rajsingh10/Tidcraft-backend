@@ -134,6 +134,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/system-logs', [SystemLogController::class, 'index']);
     Route::delete('/system-logs', [SystemLogController::class, 'destroy']);
 
+    Route::post('plans/{plan}/status', [PlanController::class, 'changeStatus']);
+    Route::post('plans/{plan}/toggle-status', [PlanController::class, 'toggleStatus']);
     Route::post('plans/{plan}', [PlanController::class, 'update']);
     Route::apiResource('plans', PlanController::class)->except(['index', 'show']);
 

@@ -21,6 +21,8 @@ class Plan extends Model
         'description',
         'monthly_price',
         'annual_price',
+        'show_monthly',
+        'show_yearly',
         'onboarding_fee',
         'is_active',
         'onboard',
@@ -58,6 +60,8 @@ class Plan extends Model
 
     protected $casts = [
         'currency_id' => 'integer',
+        'show_monthly' => 'boolean',
+        'show_yearly' => 'boolean',
         'features' => 'array',
         'integrations' => 'array',
         'is_popular' => 'boolean',
