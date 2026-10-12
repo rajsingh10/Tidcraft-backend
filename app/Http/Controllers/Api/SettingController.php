@@ -72,9 +72,24 @@ class SettingController extends Controller
             'mail_encryption',
             'mail_from_address',
             'mail_from_name',
+            'admin_cc_emails',
         ];
         
-        $settings = Setting::whereIn('key', $keys)->pluck('value', 'key');
+        $settings = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
+
+        // Format admin_cc_emails as array for frontend consumption
+        $parsedCc = [];
+        if (!empty($settings['admin_cc_emails'])) {
+            $decoded = json_decode($settings['admin_cc_emails'], true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $parsedCc = array_values(array_filter($decoded));
+            } elseif (is_string($settings['admin_cc_emails'])) {
+                $parsedCc = array_values(array_filter(array_map('trim', explode(',', $settings['admin_cc_emails']))));
+            }
+        }
+
+        $settings['admin_cc_emails'] = $parsedCc;
+
         return response()->json([
             'status' => 'success',
             'data' => $settings
@@ -95,7 +110,25 @@ class SettingController extends Controller
             'mail_encryption' => 'nullable|string',
             'mail_from_address' => 'nullable|string',
             'mail_from_name' => 'nullable|string',
+            'admin_cc_emails' => 'nullable',
         ]);
+
+        // Parse and normalize admin_cc_emails
+        if ($request->has('admin_cc_emails')) {
+            $raw = $request->input('admin_cc_emails');
+            $parsedCcEmails = [];
+            if (is_array($raw)) {
+                $parsedCcEmails = array_values(array_filter(array_map('trim', $raw)));
+            } elseif (is_string($raw) && !empty($raw)) {
+                $decoded = json_decode($raw, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $parsedCcEmails = array_values(array_filter(array_map('trim', $decoded)));
+                } else {
+                    $parsedCcEmails = array_values(array_filter(array_map('trim', explode(',', $raw))));
+                }
+            }
+            $data['admin_cc_emails'] = json_encode($parsedCcEmails);
+        }
 
         $userId = auth()->id();
 
@@ -131,14 +164,24 @@ class SettingController extends Controller
         \Illuminate\Support\Facades\Config::set('mail.from.address', $data['mail_from_address'] ?? config('mail.from.address'));
         \Illuminate\Support\Facades\Config::set('mail.from.name', $data['mail_from_name'] ?? config('mail.from.name'));
 
-        // Send a test email to verify credentials
+        // Send a test email to verify credentials using a verified recipient
         try {
             $user = auth()->user();
-            \Illuminate\Support\Facades\Mail::raw('Your SMTP settings have been configured successfully!', function ($message) use ($user) {
-                $message->to($user->email)
-                        ->subject('SMTP Test Email');
-            });
-            $mailMessage = 'SMTP settings updated and test email sent successfully.';
+            $testRecipient = $user ? $user->email : null;
+            if (!$testRecipient || in_array(strtolower($testRecipient), ['admin@tidcraft.com', 'admin@example.com']) || !filter_var($testRecipient, FILTER_VALIDATE_EMAIL)) {
+                $verifiedRecipients = \App\Helpers\MailHelper::getAdminNotificationEmails();
+                $testRecipient = !empty($verifiedRecipients) ? $verifiedRecipients[0] : ($data['mail_from_address'] ?? null);
+            }
+
+            if ($testRecipient && filter_var($testRecipient, FILTER_VALIDATE_EMAIL) && !in_array(strtolower($testRecipient), ['admin@tidcraft.com', 'admin@example.com'])) {
+                \Illuminate\Support\Facades\Mail::raw('Your SMTP settings have been configured successfully!', function ($message) use ($testRecipient) {
+                    $message->to($testRecipient)
+                            ->subject('SMTP Test Email');
+                });
+                $mailMessage = 'SMTP settings updated and test email sent successfully to ' . $testRecipient . '.';
+            } else {
+                $mailMessage = 'SMTP settings updated successfully.';
+            }
         } catch (\Exception $e) {
             $mailMessage = 'SMTP settings updated, but failed to send test email: ' . $e->getMessage();
         }

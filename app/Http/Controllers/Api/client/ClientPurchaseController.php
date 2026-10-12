@@ -1720,9 +1720,9 @@ class ClientPurchaseController extends Controller
                     \Illuminate\Support\Facades\Log::error('Failed to send payment received email to client: ' . $e->getMessage());
                 }
 
-                // Send Email to Admin
+                // Send Email to Admin & Configured CC emails
                 try {
-                    $adminEmails = \App\Models\User::role('SuperAdmin')->pluck('email')->filter()->unique();
+                    $adminEmails = \App\Helpers\MailHelper::getAdminNotificationEmails();
                     foreach ($adminEmails as $email) {
                         \Illuminate\Support\Facades\Mail::to($email)->send(new \App\Mail\AdminPaymentReceivedMail($tenant, $payment));
                     }
@@ -1756,7 +1756,7 @@ class ClientPurchaseController extends Controller
                 }
 
                 try {
-                    $adminEmails = \App\Models\User::role('SuperAdmin')->pluck('email')->filter()->unique();
+                    $adminEmails = \App\Helpers\MailHelper::getAdminNotificationEmails();
                     foreach ($adminEmails as $email) {
                         \Illuminate\Support\Facades\Mail::to($email)->send(new \App\Mail\AdminPaymentFailedMail($tenant, $payment));
                     }
@@ -2340,9 +2340,9 @@ class ClientPurchaseController extends Controller
 
             DB::commit();
 
-            // Send Email to Admin for Checkout Initiation
+            // Send Email to Admin & Configured CC emails for Checkout Initiation
             try {
-                $adminEmails = \App\Models\User::role('SuperAdmin')->pluck('email')->filter()->unique();
+                $adminEmails = \App\Helpers\MailHelper::getAdminNotificationEmails();
                 foreach ($adminEmails as $email) {
                     \Illuminate\Support\Facades\Mail::to($email)->send(new \App\Mail\AdminNewPurchaseMail($tenant, $user));
                 }
