@@ -78,6 +78,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/purchases', [ClientPurchaseController::class, 'index']);
         Route::post('/purchases', [ClientPurchaseController::class, 'store']);
         Route::get('/purchases/{uuid}', [ClientPurchaseController::class, 'show']);
+        Route::get('/purchases/{uuid}/links', [ClientPurchaseController::class, 'getLinks']);
+        Route::get('/purchases/{uuid}/access-details', [ClientPurchaseController::class, 'getAccessDetails']);
+        Route::post('/purchases/{uuid}/retry-provision', [ClientPurchaseController::class, 'retryProvision']);
+        Route::post('/purchases/{uuid}/resend-access-email', [ClientPurchaseController::class, 'resendAccessEmail']);
         Route::get('/purchases/{uuid}/invoices', [ClientPurchaseController::class, 'getInvoices']);
         Route::get('/purchases/{uuid}/overage-invoices', [ClientPurchaseController::class, 'getOverageInvoices']);
         Route::post('/purchases/{uuid}/pay-overage', [ClientPurchaseController::class, 'payOverage']);
