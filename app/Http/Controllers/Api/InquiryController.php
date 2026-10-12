@@ -122,25 +122,14 @@ class InquiryController extends Controller
                 '{{company_whatsapp}}' => $companyWhatsapp,
             ];
 
-            // 1. Send Email to Admin
+            // 1. Send Email to Admin & Configured CC emails
             try {
-                $adminEmail = \App\Models\Setting::where('key', 'company_email')->value('value');
-                if (!$adminEmail) {
-                    $superAdmin = \App\Models\User::role('SuperAdmin')->first();
-                    $adminEmail = $superAdmin ? $superAdmin->email : null;
-                }
-                if (!$adminEmail) {
-                    $adminEmail = \App\Models\Setting::where('key', 'mail_from_address')->value('value');
-                }
-                if (!$adminEmail) {
-                    $adminEmail = config('mail.from.address');
-                }
+                $adminEmails = \App\Helpers\MailHelper::getAdminNotificationEmails();
+                $adminTemplate = \App\Models\EmailTemplate::whereIn('slug', ['Admin_Inquiry', 'admin_inquiry', 'admin-inquiry', 'new-inquiry-admin'])
+                    ->where('status', 'active')
+                    ->first();
 
-                if ($adminEmail) {
-                    $adminTemplate = \App\Models\EmailTemplate::whereIn('slug', ['Admin_Inquiry', 'admin_inquiry', 'admin-inquiry', 'new-inquiry-admin'])
-                        ->where('status', 'active')
-                        ->first();
-
+                foreach ($adminEmails as $adminEmail) {
                     if ($adminTemplate) {
                         \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\DynamicEmail($adminTemplate, $replacements));
                     } else {

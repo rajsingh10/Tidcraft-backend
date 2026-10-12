@@ -424,7 +424,14 @@ class TenantProvisionService
         $isFoodApp = str_contains($prodName, 'food') || str_contains($prodName, 'eats');
         $isParkApp = str_contains($prodName, 'park') || str_contains($prodName, 'parkme');
 
-        $adminEmail = $tenant->primary_contact_email ?? ($tenant->client ? $tenant->client->email : 'admin@' . ($domainObj?->domain ?? 'tidcraft.com'));
+        $adminEmail = $tenant->primary_contact_email 
+            ?? ($tenant->client ? $tenant->client->email : null)
+            ?? ($domainObj ? 'admin@' . $domainObj->domain : null);
+
+        if (!$adminEmail || in_array(strtolower($adminEmail), ['admin@tidcraft.com', 'admin@example.com'], true)) {
+            $adminEmail = $tenant->client?->email ?? $tenant->primary_contact_email;
+        }
+
         $clientName = $tenant->client ? $tenant->client->name : $tenant->business_name;
 
         // Generate secure activation / password-setup link
@@ -440,7 +447,7 @@ class TenantProvisionService
         try {
             $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
             $serviceAccount = $productFirebase ? (json_decode($productFirebase->service_account_json, true) ?? []) : [];
-            if (!empty($serviceAccount)) {
+            if (!empty($serviceAccount) && $adminEmail) {
                 $firebaseAdmin = new \App\Services\FirebaseAdminClient();
                 $firebaseOobLink = $firebaseAdmin->generatePasswordResetLink($serviceAccount, $adminEmail);
             }
@@ -473,11 +480,15 @@ class TenantProvisionService
 
         $productLinksHtml = "<ul style=\"margin: 10px 0; padding-left: 20px; font-size: 14px; color: #334155; line-height: 1.6;\">" . implode('', $linksItems) . "</ul>";
 
-        $recipientEmails = array_filter(array_unique(array_map('strtolower', [
+        $recipientEmails = array_values(array_filter(array_unique(array_map('strtolower', [
             $adminEmail,
             $tenant->client?->email,
             $tenant->primary_contact_email
-        ])));
+        ])), function ($email) {
+            return !empty($email) 
+                && filter_var($email, FILTER_VALIDATE_EMAIL) 
+                && !in_array($email, ['admin@tidcraft.com', 'admin@example.com'], true);
+        }));
 
         try {
             $slug = 'Your_Application_is_Ready';

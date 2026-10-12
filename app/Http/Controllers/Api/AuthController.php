@@ -63,12 +63,19 @@ class AuthController extends Controller
             'date_time' => now()->toDateTimeString(),
         ];
 
-        // Send Notification Email if setting allows
+        // Send Notification Email if setting allows (strictly to the logging-in user, never to admin cc emails)
         $sendEmail = \App\Models\Setting::where('key', 'admin_login_mail_send')->value('value');
         
         // Treat as true by default, or explicitly check if it's set to true/1
         if ($sendEmail === null || $sendEmail === 'true' || $sendEmail === '1' || $sendEmail === 1 || $sendEmail === true || $sendEmail === 'on') {
-            \Illuminate\Support\Facades\Mail::to($user->email)->send(new \App\Mail\AdminLoginNotification($loginDetails));
+            $loginEmail = strtolower(trim((string)$user->email));
+            if (!empty($loginEmail) && filter_var($loginEmail, FILTER_VALIDATE_EMAIL) && !in_array($loginEmail, ['admin@tidcraft.com', 'admin@example.com'], true)) {
+                try {
+                    \Illuminate\Support\Facades\Mail::to($loginEmail)->send(new \App\Mail\AdminLoginNotification($loginDetails));
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to send admin login notification email: ' . $e->getMessage());
+                }
+            }
         }
 
         return response()->json([
