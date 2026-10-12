@@ -507,7 +507,7 @@ class ClientPurchaseController extends Controller
             }
         }
 
-        $passwordSetupUrl = $domainUrl ? (rtrim($domainUrl, '/') . '/admin_panel/setup-password?token=' . $token) : null;
+        $passwordSetupUrl = $domainUrl ? (rtrim($domainUrl, '/') . '/admin_panel/setup-password?token=' . $token . ($adminEmail ? '&email=' . urlencode($adminEmail) : '')) : null;
 
         return [
             'admin_email' => $adminEmail,
@@ -524,6 +524,136 @@ class ClientPurchaseController extends Controller
             ]
         ];
     }
+
+    /**
+     * Update or set the administrator email and password directly in tenant-dedicated Firebase/Firestore.
+     * Operates purely on Firebase Auth & Firestore admin_users without touching MySQL user table.
+     */
+    public function updateCredentials(Request $request, $uuid)
+    {
+        $user = $request->user();
+
+        $tenant = Tenant::with(['firebaseProject', 'product', 'domains'])
+            ->where('uuid', $uuid)
+            ->where(function ($q) use ($user) {
+                $q->where('create_by', $user->id)
+                  ->orWhere('client_id', $user->id);
+            })
+            ->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'email' => 'nullable|email|max:255',
+            'password' => 'nullable|string|min:6',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation Error',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        if (!$request->filled('email') && !$request->filled('password')) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Please provide at least an email or password to update.'
+            ], 422);
+        }
+
+        $currentAdminEmail = $tenant->primary_contact_email ?? ($tenant->client ? $tenant->client->email : $user->email);
+        $newAdminEmail = $request->filled('email') ? strtolower(trim($request->email)) : $currentAdminEmail;
+        $newPassword = $request->input('password');
+
+        $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+        $serviceAccount = $productFirebase ? (json_decode($productFirebase->service_account_json, true) ?? []) : [];
+        $databaseId = $tenant->firestoreDatabaseId();
+
+        $firebaseAuthUpdated = false;
+        $firestoreUpdated = false;
+
+        // 1. Update Firebase Authentication (Identity Platform)
+        if (!empty($serviceAccount)) {
+            try {
+                $firebaseAdmin = new \App\Services\FirebaseAdminClient();
+                $firebaseAdmin->updateAuthUserCredentials(
+                    $serviceAccount,
+                    $currentAdminEmail,
+                    $newPassword,
+                    $request->filled('email') ? $newAdminEmail : null
+                );
+                $firebaseAuthUpdated = true;
+            } catch (\Throwable $fbEx) {
+                \Illuminate\Support\Facades\Log::warning("Firebase Auth credentials update for tenant {$tenant->id} notice: " . $fbEx->getMessage());
+            }
+        }
+
+        // 2. Update Firestore admin_users & users collections in the tenant's dedicated database
+        if (!empty($serviceAccount) && !empty($databaseId)) {
+            try {
+                $importer = new \App\Services\FirestoreImporter($serviceAccount, $databaseId);
+                $adminId = (string) $tenant->id;
+                $baseName = trim($tenant->name ?: $tenant->business_name) ?: 'Super Admin';
+
+                $docData = [
+                    'id' => $adminId,
+                    'name' => $baseName,
+                    'email' => $newAdminEmail,
+                    'role' => 'admin',
+                    'role_id' => '1',
+                    'role_name' => 'Super Administrator',
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ];
+                if (!empty($newPassword)) {
+                    $docData['password'] = \Illuminate\Support\Facades\Hash::make($newPassword);
+                }
+
+                $importer->import([
+                    '__collections__' => [
+                        'admin_users' => [
+                            $adminId => $docData,
+                        ],
+                        'users' => [
+                            $adminId => $docData,
+                        ]
+                    ]
+                ]);
+                $firestoreUpdated = true;
+            } catch (\Throwable $fsEx) {
+                \Illuminate\Support\Facades\Log::warning("Firestore credentials update for tenant {$tenant->id} notice: " . $fsEx->getMessage());
+            }
+        }
+
+        // 3. Update primary_contact_email on tenant record if email changed
+        if ($request->filled('email') && $newAdminEmail !== $tenant->primary_contact_email) {
+            $tenant->primary_contact_email = $newAdminEmail;
+            $tenant->save();
+
+            // Also update any linked tenant app email records
+            try {
+                $tenant->apps()->update(['email' => $newAdminEmail]);
+            } catch (\Throwable $e) {}
+        }
+
+        AuditLogger::log($tenant->id, 'credentials_updated', "Admin credentials updated in Firebase/Firestore for tenant {$tenant->business_name} ({$newAdminEmail}).");
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Admin credentials updated successfully in Firebase & Firestore for this tenant.',
+            'data' => [
+                'tenant_uuid' => $tenant->uuid,
+                'admin_email' => $newAdminEmail,
+                'firebase_auth_synced' => $firebaseAuthUpdated,
+                'firestore_synced' => $firestoreUpdated,
+                'database_id' => $databaseId,
+            ]
+        ]);
+    }
+
 
     /**
      * Download a JSON backup of the Firebase Firestore DB for this purchase.

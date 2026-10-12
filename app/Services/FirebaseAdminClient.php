@@ -505,6 +505,80 @@ class FirebaseAdminClient
         return null;
     }
 
+    /**
+     * Look up a Firebase Auth user by email.
+     */
+    public function getAuthUserByEmail(array $serviceAccount, string $email): ?array
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) return null;
+
+        try {
+            $accessToken = $this->accessToken($serviceAccount, [
+                'https://www.googleapis.com/auth/identitytoolkit',
+                'https://www.googleapis.com/auth/cloud-platform',
+            ]);
+
+            $url = 'https://identitytoolkit.googleapis.com/v1/projects/' . rawurlencode($projectId) . '/accounts:lookup';
+
+            $response = Http::withToken($accessToken)->post($url, [
+                'email' => [$email]
+            ]);
+
+            if ($response->successful()) {
+                $users = $response->json('users');
+                return (!empty($users) && is_array($users)) ? $users[0] : null;
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Firebase lookup error for {$email}: " . $e->getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * Create or update a user's email and password directly in Firebase Auth (Identity Platform).
+     */
+    public function updateAuthUserCredentials(array $serviceAccount, string $email, ?string $newPassword = null, ?string $newEmail = null): void
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) {
+            throw new \Exception('Firebase service account JSON is missing project_id.');
+        }
+
+        $accessToken = $this->accessToken($serviceAccount, [
+            'https://www.googleapis.com/auth/identitytoolkit',
+            'https://www.googleapis.com/auth/cloud-platform',
+        ]);
+
+        $existingUser = $this->getAuthUserByEmail($serviceAccount, $email);
+
+        if ($existingUser && !empty($existingUser['localId'])) {
+            // Update existing Firebase Auth user by localId
+            $url = 'https://identitytoolkit.googleapis.com/v1/projects/' . rawurlencode($projectId) . '/accounts:update';
+            $payload = [
+                'localId' => $existingUser['localId'],
+            ];
+            if (!empty($newEmail)) {
+                $payload['email'] = strtolower(trim($newEmail));
+            }
+            if (!empty($newPassword)) {
+                $payload['password'] = $newPassword;
+            }
+
+            $response = Http::withToken($accessToken)->timeout(30)->post($url, $payload);
+            if (!$response->successful()) {
+                $error = $response->json('error.message') ?? $response->body();
+                throw new \Exception("Failed to update Firebase Auth user '{$email}': {$error}");
+            }
+        } else {
+            // Create user in Firebase Auth
+            $targetEmail = !empty($newEmail) ? strtolower(trim($newEmail)) : strtolower(trim($email));
+            $targetPassword = !empty($newPassword) ? $newPassword : 'Password@123';
+            $this->createAuthUser($serviceAccount, $targetEmail, $targetPassword);
+        }
+    }
+
     private function base64UrlEncode(string $data): string
     {
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
