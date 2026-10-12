@@ -192,32 +192,103 @@ class DashboardController extends Controller
         
         $logoChurn = $tenantsAtStartOfMonth > 0 ? ($churnedTenantsThisMonth / $tenantsAtStartOfMonth) * 100 : 0;
 
-        // Revenue Breakdown by Product Line
-        $productBreakdown = \App\Models\Product::select('products.id', 'products.name')
-            ->leftJoin('plans', 'products.id', '=', 'plans.product_id')
-            ->leftJoin('subscriptions', function($join) {
-                $join->on('plans.id', '=', 'subscriptions.plan_id')
-                     ->where('subscriptions.status', '=', 'active');
-            })
-            ->selectRaw('COALESCE(SUM(plans.monthly_price), 0) as mrr')
-            ->groupBy('products.id', 'products.name')
-            ->having('mrr', '>', 0)
-            ->orderByDesc('mrr')
-            ->get();
+        // Extra Orders & Overage Revenue Analytics
+        $overageQuery = \App\Models\TenantOverageBill::query();
 
-        $productBreakdown = $productBreakdown->map(function ($item) use ($totalMrr) {
+        if ($request->filled('tenant_id')) {
+            $overageQuery->where('tenant_id', $request->tenant_id);
+        }
+        if ($request->filled('product_id')) {
+            $overageQuery->where('product_id', $request->product_id);
+        }
+        if ($request->filled('bill_type')) {
+            $overageQuery->where('bill_type', $request->bill_type);
+        }
+
+        $paidOverage = (float) (clone $overageQuery)->whereIn('status', ['paid', 'success'])->sum('total_amount');
+        $unpaidOverage = (float) (clone $overageQuery)->whereNotIn('status', ['paid', 'success'])->sum('total_amount');
+        $totalOverage = round($paidOverage + $unpaidOverage, 2);
+
+        $paidUnits = (int) (clone $overageQuery)->whereIn('status', ['paid', 'success'])->sum('overage_units');
+        $unpaidUnits = (int) (clone $overageQuery)->whereNotIn('status', ['paid', 'success'])->sum('overage_units');
+        $totalUnits = $paidUnits + $unpaidUnits;
+
+        $paidCount = (int) (clone $overageQuery)->whereIn('status', ['paid', 'success'])->count();
+        $unpaidCount = (int) (clone $overageQuery)->whereNotIn('status', ['paid', 'success'])->count();
+        $totalCount = $paidCount + $unpaidCount;
+
+        // Product-wise Extra Orders / Overage Revenue Breakdown
+        $allProducts = \App\Models\Product::orderBy('id')->get();
+        $denominator = $totalOverage > 0 ? $totalOverage : ($paidOverage > 0 ? $paidOverage : 1);
+
+        $productBreakdown = $allProducts->map(function ($product) use ($denominator, $totalOverage) {
+            $pQuery = \App\Models\TenantOverageBill::where(function ($q) use ($product) {
+                $q->where('product_id', $product->id)
+                  ->orWhereHas('tenant', fn ($tq) => $tq->where('product_id', $product->id));
+            });
+
+            $pPaid = (float) (clone $pQuery)->whereIn('status', ['paid', 'success'])->sum('total_amount');
+            $pUnpaid = (float) (clone $pQuery)->whereNotIn('status', ['paid', 'success'])->sum('total_amount');
+            $pTotal = round($pPaid + $pUnpaid, 2);
+
+            $pPaidUnits = (int) (clone $pQuery)->whereIn('status', ['paid', 'success'])->sum('overage_units');
+            $pUnpaidUnits = (int) (clone $pQuery)->whereNotIn('status', ['paid', 'success'])->sum('overage_units');
+            $pTotalUnits = $pPaidUnits + $pUnpaidUnits;
+
+            $percentage = $totalOverage > 0 ? round(($pTotal / $totalOverage) * 100, 1) : 0;
+
             return [
-                'id' => $item->id,
-                'name' => $item->name,
-                'mrr' => (float) $item->mrr,
-                'percentage' => $totalMrr > 0 ? round(($item->mrr / $totalMrr) * 100, 1) : 0
+                'id' => $product->id,
+                'name' => $product->name,
+                // Match frontend table columns: ID, NAME, MRR, PERCENTAGE
+                'mrr' => round($pTotal > 0 ? $pTotal : $pPaid, 2),
+                'amount' => round($pTotal, 2),
+                'paid' => round($pPaid, 2),
+                'unpaid' => round($pUnpaid, 2),
+                'total' => round($pTotal, 2),
+                'paid_orders' => $pPaidUnits,
+                'unpaid_orders' => $pUnpaidUnits,
+                'total_orders' => $pTotalUnits,
+                'percentage' => $percentage,
             ];
         });
 
         return response()->json([
             'status' => 'success',
+            'paid' => round($paidOverage, 2),
+            'unpaid' => round($unpaidOverage, 2),
+            'total' => round($totalOverage, 2),
             'data' => [
+                'paid' => round($paidOverage, 2),
+                'unpaid' => round($unpaidOverage, 2),
+                'total' => round($totalOverage, 2),
+                'extra_orders' => [
+                    'paid' => round($paidOverage, 2),
+                    'unpaid' => round($unpaidOverage, 2),
+                    'total' => round($totalOverage, 2),
+                    'paid_units' => $paidUnits,
+                    'unpaid_units' => $unpaidUnits,
+                    'total_units' => $totalUnits,
+                    'paid_bills_count' => $paidCount,
+                    'unpaid_bills_count' => $unpaidCount,
+                    'total_bills_count' => $totalCount,
+                ],
+                'product_wise' => $productBreakdown,
+                'product_breakdown' => $productBreakdown,
+                'summary' => [
+                    'paid' => round($paidOverage, 2),
+                    'unpaid' => round($unpaidOverage, 2),
+                    'total' => round($totalOverage, 2),
+                ],
+                'revenue' => [
+                    'paid' => round($paidOverage, 2),
+                    'unpaid' => round($unpaidOverage, 2),
+                    'total' => round($totalOverage, 2),
+                ],
                 'metrics' => [
+                    'paid' => round($paidOverage, 2),
+                    'unpaid' => round($unpaidOverage, 2),
+                    'total' => round($totalOverage, 2),
                     'arpu' => [
                         'value' => round($arpu, 2),
                         'growth' => round($arpuGrowth, 1)
@@ -229,7 +300,6 @@ class DashboardController extends Controller
                         'value' => round($logoChurn, 2)
                     ]
                 ],
-                'product_breakdown' => $productBreakdown
             ]
         ]);
     }
