@@ -27,6 +27,8 @@ class Tenant extends Model
         'country_code',
         'address',
         'industry',
+        'apk_file',
+        'doc_file',
         'product_id',
         'plan_id',
         'status',
@@ -40,6 +42,8 @@ class Tenant extends Model
     protected $casts = [
         'is_demo' => 'boolean',
         'onboard' => 'boolean',
+        'apk_file' => 'array',
+        'doc_file' => 'array',
     ];
 
     public function client()

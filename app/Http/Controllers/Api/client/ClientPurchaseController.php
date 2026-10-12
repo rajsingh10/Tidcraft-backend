@@ -32,7 +32,11 @@ class ClientPurchaseController extends Controller
             ->get();
 
         $tenants->each(function ($tenant) {
-            $tenant->setAttribute('product_links', $this->buildProductLinks($tenant));
+            $productLinks = $this->buildProductLinks($tenant);
+            $tenant->setAttribute('product_links', $productLinks);
+            $tenant->setAttribute('all_links', $productLinks['all_links'] ?? []);
+            $tenant->setAttribute('mobile_apps', $productLinks['mobile_apps'] ?? []);
+            $tenant->setAttribute('documents', $productLinks['documents'] ?? []);
             $tenant->setAttribute('access_details', $this->buildAccessDetails($tenant));
         });
 
@@ -65,7 +69,11 @@ class ClientPurchaseController extends Controller
             ], 404);
         }
 
-        $tenant->setAttribute('product_links', $this->buildProductLinks($tenant));
+        $productLinks = $this->buildProductLinks($tenant);
+        $tenant->setAttribute('product_links', $productLinks);
+        $tenant->setAttribute('all_links', $productLinks['all_links'] ?? []);
+        $tenant->setAttribute('mobile_apps', $productLinks['mobile_apps'] ?? []);
+        $tenant->setAttribute('documents', $productLinks['documents'] ?? []);
         $tenant->setAttribute('access_details', $this->buildAccessDetails($tenant));
 
         return response()->json([
@@ -386,6 +394,45 @@ class ClientPurchaseController extends Controller
             }
         }
 
+        // Add Tenant-specific uploaded APK files
+        if (!empty($tenant->apk_file)) {
+            $apks = is_array($tenant->apk_file) ? $tenant->apk_file : (json_decode($tenant->apk_file, true) ?: []);
+            foreach ($apks as $apk) {
+                $name = is_array($apk) ? ($apk['name'] ?? $apk['file_name'] ?? 'Android APK') : basename($apk);
+                $url = is_array($apk) ? ($apk['url'] ?? (isset($apk['path']) ? url('storage/' . ltrim($apk['path'], '/')) : '')) : (str_starts_with($apk, 'http') ? $apk : url('storage/' . ltrim($apk, '/')));
+                if (!empty($url)) {
+                    $mobileApps[] = [
+                        'name' => $name,
+                        'type' => 'apk_download',
+                        'url' => $url,
+                        'platform' => 'android',
+                        'download_url' => $url,
+                        'size' => is_array($apk) ? ($apk['size'] ?? null) : null,
+                    ];
+                }
+            }
+        }
+
+        // Add Tenant-specific uploaded Document files
+        $documents = [];
+        if (!empty($tenant->doc_file)) {
+            $docs = is_array($tenant->doc_file) ? $tenant->doc_file : (json_decode($tenant->doc_file, true) ?: []);
+            foreach ($docs as $doc) {
+                $name = is_array($doc) ? ($doc['name'] ?? $doc['file_name'] ?? 'Documentation') : basename($doc);
+                $url = is_array($doc) ? ($doc['url'] ?? (isset($doc['path']) ? url('storage/' . ltrim($doc['path'], '/')) : '')) : (str_starts_with($doc, 'http') ? $doc : url('storage/' . ltrim($doc, '/')));
+                if (!empty($url)) {
+                    $documents[] = [
+                        'name' => $name,
+                        'type' => 'document',
+                        'url' => $url,
+                        'download_url' => $url,
+                        'extension' => is_array($doc) ? ($doc['extension'] ?? pathinfo($url, PATHINFO_EXTENSION)) : pathinfo($url, PATHINFO_EXTENSION),
+                        'size' => is_array($doc) ? ($doc['size'] ?? null) : null,
+                    ];
+                }
+            }
+        }
+
         // All links flat list
         $allLinks = [];
         foreach ($panels as $p) {
@@ -404,6 +451,14 @@ class ClientPurchaseController extends Controller
                 'description' => 'Mobile application download link'
             ];
         }
+        foreach ($documents as $d) {
+            $allLinks[] = [
+                'name' => $d['name'],
+                'category' => 'document',
+                'url' => $d['url'],
+                'description' => 'Tenant documentation and setup guide file'
+            ];
+        }
 
         return [
             'application_url' => $domainUrl,
@@ -412,6 +467,7 @@ class ClientPurchaseController extends Controller
             'owner_panel_url' => $isParkApp ? $ownerPanelUrl : null,
             'panels' => $panels,
             'mobile_apps' => $mobileApps,
+            'documents' => $documents,
             'all_links' => $allLinks,
         ];
     }
@@ -2378,5 +2434,60 @@ class ClientPurchaseController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Get uploaded APK and document files for a client's purchase.
+     */
+    public function getFiles(Request $request, $uuid)
+    {
+        $user = $request->user();
+        $tenant = Tenant::where('uuid', $uuid)
+            ->where(function ($q) use ($user) {
+                $q->where('client_id', $user->id)
+                  ->orWhere('create_by', $user->id);
+            })
+            ->first();
+
+        if (!$tenant) {
+            return response()->json(['status' => 'error', 'message' => 'Purchased product/tenant not found.'], 404);
+        }
+
+        $apks = is_array($tenant->apk_file) ? $tenant->apk_file : (json_decode($tenant->apk_file ?? '[]', true) ?: []);
+        $docs = is_array($tenant->doc_file) ? $tenant->doc_file : (json_decode($tenant->doc_file ?? '[]', true) ?: []);
+
+        $formattedApks = array_map(function ($item) {
+            if (is_string($item)) {
+                return [
+                    'name' => basename($item),
+                    'url' => str_starts_with($item, 'http') ? $item : url('storage/' . ltrim($item, '/')),
+                ];
+            }
+            if (isset($item['path']) && !empty($item['path']) && empty($item['url'])) {
+                $item['url'] = url('storage/' . ltrim($item['path'], '/'));
+            }
+            return $item;
+        }, $apks);
+
+        $formattedDocs = array_map(function ($item) {
+            if (is_string($item)) {
+                return [
+                    'name' => basename($item),
+                    'url' => str_starts_with($item, 'http') ? $item : url('storage/' . ltrim($item, '/')),
+                ];
+            }
+            if (isset($item['path']) && !empty($item['path']) && empty($item['url'])) {
+                $item['url'] = url('storage/' . ltrim($item['path'], '/'));
+            }
+            return $item;
+        }, $docs);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'apk_files' => array_values($formattedApks),
+                'doc_files' => array_values($formattedDocs),
+            ]
+        ]);
     }
 }
