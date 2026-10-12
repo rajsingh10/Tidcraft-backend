@@ -20,6 +20,10 @@ class PlanController extends Controller
             $query->where('product_id', $request->product_id);
         }
 
+        if ($request->has('is_active')) {
+            $query->where('is_active', filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN));
+        }
+
         $plans = $query->get();
 
         return response()->json([
@@ -44,8 +48,11 @@ class PlanController extends Controller
             'description' => 'nullable|string',
             'monthly_price' => 'required|numeric|min:0',
             'annual_price' => 'required|numeric|min:0',
+            'show_monthly' => 'nullable|boolean',
+            'show_yearly' => 'nullable|boolean',
             'onboarding_fee' => 'nullable|numeric|min:0',
             'is_active' => 'nullable|boolean',
+            'status' => 'nullable|string',
             'onboard' => 'nullable|boolean',
             'features' => 'nullable|array',
             'integrations' => 'nullable|array',
@@ -83,6 +90,8 @@ class PlanController extends Controller
             'prices.*.currency_id' => 'required_with:prices|exists:currencies,id',
             'prices.*.monthly_price' => 'required_with:prices|numeric|min:0',
             'prices.*.annual_price' => 'required_with:prices|numeric|min:0',
+            'prices.*.show_monthly' => 'nullable|boolean',
+            'prices.*.show_yearly' => 'nullable|boolean',
             'prices.*.onboarding_fee' => 'nullable|numeric|min:0',
             'prices.*.onboard' => 'nullable|boolean',
         ]);
@@ -115,6 +124,17 @@ class PlanController extends Controller
         }
 
         $data['onboard'] = $request->input('onboard', false);
+        $data['show_monthly'] = $request->has('show_monthly') ? filter_var($request->input('show_monthly'), FILTER_VALIDATE_BOOLEAN) : true;
+        $data['show_yearly'] = $request->has('show_yearly') ? filter_var($request->input('show_yearly'), FILTER_VALIDATE_BOOLEAN) : true;
+        
+        if ($request->has('is_active')) {
+            $data['is_active'] = filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN);
+        } elseif ($request->filled('status')) {
+            $data['is_active'] = in_array(strtolower(trim((string)$request->input('status'))), ['active', '1', 'true', 'enable', 'enabled'], true);
+        } else {
+            $data['is_active'] = true;
+        }
+        unset($data['status']);
 
         $plan = Plan::create($data);
 
@@ -126,6 +146,8 @@ class PlanController extends Controller
                         'currency_id' => (int) $p['currency_id'],
                         'monthly_price' => (float) ($p['monthly_price'] ?? 0),
                         'annual_price' => (float) ($p['annual_price'] ?? 0),
+                        'show_monthly' => isset($p['show_monthly']) ? filter_var($p['show_monthly'], FILTER_VALIDATE_BOOLEAN) : true,
+                        'show_yearly' => isset($p['show_yearly']) ? filter_var($p['show_yearly'], FILTER_VALIDATE_BOOLEAN) : true,
                         'onboarding_fee' => isset($p['onboarding_fee']) ? (float) $p['onboarding_fee'] : null,
                         'onboard' => isset($p['onboard']) ? filter_var($p['onboard'], FILTER_VALIDATE_BOOLEAN) : false,
                     ]);
@@ -137,6 +159,8 @@ class PlanController extends Controller
                 'currency_id' => $plan->currency_id,
                 'monthly_price' => (float) ($plan->monthly_price ?? 0),
                 'annual_price' => (float) ($plan->annual_price ?? 0),
+                'show_monthly' => (bool) $plan->show_monthly,
+                'show_yearly' => (bool) $plan->show_yearly,
                 'onboarding_fee' => isset($plan->onboarding_fee) ? (float) $plan->onboarding_fee : null,
                 'onboard' => $plan->onboard ?? false,
             ]);
@@ -179,8 +203,11 @@ class PlanController extends Controller
             'description' => 'nullable|string',
             'monthly_price' => 'sometimes|required|numeric|min:0',
             'annual_price' => 'sometimes|required|numeric|min:0',
+            'show_monthly' => 'nullable|boolean',
+            'show_yearly' => 'nullable|boolean',
             'onboarding_fee' => 'nullable|numeric|min:0',
             'is_active' => 'nullable|boolean',
+            'status' => 'nullable|string',
             'onboard' => 'nullable|boolean',
             'features' => 'nullable|array',
             'integrations' => 'nullable|array',
@@ -218,6 +245,8 @@ class PlanController extends Controller
             'prices.*.currency_id' => 'required_with:prices|exists:currencies,id',
             'prices.*.monthly_price' => 'required_with:prices|numeric|min:0',
             'prices.*.annual_price' => 'required_with:prices|numeric|min:0',
+            'prices.*.show_monthly' => 'nullable|boolean',
+            'prices.*.show_yearly' => 'nullable|boolean',
             'prices.*.onboarding_fee' => 'nullable|numeric|min:0',
             'prices.*.onboard' => 'nullable|boolean',
         ]);
@@ -243,6 +272,18 @@ class PlanController extends Controller
         }
 
         $data['onboard'] = $request->input('onboard', $plan->onboard ?? false);
+        if ($request->has('show_monthly')) {
+            $data['show_monthly'] = filter_var($request->input('show_monthly'), FILTER_VALIDATE_BOOLEAN);
+        }
+        if ($request->has('show_yearly')) {
+            $data['show_yearly'] = filter_var($request->input('show_yearly'), FILTER_VALIDATE_BOOLEAN);
+        }
+        if ($request->has('is_active')) {
+            $data['is_active'] = filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN);
+        } elseif ($request->filled('status')) {
+            $data['is_active'] = in_array(strtolower(trim((string)$request->input('status'))), ['active', '1', 'true', 'enable', 'enabled'], true);
+        }
+        unset($data['status']);
 
         $plan->update($data);
 
@@ -253,14 +294,22 @@ class PlanController extends Controller
                 if (!empty($p['currency_id'])) {
                     $currId = (int) $p['currency_id'];
                     $syncedCurrencyIds[] = $currId;
+                    $priceAttributes = [
+                        'monthly_price' => (float) ($p['monthly_price'] ?? 0),
+                        'annual_price' => (float) ($p['annual_price'] ?? 0),
+                        'onboarding_fee' => isset($p['onboarding_fee']) ? (float) $p['onboarding_fee'] : null,
+                        'onboard' => isset($p['onboard']) ? filter_var($p['onboard'], FILTER_VALIDATE_BOOLEAN) : false,
+                    ];
+                    if (isset($p['show_monthly'])) {
+                        $priceAttributes['show_monthly'] = filter_var($p['show_monthly'], FILTER_VALIDATE_BOOLEAN);
+                    }
+                    if (isset($p['show_yearly'])) {
+                        $priceAttributes['show_yearly'] = filter_var($p['show_yearly'], FILTER_VALIDATE_BOOLEAN);
+                    }
+
                     $plan->prices()->updateOrCreate(
                         ['currency_id' => $currId],
-                        [
-                            'monthly_price' => (float) ($p['monthly_price'] ?? 0),
-                            'annual_price' => (float) ($p['annual_price'] ?? 0),
-                            'onboarding_fee' => isset($p['onboarding_fee']) ? (float) $p['onboarding_fee'] : null,
-                            'onboard' => isset($p['onboard']) ? filter_var($p['onboard'], FILTER_VALIDATE_BOOLEAN) : false,
-                        ]
+                        $priceAttributes
                     );
                 }
             }
@@ -354,5 +403,51 @@ class PlanController extends Controller
             'status' => 'success',
             'message' => 'Plan deleted successfully.'
         ]);
+    }
+
+    /**
+     * Change plan status (active / inactive) or toggle status.
+     * Endpoint: POST /api/plans/{plan}/status
+     */
+    public function changeStatus(Request $request, $plan)
+    {
+        $planModel = $plan instanceof Plan ? $plan : Plan::findOrFail($plan);
+
+        $request->validate([
+            'is_active' => 'nullable|boolean',
+            'status' => 'nullable|string',
+        ]);
+
+        if ($request->has('is_active')) {
+            $isActive = filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN);
+        } elseif ($request->filled('status')) {
+            $statusVal = strtolower(trim((string) $request->input('status')));
+            $isActive = in_array($statusVal, ['active', '1', 'true', 'enable', 'enabled'], true);
+        } else {
+            // If neither parameter is provided, toggle the current state
+            $isActive = !$planModel->is_active;
+        }
+
+        $planModel->update([
+            'is_active' => $isActive,
+            'update_by' => auth()->id(),
+        ]);
+
+        $planModel->load(['prices.currency', 'currency']);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Plan status updated to ' . ($isActive ? 'active' : 'inactive') . ' successfully.',
+            'data' => $planModel
+        ]);
+    }
+
+    /**
+     * Toggle plan active/inactive status.
+     * Endpoint: POST /api/plans/{plan}/toggle-status
+     */
+    public function toggleStatus(Request $request, $plan)
+    {
+        return $this->changeStatus($request, $plan);
     }
 }
