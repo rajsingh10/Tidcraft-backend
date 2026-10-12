@@ -97,6 +97,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/purchases/{uuid}/verify-dns', [ClientPurchaseController::class, 'verifyDns']);
         Route::get('/purchases/{uuid}/dns-status', [ClientPurchaseController::class, 'dnsStatus']);
         Route::post('/purchases/{uuid}/send-dns-email', [ClientPurchaseController::class, 'sendDnsEmail']);
+        Route::get('/purchases/{uuid}/files', [ClientPurchaseController::class, 'getFiles']);
         Route::get('/payments', [ClientPurchaseController::class, 'payments']);
         Route::get('/invoices', [\App\Http\Controllers\Api\InvoiceController::class, 'index']);
         Route::get('/invoices/{id}', [\App\Http\Controllers\Api\InvoiceController::class, 'show']);
@@ -211,6 +212,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/tenants/{uuid}', [TenantProvisionController::class, 'update']);
     Route::delete('/tenants/{uuid}', [TenantProvisionController::class, 'destroy']);
     
+    // Manage tenant files (APK & documentation)
+    Route::get('/tenants/{uuid}/files', [TenantProvisionController::class, 'getFiles']);
+    Route::post('/tenants/{uuid}/upload-files', [TenantProvisionController::class, 'uploadFiles']);
+    Route::delete('/tenants/{uuid}/files/{fileId}', [TenantProvisionController::class, 'deleteFile']);
+
     // Manage apps independently
     Route::get('/tenants/{uuid}/apps', [TenantAppController::class, 'index']);
     Route::post('/tenants/{uuid}/apps', [TenantAppController::class, 'store']);
