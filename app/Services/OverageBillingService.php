@@ -186,52 +186,15 @@ class OverageBillingService
             Log::info("Generated new pending overage bill #{$bill->bill_number} for tenant #{$tenant->id}: {$overageOrders} extra orders = ₹{$amount}");
         }
 
-        // Try generating Razorpay link if possible
-        $paymentLink = self::generatePaymentLink($tenant, $bill);
-        if ($paymentLink) {
-            $bill->payment_link = $paymentLink;
-            $bill->save();
-        }
-
         return $bill;
     }
 
     /**
      * Generate Razorpay payment link for overage invoice.
+     * Disabled: Payment links are not generated for overage billing.
      */
     public static function generatePaymentLink(Tenant $tenant, TenantOverageBill $bill): ?string
     {
-        $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])
-            ->pluck('value', 'key')
-            ->toArray();
-
-        $isActive = isset($razorpaySettings['razorpay_active']) && in_array($razorpaySettings['razorpay_active'], ['true', '1', true, 1], true);
-        if (!$isActive) return null;
-
-        $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
-        $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
-
-        if ($keyId && $keySecret) {
-            try {
-                $api = new \Razorpay\Api\Api($keyId, $keySecret);
-                $paymentLinkData = [
-                    'amount' => (int) ($bill->total_amount * 100),
-                    'currency' => $bill->currency ?? 'INR',
-                    'description' => "Overage Orders Invoice #{$bill->bill_number} ({$tenant->name})",
-                    'customer' => array_filter([
-                        'name' => $tenant->business_name,
-                        'email' => $tenant->primary_contact_email,
-                        'contact' => $tenant->phone_number,
-                    ]),
-                    'notify' => ['email' => true, 'sms' => true],
-                    'reminder_enable' => true,
-                ];
-                return $api->paymentLink->create($paymentLinkData)->short_url;
-            } catch (\Throwable $e) {
-                Log::warning('Razorpay overage link generation notice: ' . $e->getMessage());
-            }
-        }
-
         return null;
     }
 
@@ -413,13 +376,6 @@ class OverageBillingService
             Log::info("Generated new pending booking overage bill #{$bill->bill_number} for tenant #{$tenant->id}: {$overageBookings} extra bookings = ₹{$amount}");
         }
 
-        // Try generating Razorpay link if possible
-        $paymentLink = self::generateBookingPaymentLink($tenant, $bill);
-        if ($paymentLink) {
-            $bill->payment_link = $paymentLink;
-            $bill->save();
-        }
-
         return $bill;
     }
 
@@ -446,40 +402,10 @@ class OverageBillingService
 
     /**
      * Generate Razorpay payment link for booking overage invoice.
+     * Disabled: Payment links are not generated for overage billing.
      */
     public static function generateBookingPaymentLink(Tenant $tenant, TenantOverageBill $bill): ?string
     {
-        $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])
-            ->pluck('value', 'key')
-            ->toArray();
-
-        $isActive = isset($razorpaySettings['razorpay_active']) && in_array($razorpaySettings['razorpay_active'], ['true', '1', true, 1], true);
-        if (!$isActive) return null;
-
-        $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
-        $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
-
-        if ($keyId && $keySecret) {
-            try {
-                $api = new \Razorpay\Api\Api($keyId, $keySecret);
-                $paymentLinkData = [
-                    'amount' => (int) ($bill->total_amount * 100),
-                    'currency' => $bill->currency ?? 'INR',
-                    'description' => "Overage Bookings Invoice #{$bill->bill_number} ({$tenant->name})",
-                    'customer' => array_filter([
-                        'name' => $tenant->business_name,
-                        'email' => $tenant->primary_contact_email,
-                        'contact' => $tenant->phone_number,
-                    ]),
-                    'notify' => ['email' => true, 'sms' => true],
-                    'reminder_enable' => true,
-                ];
-                return $api->paymentLink->create($paymentLinkData)->short_url;
-            } catch (\Throwable $e) {
-                Log::warning('Razorpay booking overage link generation notice: ' . $e->getMessage());
-            }
-        }
-
         return null;
     }
 }
