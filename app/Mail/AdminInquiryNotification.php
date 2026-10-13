@@ -16,14 +16,17 @@ class AdminInquiryNotification extends Mailable
 
     public $inquiry;
     public $companyName;
+    public $projectName;
 
     /**
      * Create a new message instance.
      */
-    public function __construct(Inquiry $inquiry)
+    public function __construct(Inquiry $inquiry, ?string $projectName = null)
     {
         $this->inquiry = $inquiry;
+        $this->inquiry->loadMissing('product');
         $this->companyName = \App\Models\Setting::where('key', 'company_name')->value('value') ?? config('app.name', 'TidCraft');
+        $this->projectName = $projectName ?? ($this->inquiry->product?->name ?? $this->inquiry->plan_name ?? ($this->inquiry->product_id ?? 'N/A'));
     }
 
     /**

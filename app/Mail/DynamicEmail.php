@@ -277,6 +277,12 @@ class DynamicEmail extends Mailable
                 if (!isset($bladeData['inquiry']->customer_phone)) {
                     $bladeData['inquiry']->customer_phone = $bladeData['inquiry']->phone ?? '';
                 }
+                if ($bladeData['inquiry'] instanceof \App\Models\Inquiry) {
+                    $bladeData['inquiry']->loadMissing('product');
+                }
+                $inqProjName = $bladeData['projectName'] ?? ($bladeData['inquiry']->product?->name ?? $bladeData['inquiry']->plan_name ?? ($bladeData['inquiry']->product_id ?? 'N/A'));
+                $bladeData['inquiry']->project_id = $inqProjName;
+                $bladeData['inquiry']->project_name = $inqProjName;
             }
         }
 
