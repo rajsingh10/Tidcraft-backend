@@ -47,9 +47,9 @@
         </tr>
     </table>
     
-    <p style="margin-top: 30px;">
+    <!-- <p style="margin-top: 30px;">
         <a href="{{ config('app.url') }}/api/inquiries/{{ $inquiry->id }}" style="background-color: #007bff; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px;">View Inquiry via API</a>
-    </p>
+    </p> -->
     
     <p style="margin-top: 30px; font-size: 12px; color: #777;">
         This is an automated notification from your {{ $companyName }} platform.
