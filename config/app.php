@@ -54,6 +54,9 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    'frontend_url' => env('FRONTEND_URL', 'https://tidcraft.com'),
+    'frentendurl' => env('FRONTEND_URL', 'https://tidcraft.com'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone
