@@ -433,6 +433,22 @@ class TenantProvisionController extends Controller
             }
         }
 
+        // 2.5 Resolve product for Firestore database id check
+        $productId = $request->input('product_id') 
+            ?? $request->query('product_id') 
+            ?? $tenant?->product_id;
+
+        $targetFirestoreDbId = null;
+        if ($productId) {
+            $product = \App\Models\Product::find($productId);
+            if ($product) {
+                $productSlug = \Illuminate\Support\Str::slug($product->name) . '-';
+                $cleanSub = preg_replace('/[^a-z0-9-]/', '-', str_replace('_', '-', $prefix));
+                $cleanSub = trim($cleanSub, '-');
+                $targetFirestoreDbId = substr('tidcraft-' . $productSlug . $cleanSub, 0, 63);
+            }
+        }
+
         // 3. Query existing domain (excluding soft-deleted tenants)
         $existingDomain = \App\Models\Domain::where(function ($q) use ($fullDomain, $prefix) {
                 $q->where('domain', $fullDomain)
@@ -441,6 +457,51 @@ class TenantProvisionController extends Controller
             ->whereHas('tenant')
             ->with(['tenant', 'tenant.client'])
             ->first();
+
+        // Check if database ID is already registered in DB for another tenant
+        if ($targetFirestoreDbId) {
+            $existingDbTenant = \App\Models\FirebaseProject::where('firebase_database_id', $targetFirestoreDbId)
+                ->when($tenantId, fn($q) => $q->where('tenant_id', '!=', $tenantId))
+                ->first();
+            
+            if ($existingDbTenant) {
+                return response()->json([
+                    'status' => 'success',
+                    'available' => false,
+                    'domain' => $prefix,
+                    'full_domain' => $fullDomain,
+                    'is_own_reservation' => false,
+                    'message' => 'Subdomain cannot be used because its Firebase database ID is already assigned to another tenant.',
+                ]);
+            }
+
+            // Real-time Firebase Firestore existence check
+            try {
+                $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $productId)->first();
+                if ($productFirebase && !empty($productFirebase->service_account_json)) {
+                    $serviceAccount = json_decode($productFirebase->service_account_json, true) ?? [];
+                    if (!empty($serviceAccount)) {
+                        $firebaseAdmin = new \App\Services\FirebaseAdminClient();
+                        if ($firebaseAdmin->firestoreDatabaseExists($serviceAccount, $targetFirestoreDbId)) {
+                            // If it's not the user's existing tenant database, it's taken in Firebase
+                            $isCurrentTenantDb = $tenant && $tenant->firebaseProject && $tenant->firebaseProject->firebase_database_id === $targetFirestoreDbId;
+                            if (!$isCurrentTenantDb) {
+                                return response()->json([
+                                    'status' => 'success',
+                                    'available' => false,
+                                    'domain' => $prefix,
+                                    'full_domain' => $fullDomain,
+                                    'is_own_reservation' => false,
+                                    'message' => "The database '{$targetFirestoreDbId}' already exists in Firebase. Please choose a different subdomain.",
+                                ]);
+                            }
+                        }
+                    }
+                }
+            } catch (\Throwable $fbEx) {
+                \Illuminate\Support\Facades\Log::warning("checkSubdomain Firebase existence check error: " . $fbEx->getMessage());
+            }
+        }
 
         // If no existing domain found at all, it's completely available
         if (!$existingDomain) {

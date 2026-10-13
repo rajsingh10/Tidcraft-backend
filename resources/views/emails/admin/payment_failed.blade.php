@@ -161,7 +161,7 @@
                 <div class="action-text">
                     <h4>Actions</h4>
                     <p>You can view the client details and failed payment information from the admin panel.</p>
-                    <a href="{{ config('app.url') }}/admin/payments" class="action-btn">View in Admin Panel &rarr;</a>
+                    <a href="{{ config('app.frontend_url', 'https://tidcraft.com') }}/admin/payments" class="action-btn">View in Admin Panel &rarr;</a>
                 </div>
             </div>
 

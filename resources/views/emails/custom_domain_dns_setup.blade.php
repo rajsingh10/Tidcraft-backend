@@ -161,7 +161,7 @@
 
             <!-- CTA -->
             <div class="cta-section">
-                <a href="{{ config('app.url') }}/client/purchases/{{ $tenant->uuid }}" class="cta-btn">
+                <a href="{{ config('app.frontend_url', 'https://tidcraft.com') }}/profile" class="cta-btn">
                     Check DNS Status &rarr;
                 </a>
             </div>
