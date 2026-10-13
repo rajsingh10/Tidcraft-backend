@@ -175,6 +175,31 @@ class InquiryController extends Controller
                 \Illuminate\Support\Facades\Log::error('Failed to send client inquiry confirmation email: ' . $e->getMessage());
             }
 
+            // 3. Send Event to Meta Conversions API (CAPI)
+            try {
+                $isDemo = stripos(($inquiry->plan_name ?? '') . ($inquiry->description ?? ''), 'demo') !== false 
+                       || stripos(($rawProductId ?? ''), 'demo') !== false;
+                $eventName = $isDemo ? 'Schedule' : 'Lead';
+                $eventId = $request->input('event_id') ?? $request->input('eventId');
+
+                \App\Services\MetaCapiService::sendEvent(
+                    eventName: $eventName,
+                    eventId: $eventId,
+                    email: $inquiry->email,
+                    phone: $inquiry->phone ?? $inquiry->whatsapp_number,
+                    name: $inquiry->customer_name,
+                    fbp: $request->input('fbp'),
+                    fbc: $request->input('fbc'),
+                    request: $request,
+                    customData: [
+                        'content_name' => $projectName,
+                        'status' => 'new'
+                    ]
+                );
+            } catch (\Throwable $capiEx) {
+                \Illuminate\Support\Facades\Log::warning('Meta CAPI Inquiry dispatch error: ' . $capiEx->getMessage());
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Your inquiry has been received successfully. Our team will contact you soon.',

@@ -1885,6 +1885,33 @@ class ClientPurchaseController extends Controller
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Failed to create payment received notification: ' . $e->getMessage());
                 }
+
+                // Send Purchase event to Meta Conversions API (CAPI)
+                try {
+                    $client = $tenant->client;
+                    $clientEmail = $client ? $client->email : $tenant->primary_contact_email;
+                    $clientName = $client ? $client->name : $tenant->business_name;
+                    $clientPhone = $tenant->phone_number ?? ($client?->phone_number ?? $client?->phone ?? null);
+
+                    \App\Services\MetaCapiService::sendEvent(
+                        eventName: 'Purchase',
+                        eventId: $request->input('event_id') ?? $request->input('eventId'),
+                        email: $clientEmail,
+                        phone: $clientPhone,
+                        name: $clientName,
+                        fbp: $request->input('fbp'),
+                        fbc: $request->input('fbc'),
+                        request: $request,
+                        customData: [
+                            'value' => (float) $payment->amount,
+                            'currency' => $payment->currency ?? 'INR',
+                            'content_name' => $tenant->product->name ?? 'Tidcraft SaaS',
+                            'order_id' => $payment->invoice_number ?? $payment->order_id,
+                        ]
+                    );
+                } catch (\Throwable $capiEx) {
+                    \Illuminate\Support\Facades\Log::warning('Meta CAPI Purchase dispatch error: ' . $capiEx->getMessage());
+                }
             } elseif ($paymentStatus === 'failed' && isset($payment)) {
                 try {
                     $client = $tenant->client;
