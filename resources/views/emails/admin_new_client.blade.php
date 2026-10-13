@@ -394,7 +394,7 @@
             </table>
 
             <!-- Admin Action Button -->
-            <a href="{{ config('app.url') }}/super-admin" class="btn" style="color: #ffffff;">Go to Admin Panel &rarr;</a>
+            <a href="{{ config('app.frontend_url', 'https://tidcraft.com') }}/super-admin" class="btn" style="color: #ffffff;">Go to Admin Panel &rarr;</a>
 
             <!-- Help Box -->
             <table class="help-box" border="0" cellspacing="0" cellpadding="0">

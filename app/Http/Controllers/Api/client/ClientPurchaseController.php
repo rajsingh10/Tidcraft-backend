@@ -147,40 +147,11 @@ class ClientPurchaseController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
         }
 
-        // Check if payment is confirmed
-        $hasPaid = $tenant->payments()->where('status', 'success')->exists();
-        if (!$hasPaid) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Cannot retry provisioning: Payment is not confirmed yet for this purchase.'
-            ], 400);
-        }
-
-        // Release any existing stale cache lock
-        \Illuminate\Support\Facades\Cache::forget('provisioning_tenant_' . $tenant->id);
-
-        // Update status to provisioning
-        $tenant->update(['status' => 'provisioning']);
-
-        // Log retry attempt in ProvisioningLog
-        \App\Models\ProvisioningLog::create([
-            'tenant_id' => $tenant->id,
-            'step' => 'retry',
-            'status' => 'in_progress',
-            'message' => 'Client initiated provisioning retry.',
-            'started_at' => now(),
-        ]);
-
-        // Dispatch provisioning job
-        \App\Jobs\ProvisionTenantJob::dispatch($tenant);
-        \App\Helpers\QueueRunner::runBackground();
-
+        // Provisioning is strictly managed by administrators from the Super Admin dashboard
         return response()->json([
-            'status' => 'success',
-            'message' => 'Provisioning retry initiated successfully.',
-            'tenant_status' => 'provisioning',
-            'tenant_id' => $tenant->uuid,
-        ]);
+            'status' => 'error',
+            'message' => 'Provisioning is managed by administrator. Please contact support or wait for admin activation.'
+        ], 403);
     }
 
     /**
@@ -262,29 +233,11 @@ class ClientPurchaseController extends Controller
         $hasConfirmedPayment = $tenant->payments()->where('status', 'success')->exists();
 
         if (!$isFullyProvisioned) {
-            $hasDomain = $tenant->domains()->whereNotNull('domain')->where('domain', '!=', '')->exists();
-            $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
-
-            if ($hasConfirmedPayment && $hasDomain && $productFirebase && !empty($productFirebase->firebase_project_id)) {
-                if ($tenant->status !== 'provisioning') {
-                    $tenant->update(['status' => 'provisioning']);
-                }
-
-                if ($logs->isEmpty()) {
-                    \App\Jobs\ProvisionTenantJob::dispatch($tenant);
-                    \App\Helpers\QueueRunner::runBackground();
-                    usleep(300000);
-                    $logs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)
-                        ->orderBy('id', 'asc')
-                        ->get();
-                }
-            }
-
             return response()->json([
                 'status' => 'in_progress',
                 'tenant_status' => $tenant->status === 'pending' ? 'pending' : 'provisioning',
                 'can_retry' => false,
-                'current_step' => $logs->where('status', 'in_progress')->last()?->step ?? 'queued',
+                'current_step' => $logs->where('status', 'in_progress')->last()?->step ?? 'pending_admin_provision',
                 'data' => $logs
             ]);
         }
@@ -1773,22 +1726,13 @@ class ClientPurchaseController extends Controller
 
                     AuditLogger::log($tenant->id, 'overage_bill_paid', "Post-paid overage invoice #{$payment->invoice_number} paid successfully (Amount: ₹{$payment->amount}).");
                 } else {
-                    // Initial Client Purchase: Activate subscription, trigger provisioning
+                    // Initial Client Purchase: Activate subscription, keep tenant pending for Admin provisioning
                     if ($subscription) {
                         $subscription->status = 'active';
                         $subscription->save();
                     }
-                    $tenant->status = 'provisioning';
+                    $tenant->status = 'pending';
                     $tenant->save();
-
-                    // Trigger provisioning if domain is configured
-                    $hasDomain = $tenant->domains()->whereNotNull('domain')->where('domain', '!=', '')->exists();
-                    $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
-
-                    if ($hasDomain && $productFirebase && !empty($productFirebase->firebase_project_id)) {
-                        \App\Jobs\ProvisionTenantJob::dispatch($tenant);
-                        \App\Helpers\QueueRunner::runBackground();
-                    }
                 }
             } elseif (in_array($paymentStatus, ['failed', 'canceled', 'cancelled'])) {
                 // If payment was for renewal, upgrade, or overage, do NOT cancel an active subscription or demote an active tenant to pending!
@@ -2129,17 +2073,7 @@ class ClientPurchaseController extends Controller
                 ]);
             }
 
-            // For subdomain: trigger background provisioning ONLY if payment is confirmed and tenant is unprovisioned
-            $hasConfirmedPayment = $tenant->payments()->where('status', 'success')->exists();
-            $provisioningLogs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)->get();
-            $isFullyProvisioned = $provisioningLogs->where('step', 'activation')->where('status', 'success')->isNotEmpty()
-                && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id);
-
-            if (!$isFullyProvisioned && $hasConfirmedPayment) {
-                $tenant->update(['status' => 'provisioning']);
-                \App\Jobs\ProvisionTenantJob::dispatch($tenant);
-                \App\Helpers\QueueRunner::runBackground();
-            }
+            // Subdomain configured. Provisioning is left to Admin dashboard.
 
             // Standard response for subdomain (preserves existing behavior)
             return response()->json([

@@ -44,4 +44,29 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 413);
             }
         });
+
+        $exceptions->render(function (\Throwable $e, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                $status = 500;
+                if ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface) {
+                    $status = $e->getStatusCode();
+                } elseif ($e instanceof \Illuminate\Validation\ValidationException) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Validation failed.',
+                        'errors' => $e->errors()
+                    ], 422);
+                } elseif ($e instanceof \Illuminate\Database\Eloquent\ModelNotFoundException) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Resource not found.'
+                    ], 404);
+                }
+
+                return response()->json([
+                    'status' => 'error',
+                    'message' => $e->getMessage() ?: 'An unexpected server error occurred.',
+                ], $status);
+            }
+        });
     })->create();

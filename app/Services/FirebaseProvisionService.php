@@ -52,6 +52,15 @@ class FirebaseProvisionService
         try {
             $adminClient = new FirebaseAdminClient();
             
+            // 0. Pre-check if Firestore Database already exists to prevent duplicate / occupied database error
+            if ($adminClient->firestoreDatabaseExists($serviceAccount, $databaseId)) {
+                // If the tenant already has this database recorded, it is safe to proceed (idempotent retry)
+                $isSameTenant = $tenant->firebaseProject && $tenant->firebaseProject->firebase_database_id === $databaseId;
+                if (!$isSameTenant) {
+                    throw new \Exception("Firestore Database '{$databaseId}' already exists in Firebase project '{$projectId}'. Please choose a clean, unique subdomain (e.g. tidcraft-tideats-test) instead.");
+                }
+            }
+
             // 1. Create Firestore Database
             $adminClient->createFirestoreDatabase($serviceAccount, $databaseId, $locationId);
 
