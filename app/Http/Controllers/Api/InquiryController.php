@@ -118,6 +118,14 @@ class InquiryController extends Controller
                 '{{message}}' => $inquiry->description ?? 'N/A',
                 '{inquiry_id}' => $inquiry->id,
                 '{{inquiry_id}}' => $inquiry->id,
+                '{project_name}' => $projectName,
+                '{{project_name}}' => $projectName,
+                '{product_name}' => $projectName,
+                '{{product_name}}' => $projectName,
+                '{project_id}' => $projectName,
+                '{{project_id}}' => $projectName,
+                '{subject}' => $projectName,
+                '{{subject}}' => $projectName,
                 '{company_name}' => $companyName,
                 '{{company_name}}' => $companyName,
                 '{company_email}' => $companyEmail,
@@ -143,7 +151,7 @@ class InquiryController extends Controller
                     if ($adminTemplate) {
                         \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\DynamicEmail($adminTemplate, $replacements));
                     } else {
-                        \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\AdminInquiryNotification($inquiry));
+                        \Illuminate\Support\Facades\Mail::to($adminEmail)->send(new \App\Mail\AdminInquiryNotification($inquiry, $projectName));
                     }
                 }
             } catch (\Exception $e) {
