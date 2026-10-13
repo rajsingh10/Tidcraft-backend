@@ -44,6 +44,11 @@ return [
         'enable_cloudfunction_deploy' => env('ENABLE_CLOUDFUNCTION_DEPLOY', false),
     ],
 
+    'meta' => [
+        'pixel_id' => env('META_PIXEL_ID', '1055540497477242'),
+        'capi_token' => env('META_CAPI_TOKEN'),
+    ],
+
     'parkmeapp' => [
         'enable_cloudfunction_deploy' => env('ENABLE_CLOUDFUNCTION_DEPLOY', false),
     ],
