@@ -65,7 +65,7 @@
         $isFoodApp = strpos($productName, 'food') !== false;
         $isParkApp = strpos($productName, 'park') !== false;
 
-        $domainUrl = $domainUrl ?? ($domain_url ?? config('app.url'));
+        $domainUrl = $domainUrl ?? ($domain_url ?? config('app.frontend_url', 'https://tidcraft.com'));
         $adminEmail = $adminEmail ?? ($admin_email ?? ($tenant->client?->email ?? ''));
         $activationUrl = $activationUrl ?? ($activation_url ?? ($password_setup_url ?? null));
         $adminPassword = $adminPassword ?? ($admin_password ?? 'Set securely via activation link');
@@ -84,14 +84,14 @@
                         <table cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse;">
                             <tbody><tr>
                                 <td valign="middle" style="vertical-align: middle;">
-                                    <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; display: inline-block;">
+                                    <a href="{{ config('app.frontend_url', 'https://tidcraft.com') }}" style="text-decoration: none; display: inline-block;">
                                         <div style="background-color: #FFFFFF; width: 42px; height: 42px; border-radius: 8px; text-align: center; line-height: 42px; overflow: hidden; display: inline-block; vertical-align: middle;">
                                             <img src="{{ !empty($settings['company_logo'] ?? null) ? \App\Helpers\UrlHelper::getStorageUrl($settings['company_logo']) : \App\Helpers\UrlHelper::getStorageUrl('settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg') }}" alt="Logo" width="42" height="42" style="display: block; width: 42px; height: 42px; max-width: 42px; max-height: 42px; object-fit: contain;">
                                         </div>
                                     </a>
                                 </td>
                                 <td valign="middle" style="padding-left: 12px; vertical-align: middle;">
-                                    <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; color: #ffffff;">
+                                    <a href="{{ config('app.frontend_url', 'https://tidcraft.com') }}" style="text-decoration: none; color: #ffffff;">
                                         <div style="font-size: 20px; font-weight: 800; color: #FFFFFF; line-height: 1.2;">{{ $settings['company_name'] ?? 'TidCraft' }}</div>
                                         <div style="font-size: 11px; color: #93c5fd; margin-top: 2px; letter-spacing: 0.3px;">Manage • Monitor • Grow</div>
                                     </a>

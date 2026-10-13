@@ -296,14 +296,14 @@
                             <table cellpadding="0" cellspacing="0" border="0" style="border-spacing: 0; border-collapse: collapse;">
                                 <tbody><tr>
                                     <td valign="middle" style="vertical-align: middle;">
-                                        <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; display: inline-block;">
+                                        <a href="{{ config('app.frontend_url', 'https://tidcraft.com') }}" style="text-decoration: none; display: inline-block;">
                                             <div style="background-color: #FFFFFF; width: 42px; height: 42px; border-radius: 8px; text-align: center; line-height: 42px; overflow: hidden; display: inline-block; vertical-align: middle;">
                                                 <img src="{{ !empty($settings['company_logo'] ?? null) ? url($settings['company_logo']) : asset('storage/settings/lUvNMB4ku94XZPnaGVueDO9rYx3TnakYlcPnoqo6.jpg') }}" alt="Logo" width="42" height="42" style="display: block; width: 42px; height: 42px; max-width: 42px; max-height: 42px; object-fit: contain;">
                                             </div>
                                         </a>
                                     </td>
                                     <td valign="middle" style="padding-left: 12px; vertical-align: middle;">
-                                        <a href="{{ config('app.url', url('/')) }}" style="text-decoration: none; color: #ffffff;">
+                                        <a href="{{ config('app.frontend_url', 'https://tidcraft.com') }}" style="text-decoration: none; color: #ffffff;">
                                             <div style="font-size: 20px; font-weight: 800; color: #FFFFFF; line-height: 1.2;">{{ $settings['company_name'] ?? 'TidCraft' }}</div>
                                             <div style="font-size: 11px; color: #93c5fd; margin-top: 2px; letter-spacing: 0.3px;">Manage • Monitor • Grow</div>
                                         </a>
