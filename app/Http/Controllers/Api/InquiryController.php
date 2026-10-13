@@ -81,6 +81,7 @@ class InquiryController extends Controller
             $companyEmail = \App\Models\Setting::where('key', 'company_email')->value('value') ?? config('mail.from.address');
             $companyPhone = \App\Models\Setting::where('key', 'company_phone')->value('value') ?? '';
             $companyWhatsapp = \App\Models\Setting::where('key', 'whatsapp_number')->value('value') ?? '';
+            $companyWebsite = \App\Models\Setting::where('key', 'company_website')->value('value') ?: \App\Helpers\UrlHelper::getFrontendUrl();
 
             // Template replacement variables and objects for DynamicEmail & Blade
             $replacements = [
@@ -88,6 +89,7 @@ class InquiryController extends Controller
                 'companyName' => $companyName,
                 'companyEmail' => $companyEmail,
                 'companyPhone' => $companyPhone,
+                'companyWebsite' => $companyWebsite,
                 '{name}' => $inquiry->customer_name,
                 '{{name}}' => $inquiry->customer_name,
                 '{customer_name}' => $inquiry->customer_name,
@@ -120,6 +122,10 @@ class InquiryController extends Controller
                 '{{company_phone}}' => $companyPhone,
                 '{company_whatsapp}' => $companyWhatsapp,
                 '{{company_whatsapp}}' => $companyWhatsapp,
+                '{company_website}' => $companyWebsite,
+                '{{company_website}}' => $companyWebsite,
+                '{website}' => $companyWebsite,
+                '{{website}}' => $companyWebsite,
             ];
 
             // 1. Send Email to Admin & Configured CC emails
