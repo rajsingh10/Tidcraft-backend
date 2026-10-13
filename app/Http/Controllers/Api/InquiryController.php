@@ -82,6 +82,8 @@ class InquiryController extends Controller
             $companyPhone = \App\Models\Setting::where('key', 'company_phone')->value('value') ?? '';
             $companyWhatsapp = \App\Models\Setting::where('key', 'whatsapp_number')->value('value') ?? '';
             $companyWebsite = \App\Models\Setting::where('key', 'company_website')->value('value') ?: \App\Helpers\UrlHelper::getFrontendUrl();
+            $inquiry->loadMissing('product');
+            $projectName = $inquiry->product?->name ?? $inquiry->plan_name ?? ($rawProductId ?? 'N/A');
 
             // Template replacement variables and objects for DynamicEmail & Blade
             $replacements = [
@@ -90,6 +92,8 @@ class InquiryController extends Controller
                 'companyEmail' => $companyEmail,
                 'companyPhone' => $companyPhone,
                 'companyWebsite' => $companyWebsite,
+                'projectName' => $projectName,
+                'productName' => $projectName,
                 '{name}' => $inquiry->customer_name,
                 '{{name}}' => $inquiry->customer_name,
                 '{customer_name}' => $inquiry->customer_name,

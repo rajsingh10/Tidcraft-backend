@@ -30,8 +30,8 @@
             <td style="padding: 8px; border: 1px solid #ddd;">{{ $inquiry->whatsapp_number ?? 'N/A' }}</td>
         </tr>
         <tr>
-            <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Inquiry Subject/Service</td>
-            <td style="padding: 8px; border: 1px solid #ddd;">{{ $inquiry->project_id ?? 'N/A' }}</td>
+            <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Project / Service Name</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{{ $inquiry->product?->name ?? $projectName ?? $inquiry->plan_name ?? $inquiry->product_id ?? 'N/A' }}</td>
         </tr>
         <tr>
             <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Inquiry Message</td>
