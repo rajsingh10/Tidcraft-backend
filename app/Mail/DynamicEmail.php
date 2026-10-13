@@ -99,6 +99,7 @@ class DynamicEmail extends Mailable
             'company_email',
             'company_phone',
             'company_address',
+            'company_website',
         ];
         $settingsData = Setting::whereIn('key', $keys)->pluck('value', 'key')->toArray();
         $platformCompanyName = !empty($settingsData['company_name']) ? $settingsData['company_name'] : 'TidCraft';
@@ -131,6 +132,16 @@ class DynamicEmail extends Mailable
         $replacements['{{company_logo}}'] = $platformLogoUrl;
         $replacements['{logo_url}'] = $platformLogoUrl;
         $replacements['{{logo_url}}'] = $platformLogoUrl;
+
+        // Website placeholders
+        $platformWebsiteUrl = !empty($settingsData['company_website']) 
+            ? $settingsData['company_website'] 
+            : \App\Helpers\UrlHelper::getFrontendUrl();
+        $settingsData['company_website'] = $platformWebsiteUrl;
+        $replacements['{company_website}'] = $platformWebsiteUrl;
+        $replacements['{{company_website}}'] = $platformWebsiteUrl;
+        $replacements['{website}'] = $platformWebsiteUrl;
+        $replacements['{{website}}'] = $platformWebsiteUrl;
 
         // Automatically replace {year}
         if (!isset($replacements['{year}'])) {
