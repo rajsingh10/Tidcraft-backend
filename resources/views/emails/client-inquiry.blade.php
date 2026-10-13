@@ -23,10 +23,7 @@
         @if(!empty($companyEmail))
             Email: {{ $companyEmail }}<br>
         @endif
-        @php
-            $websiteUrl = !empty($companyWebsite) ? $companyWebsite : (\App\Models\Setting::where('key', 'company_website')->value('value') ?: \App\Helpers\UrlHelper::getFrontendUrl());
-        @endphp
-        <a href="{{ $websiteUrl }}">{{ $websiteUrl }}</a>
+      
     </p>
 </body>
 </html>
