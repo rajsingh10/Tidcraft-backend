@@ -1024,54 +1024,9 @@ class ClientPurchaseController extends Controller
 
             DB::commit();
 
-            // Generate Razorpay Payment Link
+            // Payment link generation disabled as requested
             $paymentLinkStr = null;
             $paymentErrorStr = null;
-
-            if ($paymentAmount > 0) {
-                $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
-                
-                $isActive = isset($razorpaySettings['razorpay_active']) && in_array($razorpaySettings['razorpay_active'], ['true', '1', true, 1], true);
-                if ($isActive) {
-                    $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
-                    $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
-
-                    if ($keyId && $keySecret) {
-                        try {
-                            $customerData = array_filter([
-                                'name' => $tenant->business_name,
-                                'email' => $tenant->primary_contact_email,
-                                'contact' => $tenant->phone_number
-                            ]);
-
-                            $paymentLinkData = [
-                                'amount' => (int) ($paymentAmount * 100), // convert to paise
-                                'currency' => $request->currency ?? 'INR',
-                                'description' => 'Payment for Tenant Provisioning',
-                                'customer' => $customerData,
-                                'notify' => ['email' => true, 'sms' => true],
-                                'reminder_enable' => true,
-                            ];
-                            
-                            $response = \Illuminate\Support\Facades\Http::withBasicAuth($keyId, $keySecret)
-                                ->post('https://api.razorpay.com/v1/payment_links', $paymentLinkData);
-
-                            if ($response->successful()) {
-                                $paymentLinkStr = $response->json('short_url');
-                            } else {
-                                throw new \Exception('Razorpay Error: ' . $response->body());
-                            }
-                        } catch (\Exception $e) {
-                            $paymentErrorStr = $e->getMessage();
-                            \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
-                        }
-                    } else {
-                        $paymentErrorStr = 'razorpay_key_id or razorpay_key_secret is missing in settings table';
-                    }
-                } else {
-                    $paymentErrorStr = 'razorpay_active is not set to 1 or true in settings table';
-                }
-            }
 
             return response()->json([
                 'status' => 'success',

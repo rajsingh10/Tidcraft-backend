@@ -443,19 +443,9 @@ class TenantProvisionService
             'created_at' => now(),
         ], now()->addDays(7));
 
-        $firebaseOobLink = null;
-        try {
-            $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
-            $serviceAccount = $productFirebase ? (json_decode($productFirebase->service_account_json, true) ?? []) : [];
-            if (!empty($serviceAccount) && $adminEmail) {
-                $firebaseAdmin = new \App\Services\FirebaseAdminClient();
-                $firebaseOobLink = $firebaseAdmin->generatePasswordResetLink($serviceAccount, $adminEmail);
-            }
-        } catch (\Throwable $fbEx) {
-            \Illuminate\Support\Facades\Log::warning("Could not generate Firebase password reset link for {$adminEmail}: " . $fbEx->getMessage());
-        }
-
-        $activationUrl = $firebaseOobLink ?: (rtrim($domainUrl, '/') . '/admin_panel/setup-password?token=' . $activationToken);
+        // Activation URL points directly to the branded tenant admin panel setup-password route.
+        // Direct Firebase sendOobCode email is bypassed so that raw/spam Firebase emails are not sent to clients.
+        $activationUrl = rtrim($domainUrl, '/') . '/admin_panel/setup-password?token=' . $activationToken;
 
         // Build HTML links section
         $linksItems = [];
