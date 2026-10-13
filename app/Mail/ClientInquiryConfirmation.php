@@ -19,6 +19,7 @@ class ClientInquiryConfirmation extends Mailable
     public $companyPhone;
     public $companyEmail;
     public $companyWhatsapp;
+    public $companyWebsite;
 
     /**
      * Create a new message instance.
@@ -30,6 +31,7 @@ class ClientInquiryConfirmation extends Mailable
         $this->companyPhone = \App\Models\Setting::where('key', 'company_phone')->value('value');
         $this->companyEmail = \App\Models\Setting::where('key', 'company_email')->value('value') ?? config('mail.from.address');
         $this->companyWhatsapp = \App\Models\Setting::where('key', 'whatsapp_number')->value('value');
+        $this->companyWebsite = \App\Models\Setting::where('key', 'company_website')->value('value') ?: \App\Helpers\UrlHelper::getFrontendUrl();
     }
 
     /**
