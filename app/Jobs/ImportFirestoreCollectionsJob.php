@@ -125,32 +125,65 @@ class ImportFirestoreCollectionsJob implements ShouldQueue
     {
         $fields = [];
         foreach ($data as $key => $value) {
-            if (is_null($value)) {
-                $fields[$key] = ['nullValue' => null];
-            } elseif (is_bool($value)) {
-                $fields[$key] = ['booleanValue' => $value];
-            } elseif (is_int($value)) {
-                $fields[$key] = ['integerValue' => (string) $value];
-            } elseif (is_float($value)) {
-                $fields[$key] = ['doubleValue' => $value];
-            } elseif (is_array($value)) {
-                // Check if sequential array (list) or associative array (map)
-                if (array_keys($value) === range(0, count($value) - 1) && !empty($value)) {
-                    $arrayElements = [];
-                    foreach ($value as $item) {
-                        $converted = $this->convertToFirestoreFields(['x' => $item]);
-                        $arrayElements[] = $converted['x'];
-                    }
-                    $fields[$key] = ['arrayValue' => ['values' => $arrayElements]];
-                } else if (empty($value)) {
-                    $fields[$key] = ['arrayValue' => ['values' => []]];
-                } else {
-                    $fields[$key] = ['mapValue' => ['fields' => $this->convertToFirestoreFields($value)]];
-                }
-            } else {
-                $fields[$key] = ['stringValue' => (string) $value];
+            // Firestore-reserved fields starting and ending with double underscores
+            if ($key === '__datatype__' || $key === '__collections__' || (str_starts_with((string)$key, '__') && str_ends_with((string)$key, '__'))) {
+                continue;
             }
+
+            $fields[$key] = $this->parseValue($value);
         }
         return $fields;
+    }
+
+    protected function parseValue($value)
+    {
+        if (is_null($value)) {
+            return ['nullValue' => 'NULL_VALUE'];
+        } elseif (is_bool($value)) {
+            return ['booleanValue' => $value];
+        } elseif (is_int($value)) {
+            return ['integerValue' => (string) $value];
+        } elseif (is_float($value)) {
+            return ['doubleValue' => $value];
+        } elseif (is_array($value)) {
+            // Check for node-firestore-import-export __datatype__
+            if (isset($value['__datatype__'])) {
+                if ($value['__datatype__'] === 'timestamp') {
+                    $seconds = $value['value']['_seconds'] ?? 0;
+                    $nanos = $value['value']['_nanoseconds'] ?? 0;
+                    $dt = new \DateTime("@{$seconds}");
+                    $fraction = str_pad(substr((string)$nanos, 0, 9), 9, '0', STR_PAD_RIGHT);
+                    return ['timestampValue' => $dt->format('Y-m-d\TH:i:s') . '.' . $fraction . 'Z'];
+                }
+                if ($value['__datatype__'] === 'geopoint') {
+                    return [
+                        'geoPointValue' => [
+                            'latitude' => $value['value']['_latitude'] ?? 0,
+                            'longitude' => $value['value']['_longitude'] ?? 0
+                        ]
+                    ];
+                }
+                if ($value['__datatype__'] === 'reference') {
+                    return ['referenceValue' => $value['value']];
+                }
+                if (isset($value['value'])) {
+                    return $this->parseValue($value['value']);
+                }
+            }
+
+            // Check if list/sequential or empty or map
+            if (array_is_list($value) || empty($value)) {
+                $arrayElements = [];
+                foreach ($value as $item) {
+                    $arrayElements[] = $this->parseValue($item);
+                }
+                return ['arrayValue' => empty($arrayElements) ? new \stdClass() : ['values' => $arrayElements]];
+            } else {
+                $converted = $this->convertToFirestoreFields($value);
+                return ['mapValue' => ['fields' => empty($converted) ? new \stdClass() : (object) $converted]];
+            }
+        } else {
+            return ['stringValue' => (string) $value];
+        }
     }
 }

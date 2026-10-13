@@ -304,9 +304,9 @@ class DynamicEmail extends Mailable
         }
 
         // Dynamically provide frontend URLs
-        $defaultFrontendUrl = \App\Helpers\UrlHelper::getFrontendUrl();
-        $defaultLoginUrl = \App\Helpers\UrlHelper::getLoginUrl();
-        $defaultContactUrl = \App\Helpers\UrlHelper::getContactUrl();
+        $defaultFrontendUrl = rtrim(config('app.frontend_url', 'https://tidcraft.com'), '/');
+        $defaultLoginUrl = $defaultFrontendUrl . '/login';
+        $defaultContactUrl = $defaultFrontendUrl . '/contact-us';
 
         if (!isset($bladeData['frontend_url'])) {
             $bladeData['frontend_url'] = $defaultFrontendUrl;

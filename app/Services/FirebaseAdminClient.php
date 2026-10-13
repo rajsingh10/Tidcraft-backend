@@ -7,6 +7,45 @@ use Illuminate\Support\Facades\Http;
 class FirebaseAdminClient
 {
     /**
+     * Check if a Firestore database with given ID already exists in the project.
+     * Returns true if it exists, false if not found (404), or throws on auth/permission errors.
+     */
+    public function firestoreDatabaseExists(array $serviceAccount, string $databaseId): bool
+    {
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) {
+            return false;
+        }
+
+        try {
+            $accessToken = $this->accessToken($serviceAccount, [
+                'https://www.googleapis.com/auth/datastore',
+                'https://www.googleapis.com/auth/cloud-platform',
+            ]);
+
+            $url = 'https://firestore.googleapis.com/v1/projects/' . rawurlencode($projectId)
+                . '/databases/' . rawurlencode($databaseId);
+
+            $response = Http::withToken($accessToken)->timeout(10)->get($url);
+
+            if ($response->status() === 200) {
+                return true;
+            }
+
+            if ($response->status() === 404) {
+                return false;
+            }
+
+            // In case of error (or restricted read permission), log and default to false
+            \Illuminate\Support\Facades\Log::warning("Firestore existence check returned status {$response->status()} for {$databaseId}: " . $response->body());
+            return false;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Firestore existence check error for {$databaseId}: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Create a named Firestore database inside the Firebase/GCP project.
      * Database IDs must be lowercase letters, numbers, and hyphens (e.g. tidcraft-acme).
      */
