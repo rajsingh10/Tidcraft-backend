@@ -563,9 +563,12 @@ class ClientPurchaseController extends Controller
     {
         $user = $request->user();
 
-        // First find all tenant IDs owned by the user
-        $tenantIds = Tenant::where('create_by', $user->id)
-            ->orWhere('client_id', $user->id)
+        // First find all tenant IDs owned by the user (excluding demo tenants)
+        $tenantIds = Tenant::where(function ($q) use ($user) {
+                $q->where('create_by', $user->id)
+                  ->orWhere('client_id', $user->id);
+            })
+            ->where('is_demo', false)
             ->pluck('id');
 
         // Fetch all payments associated with those tenants, along with product & plan info
