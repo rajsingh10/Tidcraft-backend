@@ -25,9 +25,12 @@ class ProfitabilityController extends Controller
             $startOfMonth = $date->copy()->startOfMonth();
             $endOfMonth = $date->copy()->endOfMonth();
 
-            // Total revenue for this month
+            // Total revenue for this month (excluding demo tenants)
             // Note: Dashboard uses create_at in payment table
             $revenue = Payment::whereIn('status', ['completed', 'success'])
+                ->whereDoesntHave('tenant', function ($tq) {
+                    $tq->where('is_demo', true);
+                })
                 ->whereBetween('create_at', [$startOfMonth, $endOfMonth])
                 ->sum('amount');
 

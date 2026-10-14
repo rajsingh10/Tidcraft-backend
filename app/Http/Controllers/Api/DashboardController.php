@@ -28,21 +28,41 @@ class DashboardController extends Controller
         
         $clientsInTrial = 0; // Assuming we add trial tracking later
         
-        // 2. Active Subscriptions
-        $activeSubscriptions = Subscription::where('status', 'active')->count();
-        $subsThisMonth = Subscription::where('status', 'active')->where('create_at', '>=', $startOfMonth)->count();
-        $subsLastMonth = Subscription::where('status', 'active')->whereBetween('create_at', [$startOfLastMonth, $endOfLastMonth])->count();
+        // 2. Active Subscriptions (excluding demo tenants)
+        $activeSubscriptions = Subscription::where('status', 'active')
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })->count();
+        $subsThisMonth = Subscription::where('status', 'active')
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })
+            ->where('create_at', '>=', $startOfMonth)->count();
+        $subsLastMonth = Subscription::where('status', 'active')
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })
+            ->whereBetween('create_at', [$startOfLastMonth, $endOfLastMonth])->count();
         $subsGrowth = $subsLastMonth > 0 ? (($subsThisMonth - $subsLastMonth) / $subsLastMonth) * 100 : 0;
         
-        $pastDueSubs = Subscription::where('status', 'past_due')->count();
+        $pastDueSubs = Subscription::where('status', 'past_due')
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })->count();
 
-        // 3. Monthly Revenue
+        // 3. Monthly Revenue (excluding demo tenants)
         // Assuming amount is a decimal field
         $revenueThisMonth = Payment::whereIn('status', ['completed', 'success'])
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })
             ->where('create_at', '>=', $startOfMonth)
             ->sum('amount');
             
         $revenueLastMonth = Payment::whereIn('status', ['completed', 'success'])
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })
             ->whereBetween('create_at', [$startOfLastMonth, $endOfLastMonth])
             ->sum('amount');
             
@@ -155,19 +175,30 @@ class DashboardController extends Controller
         $startOfLastMonth = $now->copy()->subMonth()->startOfMonth();
         $endOfLastMonth = $now->copy()->subMonth()->endOfMonth();
 
-        // Total MRR of active subscriptions
+        // Total MRR of active subscriptions (excluding demo tenants)
         $totalMrr = (float) Subscription::where('subscriptions.status', 'active')
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })
             ->join('plans', 'subscriptions.plan_id', '=', 'plans.id')
             ->sum('plans.monthly_price');
 
-        // Total MRR of active subscriptions from Last Month
+        // Total MRR of active subscriptions from Last Month (excluding demo tenants)
         $lastMonthMrr = (float) Subscription::where('subscriptions.status', 'active')
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })
             ->where('subscriptions.create_at', '<=', $endOfLastMonth)
             ->join('plans', 'subscriptions.plan_id', '=', 'plans.id')
             ->sum('plans.monthly_price');
 
-        // Active Tenants
-        $activeTenants = Subscription::where('status', 'active')->distinct('tenant_id')->count('tenant_id');
+        // Active Tenants (excluding demo)
+        $activeTenants = Subscription::where('status', 'active')
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })
+            ->distinct('tenant_id')
+            ->count('tenant_id');
 
         // ARPU
         $arpu = $activeTenants > 0 ? $totalMrr / $activeTenants : 0;
@@ -183,17 +214,24 @@ class DashboardController extends Controller
             $nrr = 100;
         }
 
-        // Logo Churn Estimation
-        $tenantsAtStartOfMonth = Tenant::where('create_at', '<', $startOfMonth)->count();
+        // Logo Churn Estimation (excluding demo tenants)
+        $tenantsAtStartOfMonth = Tenant::where('is_demo', false)
+            ->where('create_at', '<', $startOfMonth)->count();
         $churnedTenantsThisMonth = Subscription::where('status', 'cancelled')
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })
             ->where('update_at', '>=', $startOfMonth)
             ->distinct('tenant_id')
             ->count('tenant_id');
         
         $logoChurn = $tenantsAtStartOfMonth > 0 ? ($churnedTenantsThisMonth / $tenantsAtStartOfMonth) * 100 : 0;
 
-        // Extra Orders & Overage Revenue Analytics
-        $overageQuery = \App\Models\TenantOverageBill::query();
+        // Extra Orders & Overage Revenue Analytics (excluding demo tenants)
+        $overageQuery = \App\Models\TenantOverageBill::query()
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            });
 
         if ($request->filled('tenant_id')) {
             $overageQuery->where('tenant_id', $request->tenant_id);
@@ -225,6 +263,8 @@ class DashboardController extends Controller
             $pQuery = \App\Models\TenantOverageBill::where(function ($q) use ($product) {
                 $q->where('product_id', $product->id)
                   ->orWhereHas('tenant', fn ($tq) => $tq->where('product_id', $product->id));
+            })->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
             });
 
             $pPaid = (float) (clone $pQuery)->whereIn('status', ['paid', 'success'])->sum('total_amount');
