@@ -74,8 +74,8 @@ class DashboardController extends Controller
             ->where('priority', 'high')->count();
 
         // 5. Recent Client Activity (Live Feed)
-        // We'll pull recent tenants as 'activity'
-        $recentActivityQuery = Tenant::with(['client', 'plan']);
+        // We'll pull recent tenants as 'activity' (excluding demo tenants)
+        $recentActivityQuery = Tenant::where('is_demo', false)->with(['client', 'plan']);
         
         if ($request->has('filter') && $request->filter !== 'All') {
             $filterStatus = strtolower($request->filter);
@@ -97,10 +97,10 @@ class DashboardController extends Controller
         });
         
         $activityCounts = [
-            'all' => Tenant::count(),
-            'active' => Tenant::where('status', 'active')->count(),
-            'past_due' => Tenant::where('status', 'past_due')->count(),
-            'suspended' => Tenant::where('status', 'suspended')->count(),
+            'all' => Tenant::where('is_demo', false)->count(),
+            'active' => Tenant::where('is_demo', false)->where('status', 'active')->count(),
+            'past_due' => Tenant::where('is_demo', false)->where('status', 'past_due')->count(),
+            'suspended' => Tenant::where('is_demo', false)->where('status', 'suspended')->count(),
         ];
 
         // 6. Mocked System Metrics for UI rendering
