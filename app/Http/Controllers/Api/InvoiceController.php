@@ -15,7 +15,9 @@ class InvoiceController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        $query = Payment::with(['tenant.client', 'tenant.product', 'tenant.plan']);
+        $query = Payment::whereDoesntHave('tenant', function ($tq) {
+            $tq->where('is_demo', true);
+        })->with(['tenant.client', 'tenant.product', 'tenant.plan']);
 
         // Scope to client's own invoices if logged in as Client
         if ($user && $user->hasRole('Client')) {
@@ -97,8 +99,10 @@ class InvoiceController extends Controller
 
         $payments->setCollection($invoices);
 
-        // Calculate counts for filters
-        $countsQuery = Payment::query();
+        // Calculate counts for filters (excluding demo tenants)
+        $countsQuery = Payment::whereDoesntHave('tenant', function ($tq) {
+            $tq->where('is_demo', true);
+        });
         if ($user && $user->hasRole('Client')) {
             $countsQuery->whereHas('tenant', function($tq) use ($user) {
                 $tq->where('client_id', $user->id)

@@ -12,12 +12,21 @@ class PaymentController extends Controller
 {
     public function index(Request $request)
     {
-        // 1. Calculate Metrics
-        $activeSubscriptionsCount = \App\Models\Subscription::where('status', 'active')->count();
-        $pastDueSubscriptionsCount = \App\Models\Subscription::where('status', 'past_due')->count();
+        // 1. Calculate Metrics (excluding demo tenants)
+        $activeSubscriptionsCount = \App\Models\Subscription::where('status', 'active')
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })->count();
+        $pastDueSubscriptionsCount = \App\Models\Subscription::where('status', 'past_due')
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })->count();
         
-        // MRR Calculation (Sum of monthly_price of plans for active subscriptions)
+        // MRR Calculation (Sum of monthly_price of plans for active subscriptions, excluding demo)
         $mrr = (float) \App\Models\Subscription::where('subscriptions.status', 'active')
+            ->whereDoesntHave('tenant', function ($tq) {
+                $tq->where('is_demo', true);
+            })
             ->join('plans', 'subscriptions.plan_id', '=', 'plans.id')
             ->sum('plans.monthly_price');
         
@@ -30,8 +39,10 @@ class PaymentController extends Controller
             'past_due' => $pastDueSubscriptionsCount,
         ];
 
-        // 2. Build Query for Transactions (Payments)
-        $query = Payment::with(['tenant.subscriptions' => function ($q) {
+        // 2. Build Query for Transactions (Payments, excluding demo tenants)
+        $query = Payment::whereDoesntHave('tenant', function ($tq) {
+            $tq->where('is_demo', true);
+        })->with(['tenant.subscriptions' => function ($q) {
             $q->latest('create_at'); // Get the latest subscription for status/plan display
         }, 'tenant.subscriptions.plan']);
 
