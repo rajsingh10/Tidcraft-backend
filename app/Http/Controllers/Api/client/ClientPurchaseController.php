@@ -32,11 +32,7 @@ class ClientPurchaseController extends Controller
             ->get();
 
         $tenants->each(function ($tenant) {
-            $productLinks = $this->buildProductLinks($tenant);
-            $tenant->setAttribute('product_links', $productLinks);
-            $tenant->setAttribute('all_links', $productLinks['all_links'] ?? []);
-            $tenant->setAttribute('mobile_apps', $productLinks['mobile_apps'] ?? []);
-            $tenant->setAttribute('documents', $productLinks['documents'] ?? []);
+            $tenant->setAttribute('product_links', $this->buildProductLinks($tenant));
             $tenant->setAttribute('access_details', $this->buildAccessDetails($tenant));
         });
 
@@ -69,11 +65,7 @@ class ClientPurchaseController extends Controller
             ], 404);
         }
 
-        $productLinks = $this->buildProductLinks($tenant);
-        $tenant->setAttribute('product_links', $productLinks);
-        $tenant->setAttribute('all_links', $productLinks['all_links'] ?? []);
-        $tenant->setAttribute('mobile_apps', $productLinks['mobile_apps'] ?? []);
-        $tenant->setAttribute('documents', $productLinks['documents'] ?? []);
+        $tenant->setAttribute('product_links', $this->buildProductLinks($tenant));
         $tenant->setAttribute('access_details', $this->buildAccessDetails($tenant));
 
         return response()->json([
@@ -147,11 +139,22 @@ class ClientPurchaseController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
         }
 
-        // Provisioning is strictly managed by administrators from the Super Admin dashboard
+        // Check if payment is confirmed
+        $hasPaid = $tenant->payments()->where('status', 'success')->exists();
+        if (!$hasPaid) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Cannot retry provisioning: Payment is not confirmed yet for this purchase.'
+            ], 400);
+        }
+
+        // Provisioning is handled exclusively by Admin
         return response()->json([
-            'status' => 'error',
-            'message' => 'Provisioning is managed by administrator. Please contact support or wait for admin activation.'
-        ], 403);
+            'status' => 'info',
+            'message' => 'Provisioning is managed and initiated by the Admin team once payment is verified. Your request is pending admin review.',
+            'tenant_status' => $tenant->status,
+            'tenant_id' => $tenant->uuid,
+        ]);
     }
 
     /**
@@ -233,11 +236,18 @@ class ClientPurchaseController extends Controller
         $hasConfirmedPayment = $tenant->payments()->where('status', 'success')->exists();
 
         if (!$isFullyProvisioned) {
+            $currentStep = $logs->where('status', 'in_progress')->last()?->step;
+            if (!$currentStep && $tenant->status === 'pending') {
+                $currentStep = 'awaiting_admin_provisioning';
+            } elseif (!$currentStep) {
+                $currentStep = 'queued';
+            }
+
             return response()->json([
-                'status' => 'in_progress',
-                'tenant_status' => $tenant->status === 'pending' ? 'pending' : 'provisioning',
+                'status' => $tenant->status === 'pending' ? 'pending' : 'in_progress',
+                'tenant_status' => $tenant->status,
                 'can_retry' => false,
-                'current_step' => $logs->where('status', 'in_progress')->last()?->step ?? 'pending_admin_provision',
+                'current_step' => $currentStep,
                 'data' => $logs
             ]);
         }
@@ -347,45 +357,6 @@ class ClientPurchaseController extends Controller
             }
         }
 
-        // Add Tenant-specific uploaded APK files
-        if (!empty($tenant->apk_file)) {
-            $apks = is_array($tenant->apk_file) ? $tenant->apk_file : (json_decode($tenant->apk_file, true) ?: []);
-            foreach ($apks as $apk) {
-                $name = is_array($apk) ? ($apk['name'] ?? $apk['file_name'] ?? 'Android APK') : basename($apk);
-                $url = is_array($apk) ? ($apk['url'] ?? (isset($apk['path']) ? url('storage/' . ltrim($apk['path'], '/')) : '')) : (str_starts_with($apk, 'http') ? $apk : url('storage/' . ltrim($apk, '/')));
-                if (!empty($url)) {
-                    $mobileApps[] = [
-                        'name' => $name,
-                        'type' => 'apk_download',
-                        'url' => $url,
-                        'platform' => 'android',
-                        'download_url' => $url,
-                        'size' => is_array($apk) ? ($apk['size'] ?? null) : null,
-                    ];
-                }
-            }
-        }
-
-        // Add Tenant-specific uploaded Document files
-        $documents = [];
-        if (!empty($tenant->doc_file)) {
-            $docs = is_array($tenant->doc_file) ? $tenant->doc_file : (json_decode($tenant->doc_file, true) ?: []);
-            foreach ($docs as $doc) {
-                $name = is_array($doc) ? ($doc['name'] ?? $doc['file_name'] ?? 'Documentation') : basename($doc);
-                $url = is_array($doc) ? ($doc['url'] ?? (isset($doc['path']) ? url('storage/' . ltrim($doc['path'], '/')) : '')) : (str_starts_with($doc, 'http') ? $doc : url('storage/' . ltrim($doc, '/')));
-                if (!empty($url)) {
-                    $documents[] = [
-                        'name' => $name,
-                        'type' => 'document',
-                        'url' => $url,
-                        'download_url' => $url,
-                        'extension' => is_array($doc) ? ($doc['extension'] ?? pathinfo($url, PATHINFO_EXTENSION)) : pathinfo($url, PATHINFO_EXTENSION),
-                        'size' => is_array($doc) ? ($doc['size'] ?? null) : null,
-                    ];
-                }
-            }
-        }
-
         // All links flat list
         $allLinks = [];
         foreach ($panels as $p) {
@@ -404,14 +375,6 @@ class ClientPurchaseController extends Controller
                 'description' => 'Mobile application download link'
             ];
         }
-        foreach ($documents as $d) {
-            $allLinks[] = [
-                'name' => $d['name'],
-                'category' => 'document',
-                'url' => $d['url'],
-                'description' => 'Tenant documentation and setup guide file'
-            ];
-        }
 
         return [
             'application_url' => $domainUrl,
@@ -420,7 +383,6 @@ class ClientPurchaseController extends Controller
             'owner_panel_url' => $isParkApp ? $ownerPanelUrl : null,
             'panels' => $panels,
             'mobile_apps' => $mobileApps,
-            'documents' => $documents,
             'all_links' => $allLinks,
         ];
     }
@@ -460,7 +422,7 @@ class ClientPurchaseController extends Controller
             }
         }
 
-        $passwordSetupUrl = $domainUrl ? (rtrim($domainUrl, '/') . '/admin_panel/setup-password?token=' . $token . ($adminEmail ? '&email=' . urlencode($adminEmail) : '')) : null;
+        $passwordSetupUrl = $domainUrl ? (rtrim($domainUrl, '/') . '/admin_panel/setup-password?token=' . $token) : null;
 
         return [
             'admin_email' => $adminEmail,
@@ -477,136 +439,6 @@ class ClientPurchaseController extends Controller
             ]
         ];
     }
-
-    /**
-     * Update or set the administrator email and password directly in tenant-dedicated Firebase/Firestore.
-     * Operates purely on Firebase Auth & Firestore admin_users without touching MySQL user table.
-     */
-    public function updateCredentials(Request $request, $uuid)
-    {
-        $user = $request->user();
-
-        $tenant = Tenant::with(['firebaseProject', 'product', 'domains'])
-            ->where('uuid', $uuid)
-            ->where(function ($q) use ($user) {
-                $q->where('create_by', $user->id)
-                  ->orWhere('client_id', $user->id);
-            })
-            ->first();
-
-        if (!$tenant) {
-            return response()->json(['status' => 'error', 'message' => 'Purchase not found.'], 404);
-        }
-
-        $validator = Validator::make($request->all(), [
-            'email' => 'nullable|email|max:255',
-            'password' => 'nullable|string|min:6',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Validation Error',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        if (!$request->filled('email') && !$request->filled('password')) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Please provide at least an email or password to update.'
-            ], 422);
-        }
-
-        $currentAdminEmail = $tenant->primary_contact_email ?? ($tenant->client ? $tenant->client->email : $user->email);
-        $newAdminEmail = $request->filled('email') ? strtolower(trim($request->email)) : $currentAdminEmail;
-        $newPassword = $request->input('password');
-
-        $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
-        $serviceAccount = $productFirebase ? (json_decode($productFirebase->service_account_json, true) ?? []) : [];
-        $databaseId = $tenant->firestoreDatabaseId();
-
-        $firebaseAuthUpdated = false;
-        $firestoreUpdated = false;
-
-        // 1. Update Firebase Authentication (Identity Platform)
-        if (!empty($serviceAccount)) {
-            try {
-                $firebaseAdmin = new \App\Services\FirebaseAdminClient();
-                $firebaseAdmin->updateAuthUserCredentials(
-                    $serviceAccount,
-                    $currentAdminEmail,
-                    $newPassword,
-                    $request->filled('email') ? $newAdminEmail : null
-                );
-                $firebaseAuthUpdated = true;
-            } catch (\Throwable $fbEx) {
-                \Illuminate\Support\Facades\Log::warning("Firebase Auth credentials update for tenant {$tenant->id} notice: " . $fbEx->getMessage());
-            }
-        }
-
-        // 2. Update Firestore admin_users & users collections in the tenant's dedicated database
-        if (!empty($serviceAccount) && !empty($databaseId)) {
-            try {
-                $importer = new \App\Services\FirestoreImporter($serviceAccount, $databaseId);
-                $adminId = (string) $tenant->id;
-                $baseName = trim($tenant->name ?: $tenant->business_name) ?: 'Super Admin';
-
-                $docData = [
-                    'id' => $adminId,
-                    'name' => $baseName,
-                    'email' => $newAdminEmail,
-                    'role' => 'admin',
-                    'role_id' => '1',
-                    'role_name' => 'Super Administrator',
-                    'updated_at' => date('Y-m-d H:i:s'),
-                ];
-                if (!empty($newPassword)) {
-                    $docData['password'] = \Illuminate\Support\Facades\Hash::make($newPassword);
-                }
-
-                $importer->import([
-                    '__collections__' => [
-                        'admin_users' => [
-                            $adminId => $docData,
-                        ],
-                        'users' => [
-                            $adminId => $docData,
-                        ]
-                    ]
-                ]);
-                $firestoreUpdated = true;
-            } catch (\Throwable $fsEx) {
-                \Illuminate\Support\Facades\Log::warning("Firestore credentials update for tenant {$tenant->id} notice: " . $fsEx->getMessage());
-            }
-        }
-
-        // 3. Update primary_contact_email on tenant record if email changed
-        if ($request->filled('email') && $newAdminEmail !== $tenant->primary_contact_email) {
-            $tenant->primary_contact_email = $newAdminEmail;
-            $tenant->save();
-
-            // Also update any linked tenant app email records
-            try {
-                $tenant->apps()->update(['email' => $newAdminEmail]);
-            } catch (\Throwable $e) {}
-        }
-
-        AuditLogger::log($tenant->id, 'credentials_updated', "Admin credentials updated in Firebase/Firestore for tenant {$tenant->business_name} ({$newAdminEmail}).");
-
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Admin credentials updated successfully in Firebase & Firestore for this tenant.',
-            'data' => [
-                'tenant_uuid' => $tenant->uuid,
-                'admin_email' => $newAdminEmail,
-                'firebase_auth_synced' => $firebaseAuthUpdated,
-                'firestore_synced' => $firestoreUpdated,
-                'database_id' => $databaseId,
-            ]
-        ]);
-    }
-
 
     /**
      * Download a JSON backup of the Firebase Firestore DB for this purchase.
@@ -868,7 +700,7 @@ class ClientPurchaseController extends Controller
             // Clean up any previously abandoned checkouts for this same product to prevent duplicate pending entries
             $abandonedTenants = Tenant::where('client_id', $user->id)
                 ->where('product_id', $request->product_id)
-                ->where('status', 'provisioning')
+                ->whereIn('status', ['provisioning', 'pending'])
                 ->whereDoesntHave('payments', function ($query) {
                     $query->where('status', 'success');
                 })
@@ -880,6 +712,21 @@ class ClientPurchaseController extends Controller
                 $abandoned->payments()->delete();
                 Domain::where('tenant_id', $abandoned->id)->delete();
                 $abandoned->forceDelete();
+            }
+
+            // If the same client already had this domain registered under an uncompleted/abandoned checkout or domain record
+            if ($request->filled('domain')) {
+                Domain::where('domain', $request->domain)
+                    ->where(function ($q) use ($user) {
+                        $q->where('client_id', $user->id)
+                          ->orWhereHas('tenant', function ($tq) use ($user) {
+                              $tq->where('client_id', $user->id);
+                          });
+                    })
+                    ->whereDoesntHave('tenant.payments', function ($pq) {
+                        $pq->where('status', 'success');
+                    })
+                    ->delete();
             }
 
             $tenantKey = Str::slug($request->business_name) . '-p' . $request->product_id;
@@ -959,27 +806,74 @@ class ClientPurchaseController extends Controller
 
             // 2. Create Domain Configuration
             if ($request->has('domain_type') && $request->has('domain')) {
-                Domain::create([
-                    'tenant_id' => $tenant->id,
-                    'client_id' => $user->id,
-                    'product_id' => $tenant->product_id,
-                    'type' => $request->domain_type,
-                    'domain' => $request->domain,
-                    'status' => 'pending',
-                    'dns_verified' => false,
-                    'dns_verified_at' => null,
-                    'ssl_verified' => false,
-                    'ssl_verified_at' => null,
-                ]);
+                Domain::updateOrCreate(
+                    ['domain' => $request->domain],
+                    [
+                        'tenant_id' => $tenant->id,
+                        'client_id' => $user->id,
+                        'product_id' => $tenant->product_id,
+                        'type' => $request->domain_type,
+                        'status' => 'pending',
+                        'dns_verified' => false,
+                        'dns_verified_at' => null,
+                        'ssl_verified' => false,
+                        'ssl_verified_at' => null,
+                    ]
+                );
             }
 
 
 
             DB::commit();
 
-            // Payment link generation disabled as requested
+            // Generate Razorpay Payment Link
             $paymentLinkStr = null;
             $paymentErrorStr = null;
+
+            if ($paymentAmount > 0) {
+                $razorpaySettings = \App\Models\Setting::whereIn('key', ['razorpay_key_id', 'razorpay_key_secret', 'razorpay_active'])->pluck('value', 'key')->toArray();
+                
+                $isActive = isset($razorpaySettings['razorpay_active']) && in_array($razorpaySettings['razorpay_active'], ['true', '1', true, 1], true);
+                if ($isActive) {
+                    $keyId = $razorpaySettings['razorpay_key_id'] ?? null;
+                    $keySecret = $razorpaySettings['razorpay_key_secret'] ?? null;
+
+                    if ($keyId && $keySecret) {
+                        try {
+                            $customerData = array_filter([
+                                'name' => $tenant->business_name,
+                                'email' => $tenant->primary_contact_email,
+                                'contact' => $tenant->phone_number
+                            ]);
+
+                            $paymentLinkData = [
+                                'amount' => (int) ($paymentAmount * 100), // convert to paise
+                                'currency' => $request->currency ?? 'INR',
+                                'description' => 'Payment for Tenant Provisioning',
+                                'customer' => $customerData,
+                                'notify' => ['email' => false, 'sms' => false],
+                                'reminder_enable' => false,
+                            ];
+                            
+                            $response = \Illuminate\Support\Facades\Http::withBasicAuth($keyId, $keySecret)
+                                ->post('https://api.razorpay.com/v1/payment_links', $paymentLinkData);
+
+                            if ($response->successful()) {
+                                $paymentLinkStr = $response->json('short_url');
+                            } else {
+                                throw new \Exception('Razorpay Error: ' . $response->body());
+                            }
+                        } catch (\Exception $e) {
+                            $paymentErrorStr = $e->getMessage();
+                            \Illuminate\Support\Facades\Log::error('Razorpay Payment Link Error: ' . $e->getMessage());
+                        }
+                    } else {
+                        $paymentErrorStr = 'razorpay_key_id or razorpay_key_secret is missing in settings table';
+                    }
+                } else {
+                    $paymentErrorStr = 'razorpay_active is not set to 1 or true in settings table';
+                }
+            }
 
             return response()->json([
                 'status' => 'success',
@@ -1726,7 +1620,8 @@ class ClientPurchaseController extends Controller
 
                     AuditLogger::log($tenant->id, 'overage_bill_paid', "Post-paid overage invoice #{$payment->invoice_number} paid successfully (Amount: ₹{$payment->amount}).");
                 } else {
-                    // Initial Client Purchase: Activate subscription, keep tenant pending for Admin provisioning
+                    // Initial Client Purchase: Activate subscription, but keep tenant status as 'pending'
+                    // Domain setup and provisioning will be handled exclusively by Admin.
                     if ($subscription) {
                         $subscription->status = 'active';
                         $subscription->save();
@@ -1828,33 +1723,6 @@ class ClientPurchaseController extends Controller
                     ]);
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::error('Failed to create payment received notification: ' . $e->getMessage());
-                }
-
-                // Send Purchase event to Meta Conversions API (CAPI)
-                try {
-                    $client = $tenant->client;
-                    $clientEmail = $client ? $client->email : $tenant->primary_contact_email;
-                    $clientName = $client ? $client->name : $tenant->business_name;
-                    $clientPhone = $tenant->phone_number ?? ($client?->phone_number ?? $client?->phone ?? null);
-
-                    \App\Services\MetaCapiService::sendEvent(
-                        eventName: 'Purchase',
-                        eventId: $request->input('event_id') ?? $request->input('eventId'),
-                        email: $clientEmail,
-                        phone: $clientPhone,
-                        name: $clientName,
-                        fbp: $request->input('fbp'),
-                        fbc: $request->input('fbc'),
-                        request: $request,
-                        customData: [
-                            'value' => (float) $payment->amount,
-                            'currency' => $payment->currency ?? 'INR',
-                            'content_name' => $tenant->product->name ?? 'Tidcraft SaaS',
-                            'order_id' => $payment->invoice_number ?? $payment->order_id,
-                        ]
-                    );
-                } catch (\Throwable $capiEx) {
-                    \Illuminate\Support\Facades\Log::warning('Meta CAPI Purchase dispatch error: ' . $capiEx->getMessage());
                 }
             } elseif ($paymentStatus === 'failed' && isset($payment)) {
                 try {
@@ -2073,7 +1941,13 @@ class ClientPurchaseController extends Controller
                 ]);
             }
 
-            // Subdomain configured. Provisioning is left to Admin dashboard.
+            // For subdomain: trigger background provisioning ONLY if payment is confirmed and tenant is unprovisioned
+            $hasConfirmedPayment = $tenant->payments()->where('status', 'success')->exists();
+            $provisioningLogs = \App\Models\ProvisioningLog::where('tenant_id', $tenant->id)->get();
+            $isFullyProvisioned = $provisioningLogs->where('step', 'activation')->where('status', 'success')->isNotEmpty()
+                && $tenant->firebaseProject && !empty($tenant->firebaseProject->firebase_database_id);
+
+            // Domain configuration saved. Provisioning is handled exclusively by Admin.
 
             // Standard response for subdomain (preserves existing behavior)
             return response()->json([
@@ -2414,14 +2288,16 @@ class ClientPurchaseController extends Controller
             // 2. Create Domain Configuration
             if ($request->has('domain_type') && $request->has('domain')) {
                 $domainStatus = ($request->domain_type === 'custom') ? 'pending_dns' : 'pending';
-                $domainRecord = Domain::create([
-                    'tenant_id' => $tenant->id,
-                    'client_id' => $user->id,
-                    'product_id' => $tenant->product_id,
-                    'type' => $request->domain_type,
-                    'domain' => $request->domain,
-                    'status' => $domainStatus,
-                ]);
+                $domainRecord = Domain::updateOrCreate(
+                    ['domain' => $request->domain],
+                    [
+                        'tenant_id' => $tenant->id,
+                        'client_id' => $user->id,
+                        'product_id' => $tenant->product_id,
+                        'type' => $request->domain_type,
+                        'status' => $domainStatus,
+                    ]
+                );
 
                 if ($request->domain_type === 'custom') {
                     \App\Services\DnsService::sendDnsInstructionsEmail($tenant, $domainRecord);
@@ -2480,60 +2356,5 @@ class ClientPurchaseController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
-    }
-
-    /**
-     * Get uploaded APK and document files for a client's purchase.
-     */
-    public function getFiles(Request $request, $uuid)
-    {
-        $user = $request->user();
-        $tenant = Tenant::where('uuid', $uuid)
-            ->where(function ($q) use ($user) {
-                $q->where('client_id', $user->id)
-                  ->orWhere('create_by', $user->id);
-            })
-            ->first();
-
-        if (!$tenant) {
-            return response()->json(['status' => 'error', 'message' => 'Purchased product/tenant not found.'], 404);
-        }
-
-        $apks = is_array($tenant->apk_file) ? $tenant->apk_file : (json_decode($tenant->apk_file ?? '[]', true) ?: []);
-        $docs = is_array($tenant->doc_file) ? $tenant->doc_file : (json_decode($tenant->doc_file ?? '[]', true) ?: []);
-
-        $formattedApks = array_map(function ($item) {
-            if (is_string($item)) {
-                return [
-                    'name' => basename($item),
-                    'url' => str_starts_with($item, 'http') ? $item : url('storage/' . ltrim($item, '/')),
-                ];
-            }
-            if (isset($item['path']) && !empty($item['path']) && empty($item['url'])) {
-                $item['url'] = url('storage/' . ltrim($item['path'], '/'));
-            }
-            return $item;
-        }, $apks);
-
-        $formattedDocs = array_map(function ($item) {
-            if (is_string($item)) {
-                return [
-                    'name' => basename($item),
-                    'url' => str_starts_with($item, 'http') ? $item : url('storage/' . ltrim($item, '/')),
-                ];
-            }
-            if (isset($item['path']) && !empty($item['path']) && empty($item['url'])) {
-                $item['url'] = url('storage/' . ltrim($item['path'], '/'));
-            }
-            return $item;
-        }, $docs);
-
-        return response()->json([
-            'status' => 'success',
-            'data' => [
-                'apk_files' => array_values($formattedApks),
-                'doc_files' => array_values($formattedDocs),
-            ]
-        ]);
     }
 }
