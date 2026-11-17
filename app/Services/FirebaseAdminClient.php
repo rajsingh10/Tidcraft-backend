@@ -421,6 +421,29 @@ class FirebaseAdminClient
         return 0;
     }
 
+    private function waitForOperation(string $accessToken, ?string $operationName): void
+    {
+        if (!$operationName) {
+            return;
+        }
+
+        $deadline = time() + 60;
+        while (time() < $deadline) {
+            $operation = Http::withToken($accessToken)
+                ->timeout(30)
+                ->get('https://firestore.googleapis.com/v1/' . ltrim($operationName, '/'));
+
+            if ($operation->json('done') === true) {
+                if ($operation->json('error')) {
+                    throw new \Exception('Firestore create operation failed: ' . json_encode($operation->json('error')));
+                }
+                return;
+            }
+
+            sleep(2);
+        }
+    }
+
     private static array $tokenCache = [];
 
     public function accessToken(array $serviceAccount, array $scopes): string
