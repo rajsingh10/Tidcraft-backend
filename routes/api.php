@@ -51,6 +51,10 @@ Route::post('tenant/pay-overage', [\App\Http\Controllers\Api\TenantPlanStatusCon
 Route::post('/tenant-provision/{uuid}/verify-dns', [TenantProvisionController::class, 'verifyDns']);
 Route::post('/tenant-provision/demo', [TenantProvisionController::class, 'provisionDemo']);
 
+Route::get('/ci-test', function () {
+    return response()->json(['status' => 'ok', 'deployed_at' => now()]);
+});
+
 // Client Public Routes
 Route::prefix('client')->group(function () {
     Route::post('/register', [ClientAuthController::class, 'register']);
