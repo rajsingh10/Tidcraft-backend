@@ -119,7 +119,50 @@ class FirebaseAdminClient
             ]);
 
         if ($response->successful()) {
-            return $response->json('name'); // e.g. "projects/12345/tenants/tenant-abcd"
+            $tenantName = $response->json('name'); // e.g. "projects/12345/tenants/tenant-abcd"
+            $parts = explode('/', $tenantName);
+            $cleanTenantId = end($parts);
+
+            // Dynamically fetch the project's configured Google OAuth IdP credentials
+            try {
+                $projectGoogleIdpUrl = "https://identitytoolkit.googleapis.com/v2/projects/" . rawurlencode($projectId) . "/defaultSupportedIdpConfigs/google.com";
+                $projectGoogleRes = Http::withToken($accessToken)->timeout(15)->get($projectGoogleIdpUrl);
+
+                $clientId = null;
+                $clientSecret = null;
+
+                if ($projectGoogleRes->successful()) {
+                    $clientId = $projectGoogleRes->json('clientId');
+                    $clientSecret = $projectGoogleRes->json('clientSecret');
+                } else {
+                    // Fallback to environment variables if explicitly set for this project
+                    $envPrefix = strtoupper(str_replace('-', '_', $projectId));
+                    $clientId = env("{$envPrefix}_GOOGLE_CLIENT_ID", env('FIREBASE_GOOGLE_CLIENT_ID'));
+                    $clientSecret = env("{$envPrefix}_GOOGLE_CLIENT_SECRET", env('FIREBASE_GOOGLE_CLIENT_SECRET'));
+                }
+
+                if (!empty($clientId) && !empty($clientSecret)) {
+                    $tenantIdpUrl = "https://identitytoolkit.googleapis.com/v2/projects/" . rawurlencode($projectId) . "/tenants/" . rawurlencode($cleanTenantId) . "/defaultSupportedIdpConfigs?idpId=google.com";
+                    $idpRes = Http::withToken($accessToken)
+                        ->timeout(15)
+                        ->post($tenantIdpUrl, [
+                            'name' => "projects/{$projectId}/tenants/{$cleanTenantId}/defaultSupportedIdpConfigs/google.com",
+                            'enabled' => true,
+                            'clientId' => $clientId,
+                            'clientSecret' => $clientSecret,
+                        ]);
+
+                    if ($idpRes->successful()) {
+                        \Illuminate\Support\Facades\Log::info("Dynamically enabled Google Sign-In for tenant '{$cleanTenantId}' in project '{$projectId}'");
+                    } else {
+                        \Illuminate\Support\Facades\Log::warning("Could not enable Google Sign-In for tenant '{$cleanTenantId}': " . $idpRes->body());
+                    }
+                }
+            } catch (\Throwable $idpEx) {
+                \Illuminate\Support\Facades\Log::warning("Exception resolving Google Sign-In for tenant '{$cleanTenantId}': " . $idpEx->getMessage());
+            }
+
+            return $tenantName;
         }
 
         $error = $response->json('error.message') ?? $response->body();
@@ -638,6 +681,72 @@ class FirebaseAdminClient
             $targetEmail = !empty($newEmail) ? strtolower(trim($newEmail)) : strtolower(trim($email));
             $targetPassword = !empty($newPassword) ? $newPassword : 'Password@123';
             $this->createAuthUser($serviceAccount, $targetEmail, $targetPassword);
+        }
+    }
+
+    /**
+     * Add a domain (hostname without protocol or path) to Firebase Auth's Authorized Domains list.
+     * Prevents "auth/captcha-check-failed: Hostname match not found" on newly created subdomains.
+     */
+    public function addAuthorizedDomain(array $serviceAccount, string $domain): void
+    {
+        $domain = strtolower(trim($domain));
+        // Strip any protocol or port if passed
+        $domain = preg_replace('#^https?://#i', '', $domain);
+        $domain = explode('/', $domain)[0];
+        $domain = explode(':', $domain)[0];
+
+        if (empty($domain)) {
+            return;
+        }
+
+        $projectId = $serviceAccount['project_id'] ?? null;
+        if (!$projectId) {
+            return;
+        }
+
+        try {
+            $accessToken = $this->accessToken($serviceAccount, [
+                'https://www.googleapis.com/auth/cloud-platform',
+            ]);
+
+            $url = 'https://identitytoolkit.googleapis.com/admin/v2/projects/' . rawurlencode($projectId) . '/config';
+
+            // 1. Fetch existing authorized domains
+            $getResponse = Http::withToken($accessToken)
+                ->withHeaders(['X-Goog-User-Project' => $projectId])
+                ->timeout(15)
+                ->get($url);
+
+            if (!$getResponse->successful()) {
+                \Illuminate\Support\Facades\Log::warning("Failed to fetch Firebase authorized domains for {$projectId}: " . $getResponse->body());
+                return;
+            }
+
+            $existingDomains = $getResponse->json('authorizedDomains') ?? [];
+
+            // If already present, nothing to do
+            if (in_array($domain, $existingDomains, true)) {
+                return;
+            }
+
+            $existingDomains[] = $domain;
+
+            // 2. Patch updated domain list
+            $patchResponse = Http::withToken($accessToken)
+                ->withHeaders(['X-Goog-User-Project' => $projectId])
+                ->timeout(20)
+                ->patch($url . '?updateMask=authorizedDomains', [
+                    'authorizedDomains' => array_values(array_unique($existingDomains)),
+                ]);
+
+            if ($patchResponse->successful()) {
+                \Illuminate\Support\Facades\Log::info("Successfully added '{$domain}' to Firebase Authorized Domains for project {$projectId}");
+            } else {
+                \Illuminate\Support\Facades\Log::warning("Failed to update Firebase Authorized Domains for {$projectId}: " . $patchResponse->body());
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Error adding '{$domain}' to Firebase Authorized Domains: " . $e->getMessage());
         }
     }
 

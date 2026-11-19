@@ -313,6 +313,20 @@ class TenantProvisionService
                     \App\Jobs\GenerateSslForCustomDomainJob::dispatch($tenant, $domain->domain);
                     \App\Helpers\QueueRunner::runBackground();
                 }
+
+                // Automatically add new domain to Firebase Auth Authorized Domains
+                try {
+                    $productFirebase = \App\Models\ProductFirebaseProject::where('product_id', $tenant->product_id)->first();
+                    if ($productFirebase && !empty($productFirebase->service_account_json)) {
+                        $serviceAccount = json_decode($productFirebase->service_account_json, true);
+                        if (!empty($serviceAccount)) {
+                            $adminClient = new \App\Services\FirebaseAdminClient();
+                            $adminClient->addAuthorizedDomain($serviceAccount, $domain->domain);
+                        }
+                    }
+                } catch (\Throwable $authDomainErr) {
+                    \Illuminate\Support\Facades\Log::warning("Failed to auto-register domain {$domain->domain} in Firebase: " . $authDomainErr->getMessage());
+                }
             }
 
             self::logProgress($tenant, 'domain', 'success', 'Domain activated and symlink created');

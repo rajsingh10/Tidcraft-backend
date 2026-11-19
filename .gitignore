@@ -25,3 +25,7 @@ Thumbs.db
 public/phpmyadmin
 /products
 public/phpmyadmi
+credentials.json
+*credentials*.json
+*.pem
+*.key
