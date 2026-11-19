@@ -107,7 +107,7 @@ class ImportFirestoreCollectionsJob implements ShouldQueue
                 $writes[] = [
                     'update' => [
                         'name' => "projects/{$projectId}/databases/{$databaseId}/documents/{$docPath}",
-                        'fields' => $fields
+                        'fields' => empty($fields) ? new \stdClass() : (object) $fields
                     ]
                 ];
 
