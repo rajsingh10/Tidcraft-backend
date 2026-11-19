@@ -76,6 +76,19 @@ class DeployParkMeAppCloudFunction extends Command
         @mkdir($userTmpDir . '/.config', 0777, true);
         @mkdir($userTmpDir . '/.cache', 0777, true);
 
+        $credentialsCandidates = [
+            '/home/prodtidcraftcomusr/parkme-app/credentials.json',
+            base_path('products/ParkMeApp/credentials.json'),
+            '/home/devtidcraftcomusr/parkme-app/credentials.json',
+        ];
+        $credentialsFile = null;
+        foreach ($credentialsCandidates as $cred) {
+            if (file_exists($cred)) {
+                $credentialsFile = $cred;
+                break;
+            }
+        }
+
         $env = [
             'TARGET_TENANT_DB' => $cleanDb,
             'PATH' => (getenv('PATH') ?: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') . ':/usr/local/bin:/usr/bin:/bin',
@@ -84,10 +97,9 @@ class DeployParkMeAppCloudFunction extends Command
             'XDG_CACHE_HOME'  => $userTmpDir . '/.cache',
             'CI' => 'true',
         ];
-        if (getenv('USERPROFILE')) {
-            $env['USERPROFILE'] = getenv('USERPROFILE');
-        }
-        if (getenv('GOOGLE_APPLICATION_CREDENTIALS')) {
+        if ($credentialsFile) {
+            $env['GOOGLE_APPLICATION_CREDENTIALS'] = $credentialsFile;
+        } elseif (getenv('GOOGLE_APPLICATION_CREDENTIALS')) {
             $env['GOOGLE_APPLICATION_CREDENTIALS'] = getenv('GOOGLE_APPLICATION_CREDENTIALS');
         }
 
